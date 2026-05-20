@@ -335,7 +335,7 @@ export default function LibraryView() {
                       <div className="mt-4 text-xs font-bold uppercase tracking-wide text-neutral-500">
                         中国語
                       </div>
-                      <div className="mt-1 break-keep text-2xl font-bold leading-relaxed text-emerald-300">
+                      <div className="mt-1 break-words [overflow-wrap:anywhere] text-2xl font-bold leading-relaxed text-emerald-300">
                         {p.chinese}
                       </div>
                       <div className="mt-2 text-base tracking-wide text-neutral-400">

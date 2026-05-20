@@ -353,7 +353,7 @@ export default function AddPage() {
               <div className="text-sm font-bold text-neutral-500">
                 {result.direction === "ja-to-zh" ? "中国語" : "日本語訳"}
               </div>
-              <div className="mt-2 break-keep text-3xl font-bold text-white">
+              <div className="mt-2 break-words [overflow-wrap:anywhere] text-3xl font-bold leading-relaxed text-white">
                 {result.direction === "ja-to-zh" ? result.chinese : result.japanese}
               </div>
               {result.direction === "ja-to-zh" && (
@@ -369,7 +369,7 @@ export default function AddPage() {
               <div className="text-sm font-bold text-neutral-500">
                 {result.direction === "ja-to-zh" ? "元の日本語" : "中国語"}
               </div>
-              <div className="mt-1 text-xl text-neutral-100">
+              <div className="mt-1 break-words [overflow-wrap:anywhere] text-xl leading-relaxed text-neutral-100">
                 {result.direction === "ja-to-zh" ? result.japanese : result.chinese}
               </div>
               <div className="mt-3 text-lg tracking-wide text-neutral-300">
