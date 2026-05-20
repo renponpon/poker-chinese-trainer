@@ -62,6 +62,7 @@ export default function AddPage() {
   const [nickname, setNickname] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const suppressSpeechErrorRef = useRef(false);
 
   useEffect(() => {
     setOwnerKey(loadOwnerKey());
@@ -132,6 +133,7 @@ export default function AddPage() {
     setSpeechError(null);
 
     if (listening) {
+      suppressSpeechErrorRef.current = true;
       recognitionRef.current?.stop();
       setListening(false);
       return;
@@ -176,11 +178,21 @@ export default function AddPage() {
     };
 
     recognition.onerror = (event) => {
+      if (
+        suppressSpeechErrorRef.current ||
+        event.error === "aborted" ||
+        event.error === "no-speech"
+      ) {
+        suppressSpeechErrorRef.current = false;
+        setListening(false);
+        return;
+      }
       setSpeechError(`音声入力エラー: ${event.error}`);
       setListening(false);
     };
 
     recognition.onend = () => {
+      suppressSpeechErrorRef.current = false;
       setListening(false);
       recognitionRef.current = null;
     };
@@ -291,10 +303,17 @@ export default function AddPage() {
               onClick={handleVoiceInput}
               disabled={loading}
               aria-label="音声入力"
-              className="flex min-h-20 flex-col items-center justify-center gap-1 text-emerald-300 transition hover:bg-neutral-950/50 active:bg-neutral-950/70 disabled:cursor-not-allowed disabled:text-neutral-600"
+              aria-pressed={listening}
+              className={`flex min-h-20 flex-col items-center justify-center gap-1 transition disabled:cursor-not-allowed disabled:text-neutral-600 ${
+                listening
+                  ? "bg-emerald-500 text-neutral-950"
+                  : "text-emerald-300 hover:bg-neutral-950/50 active:bg-neutral-950/70"
+              }`}
             >
               <MicIcon listening={listening} />
-              <span className="text-xs font-bold">音声</span>
+              <span className="text-xs font-bold">
+                {listening ? "聞き取り中" : "音声"}
+              </span>
             </button>
           </div>
           {speechError && (

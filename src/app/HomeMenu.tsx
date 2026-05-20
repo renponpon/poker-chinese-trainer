@@ -42,7 +42,7 @@ export default function HomeMenu() {
         <MenuIcon />
       </button>
       {open && (
-        <div className="absolute right-0 top-14 z-50 w-[min(88vw,380px)] rounded-2xl bg-neutral-950 p-3 text-left shadow-2xl shadow-black/50">
+        <div className="absolute right-0 top-14 z-[80] max-h-[calc(100vh-96px)] w-[min(88vw,380px)] overflow-y-auto overscroll-contain rounded-2xl bg-neutral-950 p-3 text-left shadow-2xl shadow-black/50">
           <Link
             href="/feedback"
             className="block rounded-xl bg-neutral-900 px-4 py-4 text-base font-bold text-neutral-200 hover:bg-neutral-800"

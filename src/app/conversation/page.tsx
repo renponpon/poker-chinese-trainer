@@ -60,6 +60,7 @@ export default function ConversationPage() {
   const [inputFocused, setInputFocused] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const translatingRef = useRef(false);
+  const suppressSpeechErrorRef = useRef(false);
 
   useEffect(() => {
     primeSpeech();
@@ -135,6 +136,7 @@ export default function ConversationPage() {
   const handleVoiceInput = (source: Speaker) => {
     setError(null);
     if (listening) {
+      suppressSpeechErrorRef.current = true;
       recognitionRef.current?.stop();
       setListening(null);
       return;
@@ -169,10 +171,20 @@ export default function ConversationPage() {
       setDraft((finalTranscript || interim).trim());
     };
     recognition.onerror = (event) => {
+      if (
+        suppressSpeechErrorRef.current ||
+        event.error === "aborted" ||
+        event.error === "no-speech"
+      ) {
+        suppressSpeechErrorRef.current = false;
+        setListening(null);
+        return;
+      }
       setError(`音声入力エラー: ${event.error}`);
       setListening(null);
     };
     recognition.onend = () => {
+      suppressSpeechErrorRef.current = false;
       setListening(null);
       recognitionRef.current = null;
       if (finalTranscript.trim()) {
@@ -303,10 +315,17 @@ export default function ConversationPage() {
               onClick={() => handleVoiceInput(speaker)}
               disabled={loading}
               aria-label="音声入力"
-              className="flex min-h-14 flex-col items-center justify-center gap-1 text-emerald-300 transition hover:bg-neutral-950/50 active:bg-neutral-950/70 disabled:cursor-not-allowed disabled:text-neutral-600"
+              aria-pressed={listening === speaker}
+              className={`flex min-h-14 flex-col items-center justify-center gap-1 transition disabled:cursor-not-allowed disabled:text-neutral-600 ${
+                listening === speaker
+                  ? "bg-emerald-500 text-neutral-950"
+                  : "text-emerald-300 hover:bg-neutral-950/50 active:bg-neutral-950/70"
+              }`}
             >
               <MicIcon active={listening === speaker} />
-              <span className="text-xs font-bold">音声</span>
+              <span className="text-xs font-bold">
+                {listening === speaker ? "聞き取り中" : "音声"}
+              </span>
             </button>
           </div>
         </div>

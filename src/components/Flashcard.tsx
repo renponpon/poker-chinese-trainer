@@ -138,7 +138,7 @@ export default function Flashcard({ phrase, onScore }: FlashcardProps) {
 
       <div
         className={cn(
-          "fixed inset-x-0 bottom-[88px] z-50 w-full touch-none bg-neutral-950/95 px-5 pb-3 pt-2 backdrop-blur transition-all duration-300",
+          "fixed inset-x-0 bottom-[88px] z-30 w-full touch-none bg-neutral-950/95 px-5 pb-3 pt-2 backdrop-blur transition-all duration-300",
           isFlipped
             ? "translate-y-0 opacity-100"
             : "pointer-events-none translate-y-full opacity-0",
