@@ -3,9 +3,26 @@ import { GoogleGenAI } from "@google/genai";
 import { createId } from "@/lib/id";
 import { createPhrase } from "@/lib/notion";
 import { createSupabasePhrase, getBearerToken } from "@/lib/supabase";
-import type { GeneratedPhrase, PhraseDirection, PhraseSource } from "@/lib/types";
+import { recordAiUsageEvent } from "@/lib/server/supabase-admin";
+import {
+  assertWithinDailyAiLimit,
+  identifyRequestActor,
+  UsageLimitError,
+  UsageTrackingError,
+  type RequestActor,
+} from "@/lib/server/usage-limits";
+import {
+  parseJsonObject,
+  RequestValidationError,
+  validatePhraseAddRequest,
+  type ValidatedPhraseAddRequest,
+} from "@/lib/server/validation";
+import type { GeneratedPhrase } from "@/lib/types";
 
 export const runtime = "nodejs";
+
+const ENDPOINT = "/api/phrase/add";
+const GEMINI_MODEL = "gemini-3.1-flash-lite";
 
 const SYSTEM_PROMPT = `あなたは、マカオ・中国本土・台湾を含む中国語圏での実生活、ライブポーカー、カジノ、旅行会話に詳しい実践的な中国語コーチです。
 
@@ -92,44 +109,48 @@ function extractJson(text: string): GeneratedPhrase {
   };
 }
 
+class ApiRouteError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public code: string,
+  ) {
+    super(message);
+    this.name = "ApiRouteError";
+  }
+}
+
 export async function POST(req: Request) {
+  const requestId = createId();
+  let actor: RequestActor | null = null;
+  let validated: ValidatedPhraseAddRequest | null = null;
+  let outputChars = 0;
+
   try {
     const accessToken = getBearerToken(req);
-    const body = (await req.json()) as {
-      direction?: PhraseDirection;
-      text?: string;
-      japanese?: string;
-      ownerKey?: string;
-      nickname?: string;
-      phraseId?: string;
-      categoryId?: string | null;
-      shouldDrill?: boolean;
-      source?: PhraseSource;
-    };
-    const direction: PhraseDirection =
-      body.direction === "zh-to-ja" ? "zh-to-ja" : "ja-to-zh";
-    const inputText = (body.text ?? body.japanese ?? "").trim();
-    if (!inputText) {
-      return NextResponse.json(
-        { error: direction === "zh-to-ja" ? "中国語フレーズが空です" : "日本語フレーズが空です" },
-        { status: 400 },
-      );
+    actor = await identifyRequestActor(req, accessToken);
+
+    let rawBody: unknown;
+    try {
+      rawBody = await req.json();
+    } catch {
+      throw new RequestValidationError("JSON形式のリクエストを送ってください");
     }
+
+    validated = validatePhraseAddRequest(parseJsonObject(rawBody));
+    await assertWithinDailyAiLimit(actor);
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json(
-        { error: "GEMINI_API_KEY が設定されていません" },
-        { status: 500 },
-      );
+      throw new ApiRouteError("GEMINI_API_KEY が設定されていません", 500, "missing_gemini_api_key");
     }
 
     const ai = new GoogleGenAI({ apiKey });
-    const prompt = direction === "zh-to-ja" ? ZH_TO_JA_PROMPT : SYSTEM_PROMPT;
+    const prompt = validated.direction === "zh-to-ja" ? ZH_TO_JA_PROMPT : SYSTEM_PROMPT;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
-      contents: `${prompt}\n\n入力:\n「${inputText}」`,
+      model: GEMINI_MODEL,
+      contents: `${prompt}\n\n入力:\n「${validated.inputText}」`,
       config: {
         responseMimeType: "application/json",
       },
@@ -137,62 +158,137 @@ export async function POST(req: Request) {
 
     const text = response.text;
     if (!text) {
-      return NextResponse.json(
-        { error: "Gemini から空の応答が返りました" },
-        { status: 500 },
-      );
+      throw new ApiRouteError("Gemini から空の応答が返りました", 502, "empty_gemini_response");
     }
+    outputChars = text.length;
 
     const generated = extractJson(text);
-    generated.direction = direction;
-    if (!generated.japanese) generated.japanese = direction === "ja-to-zh" ? inputText : "";
-    if (!generated.chinese && direction === "zh-to-ja") generated.chinese = inputText;
+    generated.direction = validated.direction;
+    if (!generated.japanese) {
+      generated.japanese = validated.direction === "ja-to-zh" ? validated.inputText : "";
+    }
+    if (!generated.chinese && validated.direction === "zh-to-ja") {
+      generated.chinese = validated.inputText;
+    }
+    const request = validated;
+
+    await recordUsage({
+      requestId,
+      actor,
+      validated: request,
+      outputChars,
+      success: true,
+      errorCode: null,
+    });
 
     after(async () => {
       try {
         const phrase = {
-          id: body.phraseId?.trim() || createId(),
+          id: request.phraseId,
           japanese: generated.japanese,
           chinese: generated.chinese,
           pinyin: generated.pinyin,
           explanation: generated.explanation,
           audioUrl: null,
-          direction,
-          categoryId: body.categoryId ?? null,
-          shouldDrill: body.shouldDrill ?? direction === "ja-to-zh",
-          source: body.source === "conversation" ? "conversation" as const : "manual" as const,
-          usedAt: body.source === "conversation" ? new Date().toISOString() : null,
+          direction: request.direction,
+          categoryId: request.categoryId,
+          shouldDrill: request.shouldDrill,
+          source: request.source,
+          usedAt: request.source === "conversation" ? new Date().toISOString() : null,
         };
         if (accessToken) {
           await createSupabasePhrase(accessToken, phrase);
         }
         await createPhrase({
-          phraseId: body.phraseId?.trim(),
+          phraseId: request.phraseId,
           japanese: generated.japanese,
           chinese: generated.chinese,
           pinyin: generated.pinyin,
           explanation: generated.explanation,
-          ownerKey: body.ownerKey?.trim(),
-          nickname: body.nickname?.trim(),
-          direction,
-          categoryId: body.categoryId ?? null,
-          shouldDrill: body.shouldDrill ?? direction === "ja-to-zh",
-          source: body.source === "conversation" ? "conversation" : "manual",
+          ownerKey: request.ownerKey,
+          nickname: request.nickname,
+          direction: request.direction,
+          categoryId: request.categoryId,
+          shouldDrill: request.shouldDrill,
+          source: request.source,
         });
       } catch (saveError) {
-        console.error("[/api/phrase/add] Notion save error", saveError);
+        console.error("[/api/phrase/add] save error", { requestId, saveError });
       }
     });
 
     return NextResponse.json({
-      id: null,
+      id: request.phraseId,
+      requestId,
       ...generated,
       audioUrl: null,
     });
   } catch (error) {
-    console.error("[/api/phrase/add] error", error);
-    const message =
-      error instanceof Error ? error.message : "サーバーエラーが発生しました";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const normalized = normalizeRouteError(error);
+    console.error("[/api/phrase/add] error", {
+      requestId,
+      code: normalized.code,
+      error,
+    });
+
+    if (actor) {
+      await recordUsage({
+        requestId,
+        actor,
+        validated,
+        outputChars,
+        success: false,
+        errorCode: normalized.code,
+      });
+    }
+
+    return NextResponse.json(
+      { error: normalized.message, requestId },
+      { status: normalized.status },
+    );
   }
+}
+
+async function recordUsage(input: {
+  requestId: string;
+  actor: RequestActor;
+  validated: ValidatedPhraseAddRequest | null;
+  outputChars: number;
+  success: boolean;
+  errorCode: string | null;
+}) {
+  await recordAiUsageEvent({
+    requestId: input.requestId,
+    userId: input.actor.userId,
+    actorType: input.actor.type,
+    ipHash: input.actor.ipHash,
+    endpoint: ENDPOINT,
+    direction: input.validated?.direction ?? null,
+    inputChars: input.validated?.inputText.length ?? 0,
+    outputChars: input.outputChars,
+    success: input.success,
+    errorCode: input.errorCode,
+    model: GEMINI_MODEL,
+  });
+}
+
+function normalizeRouteError(error: unknown): {
+  status: number;
+  code: string;
+  message: string;
+} {
+  if (error instanceof RequestValidationError) {
+    return { status: error.status, code: error.code, message: error.message };
+  }
+  if (error instanceof UsageLimitError || error instanceof UsageTrackingError) {
+    return { status: error.status, code: error.code, message: error.message };
+  }
+  if (error instanceof ApiRouteError) {
+    return { status: error.status, code: error.code, message: error.message };
+  }
+  return {
+    status: 500,
+    code: "internal_error",
+    message: error instanceof Error ? error.message : "サーバーエラーが発生しました",
+  };
 }
