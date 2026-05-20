@@ -43,7 +43,7 @@ export default function LibraryView() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [drillFilter, setDrillFilter] = useState<DrillFilter>("all");
   const [filterOpen, setFilterOpen] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [categories, setCategories] = useState<PhraseCategory[]>([]);
 
@@ -66,7 +66,11 @@ export default function LibraryView() {
     const next = loadLocalPhrases();
     setPhrases(next);
     saveLocalPhrases(next);
-    setExpandedId(null);
+    setExpandedIds((prev) => {
+      const nextExpanded = new Set(prev);
+      nextExpanded.delete(id);
+      return nextExpanded;
+    });
     setSelectedIds((prev) => {
       const nextSelected = new Set(prev);
       nextSelected.delete(id);
@@ -89,11 +93,26 @@ export default function LibraryView() {
     saveSrsData(items.filter((item) => !selectedIds.has(item.id)));
     setItems((prev) => prev.filter((item) => !selectedIds.has(item.id)));
     setSelectedIds(new Set());
-    setExpandedId(null);
+    setExpandedIds((prev) => {
+      const nextExpanded = new Set(prev);
+      for (const id of selectedIds) {
+        nextExpanded.delete(id);
+      }
+      return nextExpanded;
+    });
   };
 
   const toggleSelected = (id: string) => {
     setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleExpanded = (id: string) => {
+    setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -253,7 +272,7 @@ export default function LibraryView() {
           filtered.map((p) => {
             const it = itemById.get(p.id);
             const status: SrsStatus = it ? it.status : "new";
-            const expanded = expandedId === p.id;
+            const expanded = expandedIds.has(p.id);
             const category = categories.find((item) => item.id === p.categoryId);
             return (
               <div
@@ -261,7 +280,7 @@ export default function LibraryView() {
                 className="rounded-2xl bg-neutral-900/60 transition hover:bg-neutral-900"
               >
                 <button
-                  onClick={() => setExpandedId(expanded ? null : p.id)}
+                  onClick={() => toggleExpanded(p.id)}
                   className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left"
                 >
                   <span
@@ -305,16 +324,50 @@ export default function LibraryView() {
                   {p.shouldDrill ? <StatusBadge status={status} /> : null}
                 </button>
                 {expanded && (
-                  <div className="px-4 pb-4 pt-1">
-                    <div className="text-sm tracking-wide text-neutral-500">
-                      {p.pinyin}
+                  <div className="border-t border-neutral-800/70 px-4 pb-4 pt-4">
+                    <div className="rounded-2xl bg-neutral-950/60 p-4">
+                      <div className="text-xs font-bold uppercase tracking-wide text-neutral-500">
+                        日本語
+                      </div>
+                      <div className="mt-1 text-xl font-semibold leading-relaxed text-neutral-100">
+                        {p.japanese}
+                      </div>
+                      <div className="mt-4 text-xs font-bold uppercase tracking-wide text-neutral-500">
+                        中国語
+                      </div>
+                      <div className="mt-1 break-keep text-2xl font-bold leading-relaxed text-emerald-300">
+                        {p.chinese}
+                      </div>
+                      <div className="mt-2 text-base tracking-wide text-neutral-400">
+                        {p.pinyin}
+                      </div>
                     </div>
                     {p.explanation && (
-                      <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-neutral-400">
+                      <div className="mt-4 whitespace-pre-wrap rounded-2xl bg-neutral-950/40 p-4 text-sm leading-relaxed text-neutral-300">
                         {p.explanation}
                       </div>
                     )}
-                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          playChinese(p.chinese);
+                        }}
+                        className="rounded-full bg-neutral-950/80 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800"
+                      >
+                        ▶ 再生
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(p.id);
+                        }}
+                        className="rounded-full bg-red-950/50 px-3 py-1.5 text-xs text-red-200 hover:bg-red-900/50"
+                      >
+                        削除
+                      </button>
+                    </div>
+                    <div className="mt-4 grid grid-cols-1 gap-2 border-t border-neutral-800/70 pt-4 sm:grid-cols-2">
                       <label className="flex flex-col gap-1 text-xs text-neutral-500">
                         カテゴリ
                         <select
@@ -343,26 +396,6 @@ export default function LibraryView() {
                         )}
                       >
                         {p.shouldDrill ? "ドリルから外す" : "ドリルに追加"}
-                      </button>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          playChinese(p.chinese);
-                        }}
-                        className="rounded-full bg-neutral-950/80 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800"
-                      >
-                        ▶ 再生
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(p.id);
-                        }}
-                        className="rounded-full bg-red-950/50 px-3 py-1.5 text-xs text-red-200 hover:bg-red-900/50"
-                      >
-                        削除
                       </button>
                     </div>
                   </div>
