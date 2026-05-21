@@ -1,10 +1,12 @@
 import type { Phrase, PhraseCategory } from "./types";
 import { createId } from "./id";
+import { STARTER_PHRASES } from "./starter-phrases";
 
 const PHRASES_KEY = "poker-chinese-local-phrases-v1";
 const CATEGORIES_KEY = "poker-chinese-phrase-categories-v1";
 const NICKNAME_KEY = "poker-chinese-nickname-v1";
 const OWNER_KEY = "poker-chinese-owner-key-v1";
+const STARTER_SEED_KEY = "poker-chinese-starter-phrases-v1";
 
 export const DEFAULT_CATEGORIES: PhraseCategory[] = [
   { id: "poker-table", label: "ポーカー卓", builtIn: true, createdAt: "" },
@@ -26,12 +28,21 @@ export function loadLocalPhrases(): Phrase[] {
   if (!isClient()) return [];
   try {
     const raw = window.localStorage.getItem(PHRASES_KEY);
-    if (!raw) return [];
+    if (!raw) {
+      const starters = STARTER_PHRASES.map((phrase) => normalizePhrase(phrase));
+      saveLocalPhrases(starters);
+      window.localStorage.setItem(STARTER_SEED_KEY, "1");
+      return starters;
+    }
     const parsed = JSON.parse(raw) as Partial<Phrase>[];
     if (!Array.isArray(parsed)) return [];
-    const normalized = parsed
+    let normalized = parsed
       .filter((phrase) => phrase.id && phrase.japanese !== undefined && phrase.chinese !== undefined)
       .map(normalizePhrase);
+    if (window.localStorage.getItem(STARTER_SEED_KEY) !== "1") {
+      normalized = mergeStarterPhrases(normalized);
+      window.localStorage.setItem(STARTER_SEED_KEY, "1");
+    }
     if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
       saveLocalPhrases(normalized);
     }
@@ -39,6 +50,14 @@ export function loadLocalPhrases(): Phrase[] {
   } catch {
     return [];
   }
+}
+
+function mergeStarterPhrases(current: Phrase[]): Phrase[] {
+  const existingIds = new Set(current.map((phrase) => phrase.id));
+  const missingStarters = STARTER_PHRASES
+    .filter((phrase) => !existingIds.has(phrase.id))
+    .map((phrase) => normalizePhrase(phrase));
+  return missingStarters.length ? [...missingStarters, ...current] : current;
 }
 
 export function saveLocalPhrases(phrases: Phrase[]): void {
