@@ -8,7 +8,7 @@ export default function AppHeader() {
         <span className="text-xl font-extrabold tracking-tight text-neutral-100">
           Phrabit
         </span>
-        <span className="text-[11px] font-medium tracking-[0.18em] text-neutral-400">
+        <span className="text-xs font-medium tracking-[0.18em] text-neutral-400">
           フレービット
         </span>
       </div>

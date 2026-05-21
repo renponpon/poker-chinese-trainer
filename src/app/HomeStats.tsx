@@ -67,7 +67,7 @@ function Stat({
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 px-3 py-3">
       <div className={`text-2xl font-bold ${accent}`}>{value}</div>
-      <div className="mt-0.5 text-[10px] uppercase tracking-wide text-neutral-500">
+      <div className="mt-0.5 text-xs uppercase tracking-wide text-neutral-500">
         {label}
       </div>
     </div>

@@ -366,7 +366,7 @@ export default function ConversationPage() {
           </div>
         )}
         {(highAccuracySpeech.recording || highAccuracySpeech.transcribing) && (
-          <div className="mb-2 text-right text-[11px] font-medium text-neutral-500">
+          <div className="mb-2 text-right text-xs font-medium text-neutral-500">
             高精度音声入力起動中
           </div>
         )}
@@ -509,7 +509,7 @@ function ConversationBubble({ message }: { message: Message }) {
         </button>
         {message.provider === "azure" && (
           <div
-            className={`mt-1 text-[10px] font-medium ${
+            className={`mt-1 text-xs font-medium ${
               isJapaneseSpeaker ? "text-neutral-500" : "text-neutral-700"
             }`}
           >

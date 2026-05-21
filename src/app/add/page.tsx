@@ -494,7 +494,7 @@ export default function AddPage() {
             </div>
           )}
           {(highAccuracySpeech.recording || highAccuracySpeech.transcribing) && (
-            <div className="mx-5 mb-3 text-right text-[11px] font-medium text-neutral-500">
+            <div className="mx-5 mb-3 text-right text-xs font-medium text-neutral-500">
               高精度音声入力起動中
             </div>
           )}

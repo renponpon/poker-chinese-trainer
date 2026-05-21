@@ -9,10 +9,10 @@
   --color-neutral-400: #c0c8d6;
   --color-neutral-500: #a2adbf;
   --color-neutral-600: #7f8ba0;
-  --color-neutral-700: #4a5568;
-  --color-neutral-800: #2b3548;
-  --color-neutral-900: #202a3d;
-  --color-neutral-950: #121827;
+  --color-neutral-700: #58647a;
+  --color-neutral-800: #344057;
+  --color-neutral-900: #263149;
+  --color-neutral-950: #151c2d;
 
   /* Keep emerald utility classes, map them to soft iris tones */
   --color-emerald-300: #d8ddff;
@@ -24,10 +24,13 @@
   --color-yellow-900: #78350f;
   --color-red-200: #fecaca;
   --color-red-900: #7f1d1d;
+
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.125rem;
 }
 
 :root {
-  --background: #121827;
+  --background: #151c2d;
   --foreground: #f2f4f8;
 }
 
@@ -39,7 +42,7 @@ body {
     ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, "Noto Sans", "Hiragino Sans", "Yu Gothic UI",
     "Meiryo", sans-serif;
-  background-color: #121827;
+  background-color: #151c2d;
 }
 
 * {

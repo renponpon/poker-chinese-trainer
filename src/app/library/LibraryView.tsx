@@ -302,14 +302,14 @@ export default function LibraryView() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-[11px] font-bold text-neutral-300">
+                      <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-xs font-bold text-neutral-300">
                         {p.direction === "zh-to-ja" ? "中→日" : "日→中"}
                       </span>
-                      <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-[11px] text-neutral-300">
+                      <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-xs text-neutral-300">
                         {category?.label ?? "未分類"}
                       </span>
                       {!p.shouldDrill && (
-                        <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-[11px] font-bold text-neutral-300">
+                        <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-xs font-bold text-neutral-300">
                           ライブラリのみ
                         </span>
                       )}
@@ -420,7 +420,7 @@ function StatusBadge({ status }: { status: SrsStatus }) {
   return (
     <span
       className={cn(
-        "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide",
+        "shrink-0 rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wide",
         palette[status],
       )}
     >
