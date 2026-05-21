@@ -10,7 +10,12 @@ import { playChinese, playJapanese, primeSpeech } from "@/lib/speech";
 import {
   getSpeechRecognitionErrorMessage,
   getSpeechRecognitionSupportError,
+  rememberHighAccuracySpeechPreference,
+  shouldSwitchToHighAccuracySpeech,
+  shouldUseHighAccuracySpeechFirst,
 } from "@/lib/speech-recognition";
+import { useHighAccuracySpeech } from "@/lib/use-high-accuracy-speech";
+import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
 import type { PhraseDirection } from "@/lib/types";
 
 type Speaker = "ja" | "zh";
@@ -66,6 +71,7 @@ export default function ConversationPage() {
   const translatingRef = useRef(false);
   const suppressSpeechErrorRef = useRef(false);
   const speechTimeoutRef = useRef<number | null>(null);
+  const highAccuracySpeech = useHighAccuracySpeech();
 
   useEffect(() => {
     primeSpeech();
@@ -85,6 +91,21 @@ export default function ConversationPage() {
       window.clearTimeout(speechTimeoutRef.current);
       speechTimeoutRef.current = null;
     }
+  };
+
+  const handleHighAccuracyVoiceInput = (source: Speaker) => {
+    setError(null);
+    if (listening) {
+      suppressSpeechErrorRef.current = true;
+      recognitionRef.current?.stop();
+      setListening(null);
+    }
+    setSpeaker(source);
+    void highAccuracySpeech.startRecording({
+      languageHint: source === "zh" ? "zh-CN" : "ja-JP",
+      sourcePage: "conversation",
+      onTranscript: setDraft,
+    });
   };
 
   const translate = async (text: string, source: Speaker) => {
@@ -155,6 +176,12 @@ export default function ConversationPage() {
 
   const handleVoiceInput = (source: Speaker) => {
     setError(null);
+    const direction: PhraseDirection = source === "ja" ? "ja-to-zh" : "zh-to-ja";
+    if (shouldUseHighAccuracySpeechFirst()) {
+      handleHighAccuracyVoiceInput(source);
+      return;
+    }
+
     if (listening) {
       suppressSpeechErrorRef.current = true;
       recognitionRef.current?.stop();
@@ -164,9 +191,16 @@ export default function ConversationPage() {
 
     const supportError = getSpeechRecognitionSupportError();
     if (supportError) {
-      setError(supportError);
+      recordWebSpeechUsageEvent({
+        sourcePage: "conversation",
+        direction,
+        success: false,
+        errorCode: "unsupported",
+      });
+      rememberHighAccuracySpeechPreference();
       setListening(null);
       recognitionRef.current = null;
+      handleHighAccuracyVoiceInput(source);
       return;
     }
 
@@ -184,6 +218,7 @@ export default function ConversationPage() {
     recognition.continuous = false;
 
     let finalTranscript = "";
+    const startedAt = Date.now();
 
     recognition.onstart = () => {
       clearSpeechTimeout();
@@ -210,6 +245,20 @@ export default function ConversationPage() {
         return;
       }
       clearSpeechTimeout();
+      recordWebSpeechUsageEvent({
+        sourcePage: "conversation",
+        direction,
+        audioDurationMs: Date.now() - startedAt,
+        success: false,
+        errorCode: event.error,
+      });
+      if (shouldSwitchToHighAccuracySpeech(event.error)) {
+        rememberHighAccuracySpeechPreference();
+        setListening(null);
+        recognitionRef.current = null;
+        handleHighAccuracyVoiceInput(source);
+        return;
+      }
       setError(getSpeechRecognitionErrorMessage(event.error));
       setListening(null);
       recognitionRef.current = null;
@@ -220,6 +269,13 @@ export default function ConversationPage() {
       setListening(null);
       recognitionRef.current = null;
       if (finalTranscript.trim()) {
+        recordWebSpeechUsageEvent({
+          sourcePage: "conversation",
+          direction,
+          outputChars: finalTranscript.trim().length,
+          audioDurationMs: Date.now() - startedAt,
+          success: true,
+        });
         void translate(finalTranscript, source);
       }
     };
@@ -229,16 +285,29 @@ export default function ConversationPage() {
         recognitionRef.current?.stop();
         recognitionRef.current = null;
         setListening(null);
-        setError(
-          "音声入力の開始に時間がかかっています。手入力、またはスマホ標準キーボードのマイクを使ってください。",
-        );
+        rememberHighAccuracySpeechPreference();
+        recordWebSpeechUsageEvent({
+          sourcePage: "conversation",
+          direction,
+          audioDurationMs: Date.now() - startedAt,
+          success: false,
+          errorCode: "start_timeout",
+        });
+        handleHighAccuracyVoiceInput(source);
       }, 8000);
       recognition.start();
     } catch {
       clearSpeechTimeout();
       setListening(null);
       recognitionRef.current = null;
-      setError("音声入力を開始できませんでした。手入力、またはスマホ標準キーボードのマイクを使ってください。");
+      rememberHighAccuracySpeechPreference();
+      recordWebSpeechUsageEvent({
+        sourcePage: "conversation",
+        direction,
+        success: false,
+        errorCode: "start_failed",
+      });
+      handleHighAccuracyVoiceInput(source);
     }
   };
 
@@ -279,9 +348,24 @@ export default function ConversationPage() {
           )}
         </div>
 
-        {error && (
+        {(error || highAccuracySpeech.error) && (
           <div className="mb-3 rounded-2xl bg-red-900/20 px-4 py-3 text-base text-red-200">
-            {error}
+            <div>
+              {highAccuracySpeech.error || error}
+            </div>
+            <button
+              type="button"
+              onClick={() => handleHighAccuracyVoiceInput(speaker)}
+              disabled={loading || highAccuracySpeech.transcribing}
+              className="mt-3 rounded-full bg-red-100 px-3 py-1.5 text-xs font-bold text-neutral-950 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {highAccuracySpeech.recording ? "録音を停止" : "高精度音声入力で試す"}
+            </button>
+          </div>
+        )}
+        {(highAccuracySpeech.recording || highAccuracySpeech.transcribing) && (
+          <div className="mb-2 text-right text-[11px] font-medium text-neutral-500">
+            高精度音声入力起動中
           </div>
         )}
 
@@ -355,18 +439,22 @@ export default function ConversationPage() {
             <button
               type="button"
               onClick={() => handleVoiceInput(speaker)}
-              disabled={loading}
+              disabled={loading || highAccuracySpeech.transcribing}
               aria-label="音声入力"
-              aria-pressed={listening === speaker}
+              aria-pressed={listening === speaker || highAccuracySpeech.recording}
               className={`flex min-h-14 flex-col items-center justify-center gap-1 transition disabled:cursor-not-allowed disabled:text-neutral-600 ${
-                listening === speaker
+                listening === speaker || highAccuracySpeech.recording
                   ? "bg-emerald-500 text-neutral-950"
                   : "text-emerald-300 hover:bg-neutral-950/50 active:bg-neutral-950/70"
               }`}
             >
-              <MicIcon active={listening === speaker} />
+              <MicIcon active={listening === speaker || highAccuracySpeech.recording} />
               <span className="text-xs font-bold">
-                {listening === speaker ? "聞き取り中" : "音声"}
+                {highAccuracySpeech.transcribing
+                  ? "文字起こし中"
+                  : listening === speaker || highAccuracySpeech.recording
+                    ? "聞き取り中"
+                    : "音声"}
               </span>
             </button>
           </div>

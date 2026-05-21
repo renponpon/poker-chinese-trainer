@@ -1,3 +1,6 @@
+const HIGH_ACCURACY_SPEECH_UNTIL_KEY = "chineseStudy.highAccuracySpeechUntil";
+const HIGH_ACCURACY_SPEECH_TTL_MS = 30 * 60 * 1000;
+
 export function getSpeechRecognitionSupportError(): string | null {
   if (typeof window === "undefined") return "音声入力はブラウザでのみ使えます。";
 
@@ -32,6 +35,31 @@ export function getSpeechRecognitionErrorMessage(error: string): string {
     default:
       return `音声入力エラー: ${error}。手入力、またはスマホ標準キーボードのマイクを使ってください。`;
   }
+}
+
+export function shouldSwitchToHighAccuracySpeech(error: string): boolean {
+  return error === "network" || error === "service-not-allowed";
+}
+
+export function rememberHighAccuracySpeechPreference() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(
+    HIGH_ACCURACY_SPEECH_UNTIL_KEY,
+    String(Date.now() + HIGH_ACCURACY_SPEECH_TTL_MS),
+  );
+}
+
+export function shouldUseHighAccuracySpeechFirst(): boolean {
+  if (typeof window === "undefined") return false;
+  const until = Number.parseInt(
+    window.sessionStorage.getItem(HIGH_ACCURACY_SPEECH_UNTIL_KEY) ?? "",
+    10,
+  );
+  if (!Number.isFinite(until) || until <= Date.now()) {
+    window.sessionStorage.removeItem(HIGH_ACCURACY_SPEECH_UNTIL_KEY);
+    return false;
+  }
+  return true;
 }
 
 function isLikelyInAppBrowser(): boolean {

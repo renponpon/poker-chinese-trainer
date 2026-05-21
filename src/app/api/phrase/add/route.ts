@@ -229,6 +229,7 @@ export async function POST(req: Request) {
       requestId,
       actor,
       validated: request,
+      generationMode,
       outputChars,
       success: true,
       errorCode: null,
@@ -289,6 +290,7 @@ export async function POST(req: Request) {
         requestId,
         actor,
         validated,
+        generationMode: null,
         outputChars,
         success: false,
         errorCode: normalized.code,
@@ -306,6 +308,7 @@ async function recordUsage(input: {
   requestId: string;
   actor: RequestActor;
   validated: ValidatedPhraseAddRequest | null;
+  generationMode: GenerationMode | null;
   outputChars: number;
   success: boolean;
   errorCode: string | null;
@@ -316,9 +319,14 @@ async function recordUsage(input: {
     actorType: input.actor.type,
     ipHash: input.actor.ipHash,
     endpoint: ENDPOINT,
+    feature: "translation",
+    provider: "gemini",
+    mode: input.generationMode,
+    sourcePage: input.validated?.source === "conversation" ? "conversation" : "add",
     direction: input.validated?.direction ?? null,
     inputChars: input.validated?.inputText.length ?? 0,
     outputChars: input.outputChars,
+    audioDurationMs: null,
     success: input.success,
     errorCode: input.errorCode,
     model: GEMINI_MODEL,

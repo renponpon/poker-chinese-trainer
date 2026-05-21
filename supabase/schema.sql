@@ -49,9 +49,14 @@ create table if not exists public.ai_usage_events (
   actor_type text not null check (actor_type in ('guest', 'user')),
   ip_hash text,
   endpoint text not null,
+  feature text check (feature in ('translation', 'explanation', 'speech_to_text', 'usage_event')),
+  provider text check (provider in ('gemini', 'openai', 'web_speech', 'unknown')),
+  mode text,
+  source_page text check (source_page in ('add', 'conversation', 'library', 'drill', 'admin')),
   direction text check (direction in ('ja-to-zh', 'zh-to-ja')),
   input_chars integer not null default 0 check (input_chars >= 0),
   output_chars integer not null default 0 check (output_chars >= 0),
+  audio_duration_ms integer check (audio_duration_ms >= 0),
   success boolean not null default false,
   error_code text,
   model text,
@@ -146,3 +151,74 @@ create index if not exists ai_usage_events_ip_created_idx
 
 create index if not exists ai_usage_events_request_idx
   on public.ai_usage_events(request_id);
+
+create index if not exists ai_usage_events_feature_created_idx
+  on public.ai_usage_events(feature, provider, mode, created_at desc);
+
+create or replace view public.weekly_ai_usage
+with (security_invoker = true) as
+select
+  date_trunc('week', created_at)::date as period_start,
+  actor_type,
+  coalesce(user_id::text, ip_hash, 'unknown') as actor_key,
+  feature,
+  provider,
+  mode,
+  source_page,
+  endpoint,
+  direction,
+  model,
+  count(*)::integer as request_count,
+  count(*) filter (where success)::integer as success_count,
+  count(*) filter (where not success)::integer as failure_count,
+  sum(input_chars)::bigint as input_chars,
+  sum(output_chars)::bigint as output_chars,
+  sum(coalesce(audio_duration_ms, 0))::bigint as audio_duration_ms,
+  min(created_at) as first_used_at,
+  max(created_at) as last_used_at
+from public.ai_usage_events
+group by
+  period_start,
+  actor_type,
+  actor_key,
+  feature,
+  provider,
+  mode,
+  source_page,
+  endpoint,
+  direction,
+  model;
+
+create or replace view public.monthly_ai_usage
+with (security_invoker = true) as
+select
+  date_trunc('month', created_at)::date as period_start,
+  actor_type,
+  coalesce(user_id::text, ip_hash, 'unknown') as actor_key,
+  feature,
+  provider,
+  mode,
+  source_page,
+  endpoint,
+  direction,
+  model,
+  count(*)::integer as request_count,
+  count(*) filter (where success)::integer as success_count,
+  count(*) filter (where not success)::integer as failure_count,
+  sum(input_chars)::bigint as input_chars,
+  sum(output_chars)::bigint as output_chars,
+  sum(coalesce(audio_duration_ms, 0))::bigint as audio_duration_ms,
+  min(created_at) as first_used_at,
+  max(created_at) as last_used_at
+from public.ai_usage_events
+group by
+  period_start,
+  actor_type,
+  actor_key,
+  feature,
+  provider,
+  mode,
+  source_page,
+  endpoint,
+  direction,
+  model;

@@ -16,7 +16,12 @@ import { playChinese, primeSpeech } from "@/lib/speech";
 import {
   getSpeechRecognitionErrorMessage,
   getSpeechRecognitionSupportError,
+  rememberHighAccuracySpeechPreference,
+  shouldSwitchToHighAccuracySpeech,
+  shouldUseHighAccuracySpeechFirst,
 } from "@/lib/speech-recognition";
+import { useHighAccuracySpeech } from "@/lib/use-high-accuracy-speech";
+import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
 import type { PhraseDirection } from "@/lib/types";
 
 type Result = {
@@ -74,6 +79,7 @@ export default function AddPage() {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const suppressSpeechErrorRef = useRef(false);
   const speechTimeoutRef = useRef<number | null>(null);
+  const highAccuracySpeech = useHighAccuracySpeech();
 
   useEffect(() => {
     return () => {
@@ -187,8 +193,27 @@ export default function AddPage() {
     }
   };
 
+  const handleHighAccuracyVoiceInput = () => {
+    setSpeechError(null);
+    if (listening) {
+      suppressSpeechErrorRef.current = true;
+      recognitionRef.current?.stop();
+      setListening(false);
+    }
+    void highAccuracySpeech.startRecording({
+      languageHint: direction === "zh-to-ja" ? "zh-CN" : "ja-JP",
+      sourcePage: "add",
+      onTranscript: setInputText,
+    });
+  };
+
   const handleVoiceInput = () => {
     setSpeechError(null);
+
+    if (shouldUseHighAccuracySpeechFirst()) {
+      handleHighAccuracyVoiceInput();
+      return;
+    }
 
     if (listening) {
       suppressSpeechErrorRef.current = true;
@@ -199,9 +224,16 @@ export default function AddPage() {
 
     const supportError = getSpeechRecognitionSupportError();
     if (supportError) {
-      setSpeechError(supportError);
+      recordWebSpeechUsageEvent({
+        sourcePage: "add",
+        direction,
+        success: false,
+        errorCode: "unsupported",
+      });
+      rememberHighAccuracySpeechPreference();
       setListening(false);
       recognitionRef.current = null;
+      handleHighAccuracyVoiceInput();
       return;
     }
 
@@ -221,6 +253,7 @@ export default function AddPage() {
     recognition.continuous = false;
 
     let finalTranscript = "";
+    const startedAt = Date.now();
 
     recognition.onstart = () => {
       clearSpeechTimeout();
@@ -255,6 +288,20 @@ export default function AddPage() {
         return;
       }
       clearSpeechTimeout();
+      recordWebSpeechUsageEvent({
+        sourcePage: "add",
+        direction,
+        audioDurationMs: Date.now() - startedAt,
+        success: false,
+        errorCode: event.error,
+      });
+      if (shouldSwitchToHighAccuracySpeech(event.error)) {
+        rememberHighAccuracySpeechPreference();
+        setListening(false);
+        recognitionRef.current = null;
+        handleHighAccuracyVoiceInput();
+        return;
+      }
       setSpeechError(getSpeechRecognitionErrorMessage(event.error));
       setListening(false);
       recognitionRef.current = null;
@@ -265,6 +312,15 @@ export default function AddPage() {
       suppressSpeechErrorRef.current = false;
       setListening(false);
       recognitionRef.current = null;
+      if (finalTranscript.trim()) {
+        recordWebSpeechUsageEvent({
+          sourcePage: "add",
+          direction,
+          outputChars: finalTranscript.trim().length,
+          audioDurationMs: Date.now() - startedAt,
+          success: true,
+        });
+      }
     };
 
     try {
@@ -272,16 +328,29 @@ export default function AddPage() {
         recognitionRef.current?.stop();
         recognitionRef.current = null;
         setListening(false);
-        setSpeechError(
-          "音声入力の開始に時間がかかっています。手入力、またはスマホ標準キーボードのマイクを使ってください。",
-        );
+        rememberHighAccuracySpeechPreference();
+        recordWebSpeechUsageEvent({
+          sourcePage: "add",
+          direction,
+          audioDurationMs: Date.now() - startedAt,
+          success: false,
+          errorCode: "start_timeout",
+        });
+        handleHighAccuracyVoiceInput();
       }, 8000);
       recognition.start();
     } catch {
       clearSpeechTimeout();
       setListening(false);
       recognitionRef.current = null;
-      setSpeechError("音声入力を開始できませんでした。手入力、またはスマホ標準キーボードのマイクを使ってください。");
+      rememberHighAccuracySpeechPreference();
+      recordWebSpeechUsageEvent({
+        sourcePage: "add",
+        direction,
+        success: false,
+        errorCode: "start_failed",
+      });
+      handleHighAccuracyVoiceInput();
     }
   };
 
@@ -389,24 +458,43 @@ export default function AddPage() {
             <button
               type="button"
               onClick={handleVoiceInput}
-              disabled={loading}
+              disabled={loading || highAccuracySpeech.transcribing}
               aria-label="音声入力"
-              aria-pressed={listening}
+              aria-pressed={listening || highAccuracySpeech.recording}
               className={`flex min-h-20 flex-col items-center justify-center gap-1 transition disabled:cursor-not-allowed disabled:text-neutral-600 ${
-                listening
+                listening || highAccuracySpeech.recording
                   ? "bg-emerald-500 text-neutral-950"
                   : "text-emerald-300 hover:bg-neutral-950/50 active:bg-neutral-950/70"
               }`}
             >
-              <MicIcon listening={listening} />
+              <MicIcon listening={listening || highAccuracySpeech.recording} />
               <span className="text-xs font-bold">
-                {listening ? "聞き取り中" : "音声"}
+                {highAccuracySpeech.transcribing
+                  ? "文字起こし中"
+                  : listening || highAccuracySpeech.recording
+                    ? "聞き取り中"
+                    : "音声"}
               </span>
             </button>
           </div>
-          {speechError && (
+          {(speechError || highAccuracySpeech.error) && (
             <div className="mx-5 mb-3 rounded-xl bg-yellow-900/20 px-4 py-3 text-sm text-yellow-100">
-              {speechError}
+              <div>
+                {highAccuracySpeech.error || speechError}
+              </div>
+              <button
+                type="button"
+                onClick={handleHighAccuracyVoiceInput}
+                disabled={loading || highAccuracySpeech.transcribing}
+                className="mt-3 rounded-full bg-yellow-100 px-3 py-1.5 text-xs font-bold text-neutral-950 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {highAccuracySpeech.recording ? "録音を停止" : "高精度音声入力で試す"}
+              </button>
+            </div>
+          )}
+          {(highAccuracySpeech.recording || highAccuracySpeech.transcribing) && (
+            <div className="mx-5 mb-3 text-right text-[11px] font-medium text-neutral-500">
+              高精度音声入力起動中
             </div>
           )}
         </section>

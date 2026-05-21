@@ -9,9 +9,14 @@ export type AiUsageEventInput = {
   actorType: AiUsageActorType;
   ipHash: string | null;
   endpoint: string;
+  feature: "translation" | "explanation" | "speech_to_text" | "usage_event" | null;
+  provider: "gemini" | "openai" | "web_speech" | "unknown" | null;
+  mode: string | null;
+  sourcePage: string | null;
   direction: PhraseDirection | null;
   inputChars: number;
   outputChars: number;
+  audioDurationMs: number | null;
   success: boolean;
   errorCode: string | null;
   model: string | null;
@@ -108,9 +113,14 @@ export async function recordAiUsageEvent(
     actor_type: input.actorType,
     ip_hash: input.ipHash,
     endpoint: input.endpoint,
+    feature: input.feature,
+    provider: input.provider,
+    mode: input.mode,
+    source_page: input.sourcePage,
     direction: input.direction,
     input_chars: input.inputChars,
     output_chars: input.outputChars,
+    audio_duration_ms: input.audioDurationMs,
     success: input.success,
     error_code: input.errorCode,
     model: input.model,
