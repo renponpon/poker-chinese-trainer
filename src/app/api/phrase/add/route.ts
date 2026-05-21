@@ -3,6 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import { createId } from "@/lib/id";
 import { createPhrase } from "@/lib/notion";
 import { createSupabasePhrase, getBearerToken } from "@/lib/supabase";
+import { translateWithAzure } from "@/lib/server/azure-translator";
 import { recordAiUsageEvent } from "@/lib/server/supabase-admin";
 import {
   assertWithinDailyAiLimit,
@@ -23,7 +24,9 @@ export const runtime = "nodejs";
 
 const ENDPOINT = "/api/phrase/add";
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
+const AZURE_TRANSLATOR_MODEL = "azure-translator-text-v3";
 type GenerationMode = "fast" | "full";
+type TranslationProvider = "azure" | "gemini";
 
 const FAST_SYSTEM_PROMPT = `あなたは実践的な中国語翻訳エンジンです。
 ユーザーは日本人のライブポーカープレイヤーです。
@@ -186,36 +189,20 @@ export async function POST(req: Request) {
         : "full";
     await assertWithinDailyAiLimit(actor);
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new ApiRouteError("GEMINI_API_KEY が設定されていません", 500, "missing_gemini_api_key");
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
-    const prompt =
-      generationMode === "fast"
-        ? validated.direction === "zh-to-ja"
-          ? FAST_ZH_TO_JA_PROMPT
-          : FAST_SYSTEM_PROMPT
-        : validated.direction === "zh-to-ja"
-          ? ZH_TO_JA_PROMPT
-          : SYSTEM_PROMPT;
-
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: `${prompt}\n\n入力:\n「${validated.inputText}」`,
-      config: {
-        responseMimeType: "application/json",
-      },
-    });
-
-    const text = response.text;
-    if (!text) {
-      throw new ApiRouteError("Gemini から空の応答が返りました", 502, "empty_gemini_response");
-    }
-    outputChars = text.length;
-
-    const generated = extractJson(text);
+    const provider: TranslationProvider =
+      generationMode === "fast" ? "azure" : "gemini";
+    const generated =
+      provider === "azure"
+        ? await translateWithAzure({
+            direction: validated.direction,
+            text: validated.inputText,
+          })
+        : await generateWithGemini(validated, generationMode);
+    outputChars =
+      generated.japanese.length +
+      generated.chinese.length +
+      generated.pinyin.length +
+      generated.explanation.length;
     generated.direction = validated.direction;
     if (!generated.japanese) {
       generated.japanese = validated.direction === "ja-to-zh" ? validated.inputText : "";
@@ -230,6 +217,7 @@ export async function POST(req: Request) {
       actor,
       validated: request,
       generationMode,
+      provider,
       outputChars,
       success: true,
       errorCode: null,
@@ -274,6 +262,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       id: request.phraseId,
       requestId,
+      provider,
+      model: provider === "azure" ? AZURE_TRANSLATOR_MODEL : GEMINI_MODEL,
       ...generated,
       audioUrl: null,
     });
@@ -291,6 +281,7 @@ export async function POST(req: Request) {
         actor,
         validated,
         generationMode: null,
+        provider: null,
         outputChars,
         success: false,
         errorCode: normalized.code,
@@ -309,6 +300,7 @@ async function recordUsage(input: {
   actor: RequestActor;
   validated: ValidatedPhraseAddRequest | null;
   generationMode: GenerationMode | null;
+  provider: TranslationProvider | null;
   outputChars: number;
   success: boolean;
   errorCode: string | null;
@@ -320,7 +312,7 @@ async function recordUsage(input: {
     ipHash: input.actor.ipHash,
     endpoint: ENDPOINT,
     feature: "translation",
-    provider: "gemini",
+    provider: input.provider,
     mode: input.generationMode,
     sourcePage: input.validated?.source === "conversation" ? "conversation" : "add",
     direction: input.validated?.direction ?? null,
@@ -329,8 +321,42 @@ async function recordUsage(input: {
     audioDurationMs: null,
     success: input.success,
     errorCode: input.errorCode,
-    model: GEMINI_MODEL,
+    model: input.provider === "azure" ? AZURE_TRANSLATOR_MODEL : GEMINI_MODEL,
   });
+}
+
+async function generateWithGemini(
+  validated: ValidatedPhraseAddRequest,
+  generationMode: GenerationMode,
+): Promise<GeneratedPhrase> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new ApiRouteError("GEMINI_API_KEY が設定されていません", 500, "missing_gemini_api_key");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  const prompt =
+    generationMode === "fast"
+      ? validated.direction === "zh-to-ja"
+        ? FAST_ZH_TO_JA_PROMPT
+        : FAST_SYSTEM_PROMPT
+      : validated.direction === "zh-to-ja"
+        ? ZH_TO_JA_PROMPT
+        : SYSTEM_PROMPT;
+
+  const response = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: `${prompt}\n\n入力:\n「${validated.inputText}」`,
+    config: {
+      responseMimeType: "application/json",
+    },
+  });
+
+  const text = response.text;
+  if (!text) {
+    throw new ApiRouteError("Gemini から空の応答が返りました", 502, "empty_gemini_response");
+  }
+  return extractJson(text);
 }
 
 function normalizeRouteError(error: unknown): {

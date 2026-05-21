@@ -10,7 +10,7 @@ export type AiUsageEventInput = {
   ipHash: string | null;
   endpoint: string;
   feature: "translation" | "explanation" | "speech_to_text" | "usage_event" | null;
-  provider: "gemini" | "openai" | "web_speech" | "unknown" | null;
+  provider: "azure" | "gemini" | "openai" | "web_speech" | "unknown" | null;
   mode: string | null;
   sourcePage: string | null;
   direction: PhraseDirection | null;

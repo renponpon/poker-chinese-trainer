@@ -31,6 +31,7 @@ type Result = {
   chinese: string;
   pinyin: string;
   explanation: string;
+  provider?: string;
 };
 
 type SpeechRecognitionEvent = Event & {
@@ -499,13 +500,13 @@ export default function AddPage() {
           )}
         </section>
 
-        <div className="-mt-3 flex flex-col gap-3">
-          <label className="flex items-start gap-3 rounded-2xl bg-neutral-950/50 p-3.5 text-sm text-neutral-300">
+        <div className="-mt-1 mb-0">
+          <label className="flex items-center gap-3 rounded-2xl bg-neutral-950/50 px-3 py-2 text-sm text-neutral-300">
             <input
               type="checkbox"
               checked={shouldDrill}
               onChange={(e) => setShouldDrill(e.target.checked)}
-              className="mt-1 h-4 w-4"
+              className="h-4 w-4"
             />
             <span>
               フレーズをドリルに追加
@@ -520,44 +521,47 @@ export default function AddPage() {
         )}
 
         {result && (
-          <div className="flex flex-col gap-4 rounded-[28px] bg-neutral-900/70 p-5">
-            <div className="self-start rounded-full bg-neutral-950/70 px-3 py-1.5 text-xs font-bold text-neutral-300">
-              {result.direction === "ja-to-zh" ? "日本語 → 中国語" : "中国語 → 日本語"}
-              {shouldDrill ? " / ドリル対象" : " / ライブラリのみ"}
-            </div>
-            <div>
-              <div className="text-sm font-bold text-neutral-500">
-                {result.direction === "ja-to-zh" ? "中国語" : "日本語訳"}
+          <div className="-mt-2 flex flex-col gap-3 rounded-[28px] bg-neutral-900/70 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="rounded-full bg-neutral-950/70 px-3 py-1 text-xs font-bold text-neutral-300">
+                {result.direction === "ja-to-zh" ? "日本語 → 中国語" : "中国語 → 日本語"}
+                {shouldDrill ? " / ドリル対象" : " / ライブラリのみ"}
+                {result.provider === "azure" ? " / Azure瞬間翻訳" : ""}
               </div>
-              <div className="mt-2 break-words [overflow-wrap:anywhere] text-3xl font-bold leading-relaxed text-white">
-                {result.direction === "ja-to-zh" ? result.chinese : result.japanese}
-              </div>
-              {result.direction === "ja-to-zh" && (
+              {result.chinese && (
                 <button
                   onClick={() => playChinese(result.chinese)}
-                  className="mt-4 rounded-full bg-neutral-950/80 px-4 py-2 text-sm text-neutral-300 hover:bg-neutral-800"
+                  className="shrink-0 rounded-full bg-neutral-950/80 px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-800"
                 >
                   ▶ 再生
                 </button>
               )}
             </div>
-            <div className="rounded-2xl bg-neutral-950/50 p-4">
-              <div className="text-sm font-bold text-neutral-500">
-                {result.direction === "ja-to-zh" ? "元の日本語" : "中国語"}
+            <div>
+              <div className="text-xs font-bold text-neutral-500">
+                {result.direction === "ja-to-zh" ? "中国語" : "日本語訳"}
               </div>
-              <div className="mt-1 break-words [overflow-wrap:anywhere] text-xl leading-relaxed text-neutral-100">
-                {result.direction === "ja-to-zh" ? result.japanese : result.chinese}
+              <div className="mt-1 break-words [overflow-wrap:anywhere] text-3xl font-bold leading-snug text-white">
+                {result.direction === "ja-to-zh" ? result.chinese : result.japanese}
               </div>
-              <div className="mt-3 text-lg tracking-wide text-neutral-300">
-                {result.pinyin}
-              </div>
+              {result.direction === "ja-to-zh" && result.pinyin && (
+                <div className="mt-1 text-base tracking-wide text-neutral-300">
+                  {result.pinyin}
+                </div>
+              )}
               {result.direction === "zh-to-ja" && (
-                <button
-                  onClick={() => playChinese(result.chinese)}
-                  className="mt-4 rounded-full bg-neutral-950/80 px-4 py-2 text-sm text-neutral-300 hover:bg-neutral-800"
-                >
-                  ▶ 中国語を再生
-                </button>
+                <>
+                  {result.chinese && (
+                    <div className="mt-2 break-words [overflow-wrap:anywhere] text-xl leading-snug text-neutral-400">
+                      {result.chinese}
+                    </div>
+                  )}
+                  {result.pinyin && (
+                    <div className="mt-0.5 text-base tracking-wide text-neutral-300">
+                      {result.pinyin}
+                    </div>
+                  )}
+                </>
               )}
             </div>
             {(explanationLoading || result.explanation) && (

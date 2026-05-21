@@ -1,6 +1,6 @@
 alter table public.ai_usage_events
   add column if not exists feature text check (feature in ('translation', 'explanation', 'speech_to_text', 'usage_event')),
-  add column if not exists provider text check (provider in ('gemini', 'openai', 'web_speech', 'unknown')),
+  add column if not exists provider text check (provider in ('azure', 'gemini', 'openai', 'web_speech', 'unknown')),
   add column if not exists mode text,
   add column if not exists source_page text check (source_page in ('add', 'conversation', 'library', 'drill', 'admin')),
   add column if not exists audio_duration_ms integer check (audio_duration_ms >= 0);

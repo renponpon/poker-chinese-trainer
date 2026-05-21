@@ -26,6 +26,7 @@ type Message = {
   japanese: string;
   chinese: string;
   pinyin: string;
+  provider?: string;
 };
 
 type SpeechRecognitionEvent = Event & {
@@ -163,6 +164,7 @@ export default function ConversationPage() {
           japanese: data.japanese,
           chinese: data.chinese,
           pinyin: data.pinyin,
+          provider: data.provider,
         },
       ]);
       setDraft("");
@@ -505,6 +507,15 @@ function ConversationBubble({ message }: { message: Message }) {
         >
           ▶ 再生
         </button>
+        {message.provider === "azure" && (
+          <div
+            className={`mt-1 text-[10px] font-medium ${
+              isJapaneseSpeaker ? "text-neutral-500" : "text-neutral-700"
+            }`}
+          >
+            Azure瞬間翻訳
+          </div>
+        )}
       </div>
     </div>
   );
