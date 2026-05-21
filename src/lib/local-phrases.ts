@@ -42,6 +42,8 @@ export function loadLocalPhrases(): Phrase[] {
     if (window.localStorage.getItem(STARTER_SEED_KEY) !== "1") {
       normalized = mergeStarterPhrases(normalized);
       window.localStorage.setItem(STARTER_SEED_KEY, "1");
+    } else {
+      normalized = patchStarterExplanations(normalized);
     }
     if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
       saveLocalPhrases(normalized);
@@ -52,12 +54,27 @@ export function loadLocalPhrases(): Phrase[] {
   }
 }
 
+function patchStarterExplanations(current: Phrase[]): Phrase[] {
+  const starterById = new Map(STARTER_PHRASES.map((phrase) => [phrase.id, phrase]));
+  let changed = false;
+  const patched = current.map((phrase) => {
+    const starter = starterById.get(phrase.id);
+    if (!starter || phrase.explanation?.trim()) return phrase;
+    changed = true;
+    return normalizePhrase({ ...phrase, explanation: starter.explanation });
+  });
+  return changed ? patched : current;
+}
+
 function mergeStarterPhrases(current: Phrase[]): Phrase[] {
   const existingIds = new Set(current.map((phrase) => phrase.id));
   const missingStarters = STARTER_PHRASES
     .filter((phrase) => !existingIds.has(phrase.id))
     .map((phrase) => normalizePhrase(phrase));
-  return missingStarters.length ? [...missingStarters, ...current] : current;
+  const withMissing = missingStarters.length
+    ? [...missingStarters, ...current]
+    : current;
+  return patchStarterExplanations(withMissing);
 }
 
 export function saveLocalPhrases(phrases: Phrase[]): void {

@@ -44,39 +44,7 @@ export default function HomeMenu() {
       </button>
       {open && (
         <div className="absolute right-0 top-14 z-[80] max-h-[calc(100vh-96px)] w-[min(88vw,380px)] overflow-y-auto overscroll-contain rounded-2xl bg-neutral-950 p-3 text-left shadow-2xl shadow-black/50">
-          <Link
-            href="/feedback"
-            className="block rounded-xl bg-neutral-900 px-4 py-4 text-base font-bold text-neutral-200 hover:bg-neutral-800"
-          >
-            運営へのフィードバック
-          </Link>
-
-          <details className="mt-2 rounded-xl bg-neutral-900">
-            <summary className="cursor-pointer list-none px-4 py-4 text-base font-bold text-neutral-200">
-              スマホにインストールする方法
-            </summary>
-            <div className="px-4 pb-4 pt-1 text-sm leading-relaxed text-neutral-400">
-              <p>
-                <span className="font-bold text-neutral-300">iOS:</span>{" "}
-                Safariで共有アイコンをタップし、「ホーム画面に追加」を選択します。
-              </p>
-              <p className="mt-2">
-                <span className="font-bold text-neutral-300">Android:</span>{" "}
-                Chromeのメニューから「アプリをインストール」を選択します。
-              </p>
-            </div>
-          </details>
-
-          <details className="mt-2 rounded-xl bg-neutral-900">
-            <summary className="cursor-pointer list-none px-4 py-4 text-base font-bold text-neutral-200">
-              入力データについて
-            </summary>
-            <div className="px-4 pb-4 pt-1">
-              <DataHandlingNotice />
-            </div>
-          </details>
-
-          <details className="mt-2 rounded-xl bg-neutral-900">
+          <details className="rounded-xl bg-neutral-900">
             <summary className="cursor-pointer list-none px-4 py-4 text-base font-bold text-neutral-200">
               音声入力のコツ
             </summary>
@@ -153,6 +121,22 @@ export default function HomeMenu() {
 
           <details className="mt-2 rounded-xl bg-neutral-900">
             <summary className="cursor-pointer list-none px-4 py-4 text-base font-bold text-neutral-200">
+              スマホにインストールする方法
+            </summary>
+            <div className="px-4 pb-4 pt-1 text-sm leading-relaxed text-neutral-400">
+              <p>
+                <span className="font-bold text-neutral-300">iOS:</span>{" "}
+                Safariで共有アイコンをタップし、「ホーム画面に追加」を選択します。
+              </p>
+              <p className="mt-2">
+                <span className="font-bold text-neutral-300">Android:</span>{" "}
+                Chromeのメニューから「アプリをインストール」を選択します。
+              </p>
+            </div>
+          </details>
+
+          <details className="mt-2 rounded-xl bg-neutral-900">
+            <summary className="cursor-pointer list-none px-4 py-4 text-base font-bold text-neutral-200">
               復習タイミングの説明
             </summary>
             <div className="px-4 pb-4 pt-1">
@@ -179,6 +163,22 @@ export default function HomeMenu() {
               </div>
             </div>
           </details>
+
+          <details className="mt-2 rounded-xl bg-neutral-900">
+            <summary className="cursor-pointer list-none px-4 py-4 text-base font-bold text-neutral-200">
+              入力データのコツ
+            </summary>
+            <div className="px-4 pb-4 pt-1">
+              <DataHandlingNotice />
+            </div>
+          </details>
+
+          <Link
+            href="/feedback"
+            className="mt-2 block rounded-xl bg-neutral-900 px-4 py-4 text-base font-bold text-neutral-200 hover:bg-neutral-800"
+          >
+            運営への要望
+          </Link>
         </div>
       )}
     </div>
