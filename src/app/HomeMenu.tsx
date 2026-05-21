@@ -78,6 +78,81 @@ export default function HomeMenu() {
 
           <details className="mt-2 rounded-xl bg-neutral-900">
             <summary className="cursor-pointer list-none px-4 py-4 text-base font-bold text-neutral-200">
+              音声入力のコツ
+            </summary>
+            <div className="px-4 pb-4 pt-1 text-sm leading-relaxed text-neutral-400">
+              <p>
+                翻訳精度を上げたい時は、話し言葉を少しだけ「文章」に近づけるのがおすすめです。
+              </p>
+              <div className="mt-3 space-y-3">
+                <section>
+                  <div className="font-bold text-neutral-200">
+                    疑問文は言葉で分かるように
+                  </div>
+                  <p className="mt-1">
+                    語尾を上げるだけでなく、「してる？」より「していますか？」のように、疑問だと分かる言葉を入れる。
+                  </p>
+                </section>
+
+                <section>
+                  <div className="font-bold text-neutral-200">
+                    「です」「ます」をはっきり発音する
+                  </div>
+                  <p className="mt-1">
+                    語尾が曖昧だと、断定なのか質問なのかが崩れやすくなります。
+                  </p>
+                </section>
+
+                <section>
+                  <div className="font-bold text-neutral-200">
+                    助詞を省略しない
+                  </div>
+                  <p className="mt-1">
+                    「これ、食べる」より「これを食べます」のように、が・を・に・はを入れると単語のつながりが伝わりやすくなります。
+                  </p>
+                </section>
+
+                <section>
+                  <div className="font-bold text-neutral-200">
+                    1文を短く切る
+                  </div>
+                  <p className="mt-1">
+                    「〜で、〜だから、〜なんですけど」と長くつなげず、句点を早めに打つイメージで区切る。
+                  </p>
+                </section>
+
+                <section>
+                  <div className="font-bold text-neutral-200">
+                    主語を省略しない
+                  </div>
+                  <p className="mt-1">
+                    「私は」「あなたは」「それは」を入れると、誰が何をする話なのか翻訳が迷いにくくなります。
+                  </p>
+                </section>
+
+                <section>
+                  <div className="font-bold text-neutral-200">
+                    「これ・それ・あれ」を具体名詞に
+                  </div>
+                  <p className="mt-1">
+                    「これをそこに置いて」より「この書類を、机の上に置いてください」の方が正確に伝わります。
+                  </p>
+                </section>
+
+                <section>
+                  <div className="font-bold text-neutral-200">
+                    なるべく能動態で話す
+                  </div>
+                  <p className="mt-1">
+                    「彼に頼まれた」より「彼が私に頼んだ」のように、誰がしたのかを明確にする。
+                  </p>
+                </section>
+              </div>
+            </div>
+          </details>
+
+          <details className="mt-2 rounded-xl bg-neutral-900">
+            <summary className="cursor-pointer list-none px-4 py-4 text-base font-bold text-neutral-200">
               復習タイミングの説明
             </summary>
             <div className="px-4 pb-4 pt-1">
