@@ -1,14 +1,14 @@
 export default function DataHandlingNotice() {
   return (
-    <section className="rounded-2xl border border-yellow-500/20 bg-yellow-950/20 px-4 py-3 text-sm leading-relaxed text-yellow-50">
-      <div className="font-bold text-yellow-100">
-        業務情報を入れる前に
+    <section className="text-sm leading-relaxed text-neutral-400">
+      <div className="font-bold text-neutral-200">
+        入力データについて
       </div>
-      <p className="mt-1 text-yellow-100/90">
-        入力した文章は翻訳・解説生成のためAIに送信され、生成後はこの端末のライブラリと運営側の記録先に保存されることがあります。ログイン中はクラウドにも同期されます。
+      <p className="mt-2">
+        入力した文章は、翻訳や解説を作るためにAIへ送信されます。作成されたフレーズはこの端末のライブラリに保存され、ログイン中はアカウントにも同期されます。
       </p>
-      <p className="mt-1 text-yellow-100/80">
-        顧客名、社外秘、図面番号、個人情報などは伏せ字にしてください。不要なフレーズはライブラリの削除ボタンでこの端末から消せます。クラウド・運営側記録の削除は別途対応が必要です。
+      <p className="mt-2">
+        仕事の内容を入れる時は、気になる固有名詞や番号だけ伏せ字にすると安心です。不要になったフレーズはライブラリから削除できます。
       </p>
     </section>
   );

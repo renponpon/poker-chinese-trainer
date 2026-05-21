@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import BottomNav from "@/components/BottomNav";
-import DataHandlingNotice from "@/components/DataHandlingNotice";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { createId } from "@/lib/id";
 import { addLocalPhrase, loadNickname, loadOwnerKey } from "@/lib/local-phrases";
@@ -285,10 +284,6 @@ export default function ConversationPage() {
             {error}
           </div>
         )}
-
-        <div className="mb-3">
-          <DataHandlingNotice />
-        </div>
 
         <div className="shrink-0 overflow-hidden rounded-[28px] bg-neutral-900/80">
           <div className="grid grid-cols-[1fr_auto_1fr] items-center bg-neutral-950/70 px-4 py-1.5 text-base font-bold">

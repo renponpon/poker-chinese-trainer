@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import DataHandlingNotice from "@/components/DataHandlingNotice";
 import { SRS_STATUS_GUIDE } from "@/lib/srs";
 
 export default function HomeMenu() {
@@ -63,6 +64,15 @@ export default function HomeMenu() {
                 <span className="font-bold text-neutral-300">Android:</span>{" "}
                 Chromeのメニューから「アプリをインストール」を選択します。
               </p>
+            </div>
+          </details>
+
+          <details className="mt-2 rounded-xl bg-neutral-900">
+            <summary className="cursor-pointer list-none px-4 py-4 text-base font-bold text-neutral-200">
+              入力データについて
+            </summary>
+            <div className="px-4 pb-4 pt-1">
+              <DataHandlingNotice />
             </div>
           </details>
 

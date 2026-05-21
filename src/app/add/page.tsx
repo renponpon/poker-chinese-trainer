@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import AppHeader from "@/components/AppHeader";
 import BottomNav from "@/components/BottomNav";
-import DataHandlingNotice from "@/components/DataHandlingNotice";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { createId } from "@/lib/id";
 import {
@@ -411,8 +410,6 @@ export default function AddPage() {
             </div>
           )}
         </section>
-
-        <DataHandlingNotice />
 
         <div className="-mt-3 flex flex-col gap-3">
           <label className="flex items-start gap-3 rounded-2xl bg-neutral-950/50 p-3.5 text-sm text-neutral-300">
