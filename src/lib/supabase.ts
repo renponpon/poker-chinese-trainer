@@ -86,6 +86,27 @@ export async function createSupabasePhrase(
   return { id: input.id };
 }
 
+export async function updateSupabasePhraseExplanation(
+  accessToken: string,
+  phraseId: string,
+  explanation: string,
+): Promise<boolean> {
+  const supabase = getServerSupabase(accessToken);
+  if (!supabase) return false;
+
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError || !userData.user) return false;
+
+  const { data, error } = await supabase
+    .from("phrases")
+    .update({ explanation })
+    .eq("id", phraseId)
+    .eq("user_id", userData.user.id)
+    .select("id");
+  if (error) throw error;
+  return Boolean(data?.length);
+}
+
 export async function getSupabasePhrasesByUser(accessToken: string): Promise<{
   phrases: Phrase[];
   srsItems: SrsItem[];

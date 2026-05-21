@@ -209,6 +209,36 @@ export async function createPhrase(input: {
   return { id: (created as { id: string }).id };
 }
 
+export async function updatePhraseExplanation(
+  phraseId: string,
+  explanation: string,
+): Promise<boolean> {
+  if (!notion || !databaseId || !phraseId) return false;
+
+  await ensureOwnerProperties();
+
+  const response = await notion.databases.query({
+    database_id: databaseId,
+    filter: {
+      property: "Phrase ID",
+      rich_text: {
+        equals: phraseId,
+      },
+    },
+    page_size: 1,
+  });
+  const page = response.results[0] as { id?: string } | undefined;
+  if (!page?.id) return false;
+
+  await notion.pages.update({
+    page_id: page.id,
+    properties: {
+      Grammar: { rich_text: [{ text: { content: explanation } }] },
+    } as never,
+  });
+  return true;
+}
+
 function pageToPhraseAndSrs(page: NotionPage): {
   phrase: Phrase;
   srsItem: SrsItem | null;

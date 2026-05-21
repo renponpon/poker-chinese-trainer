@@ -23,6 +23,48 @@ export const runtime = "nodejs";
 
 const ENDPOINT = "/api/phrase/add";
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
+type GenerationMode = "fast" | "full";
+
+const FAST_SYSTEM_PROMPT = `あなたは実践的な中国語翻訳エンジンです。
+ユーザーは日本人のライブポーカープレイヤーです。
+
+目的:
+- とにかく速く、自然な普通話の中国語とピンインを返す
+- 解説は不要
+
+ルール:
+- 中国語は簡体字
+- ピンインは声調記号付き
+- 短く自然な現場表現を優先
+- 必ず JSON のみを返す
+
+{
+  "direction": "ja-to-zh",
+  "japanese": "ユーザー入力の日本語",
+  "chinese": "自然な中国語",
+  "pinyin": "ピンイン",
+  "explanation": ""
+}`;
+
+const FAST_ZH_TO_JA_PROMPT = `あなたは実践的な中国語翻訳エンジンです。
+ユーザーは聞き取った中国語の意味をすぐ知りたい日本人です。
+
+目的:
+- とにかく速く、自然な日本語訳とピンインを返す
+- 解説は不要
+
+ルール:
+- 中国語は簡体字に整える
+- ピンインは声調記号付き
+- 必ず JSON のみを返す
+
+{
+  "direction": "zh-to-ja",
+  "japanese": "自然な日本語訳",
+  "chinese": "入力中国語を自然に整えたもの",
+  "pinyin": "ピンイン",
+  "explanation": ""
+}`;
 
 const SYSTEM_PROMPT = `あなたは、マカオ・中国本土・台湾を含む中国語圏での実生活、ライブポーカー、カジノ、旅行会話に詳しい実践的な中国語コーチです。
 
@@ -138,6 +180,10 @@ export async function POST(req: Request) {
     }
 
     validated = validatePhraseAddRequest(parseJsonObject(rawBody));
+    const generationMode: GenerationMode =
+      (rawBody as { generationMode?: unknown }).generationMode === "fast"
+        ? "fast"
+        : "full";
     await assertWithinDailyAiLimit(actor);
 
     const apiKey = process.env.GEMINI_API_KEY;
@@ -146,7 +192,14 @@ export async function POST(req: Request) {
     }
 
     const ai = new GoogleGenAI({ apiKey });
-    const prompt = validated.direction === "zh-to-ja" ? ZH_TO_JA_PROMPT : SYSTEM_PROMPT;
+    const prompt =
+      generationMode === "fast"
+        ? validated.direction === "zh-to-ja"
+          ? FAST_ZH_TO_JA_PROMPT
+          : FAST_SYSTEM_PROMPT
+        : validated.direction === "zh-to-ja"
+          ? ZH_TO_JA_PROMPT
+          : SYSTEM_PROMPT;
 
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,

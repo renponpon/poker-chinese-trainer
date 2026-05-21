@@ -3,10 +3,15 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import BottomNav from "@/components/BottomNav";
+import DataHandlingNotice from "@/components/DataHandlingNotice";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { createId } from "@/lib/id";
 import { addLocalPhrase, loadNickname, loadOwnerKey } from "@/lib/local-phrases";
 import { playChinese, playJapanese, primeSpeech } from "@/lib/speech";
+import {
+  getSpeechRecognitionErrorMessage,
+  getSpeechRecognitionSupportError,
+} from "@/lib/speech-recognition";
 import type { PhraseDirection } from "@/lib/types";
 
 type Speaker = "ja" | "zh";
@@ -55,18 +60,33 @@ export default function ConversationPage() {
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState<Speaker | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [ownerKey, setOwnerKey] = useState("");
-  const [nickname, setNickname] = useState("");
+  const [ownerKey] = useState(() => loadOwnerKey());
+  const [nickname] = useState(() => loadNickname());
   const [inputFocused, setInputFocused] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const translatingRef = useRef(false);
   const suppressSpeechErrorRef = useRef(false);
+  const speechTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     primeSpeech();
-    setOwnerKey(loadOwnerKey());
-    setNickname(loadNickname());
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (speechTimeoutRef.current) {
+        window.clearTimeout(speechTimeoutRef.current);
+      }
+      recognitionRef.current?.stop();
+    };
+  }, []);
+
+  const clearSpeechTimeout = () => {
+    if (speechTimeoutRef.current) {
+      window.clearTimeout(speechTimeoutRef.current);
+      speechTimeoutRef.current = null;
+    }
+  };
 
   const translate = async (text: string, source: Speaker) => {
     const trimmed = text.trim();
@@ -93,6 +113,7 @@ export default function ConversationPage() {
           categoryId: "conversation",
           shouldDrill: false,
           source: "conversation",
+          generationMode: "fast",
         }),
       });
       const data = await res.json();
@@ -142,10 +163,18 @@ export default function ConversationPage() {
       return;
     }
 
+    const supportError = getSpeechRecognitionSupportError();
+    if (supportError) {
+      setError(supportError);
+      setListening(null);
+      recognitionRef.current = null;
+      return;
+    }
+
     const Recognition =
       window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!Recognition) {
-      setError("このブラウザは音声入力に未対応です。テキスト入力で試してください。");
+      setError("このブラウザは音声入力に未対応です。手入力、またはスマホ標準キーボードのマイクを使ってください。");
       return;
     }
 
@@ -158,6 +187,7 @@ export default function ConversationPage() {
     let finalTranscript = "";
 
     recognition.onstart = () => {
+      clearSpeechTimeout();
       setSpeaker(source);
       setListening(source);
     };
@@ -173,17 +203,20 @@ export default function ConversationPage() {
     recognition.onerror = (event) => {
       if (
         suppressSpeechErrorRef.current ||
-        event.error === "aborted" ||
-        event.error === "no-speech"
+        event.error === "aborted"
       ) {
         suppressSpeechErrorRef.current = false;
         setListening(null);
+        recognitionRef.current = null;
         return;
       }
-      setError(`音声入力エラー: ${event.error}`);
+      clearSpeechTimeout();
+      setError(getSpeechRecognitionErrorMessage(event.error));
       setListening(null);
+      recognitionRef.current = null;
     };
     recognition.onend = () => {
+      clearSpeechTimeout();
       suppressSpeechErrorRef.current = false;
       setListening(null);
       recognitionRef.current = null;
@@ -193,10 +226,20 @@ export default function ConversationPage() {
     };
 
     try {
+      speechTimeoutRef.current = window.setTimeout(() => {
+        recognitionRef.current?.stop();
+        recognitionRef.current = null;
+        setListening(null);
+        setError(
+          "音声入力の開始に時間がかかっています。手入力、またはスマホ標準キーボードのマイクを使ってください。",
+        );
+      }, 8000);
       recognition.start();
     } catch {
+      clearSpeechTimeout();
       setListening(null);
-      setError("音声入力を開始できませんでした。少し待って再度試してください。");
+      recognitionRef.current = null;
+      setError("音声入力を開始できませんでした。手入力、またはスマホ標準キーボードのマイクを使ってください。");
     }
   };
 
@@ -242,6 +285,10 @@ export default function ConversationPage() {
             {error}
           </div>
         )}
+
+        <div className="mb-3">
+          <DataHandlingNotice />
+        </div>
 
         <div className="shrink-0 overflow-hidden rounded-[28px] bg-neutral-900/80">
           <div className="grid grid-cols-[1fr_auto_1fr] items-center bg-neutral-950/70 px-4 py-1.5 text-base font-bold">

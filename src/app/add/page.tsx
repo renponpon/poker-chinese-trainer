@@ -4,10 +4,20 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import AppHeader from "@/components/AppHeader";
 import BottomNav from "@/components/BottomNav";
+import DataHandlingNotice from "@/components/DataHandlingNotice";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { createId } from "@/lib/id";
-import { addLocalPhrase, loadNickname, loadOwnerKey } from "@/lib/local-phrases";
+import {
+  addLocalPhrase,
+  loadNickname,
+  loadOwnerKey,
+  updateLocalPhrase,
+} from "@/lib/local-phrases";
 import { playChinese, primeSpeech } from "@/lib/speech";
+import {
+  getSpeechRecognitionErrorMessage,
+  getSpeechRecognitionSupportError,
+} from "@/lib/speech-recognition";
 import type { PhraseDirection } from "@/lib/types";
 
 type Result = {
@@ -51,27 +61,29 @@ declare global {
 export default function AddPage() {
   const [direction, setDirection] = useState<PhraseDirection>("ja-to-zh");
   const [inputText, setInputText] = useState("");
-  const [categoryId, setCategoryId] = useState<string>("other");
+  const [categoryId] = useState<string>("other");
   const [shouldDrill, setShouldDrill] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [explanationLoading, setExplanationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [listening, setListening] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
-  const [ownerKey, setOwnerKey] = useState("");
-  const [nickname, setNickname] = useState("");
+  const [ownerKey] = useState(() => loadOwnerKey());
+  const [nickname] = useState(() => loadNickname());
   const [inputFocused, setInputFocused] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const suppressSpeechErrorRef = useRef(false);
+  const speechTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
-    setOwnerKey(loadOwnerKey());
-    setNickname(loadNickname());
+    return () => {
+      if (speechTimeoutRef.current) {
+        window.clearTimeout(speechTimeoutRef.current);
+      }
+      recognitionRef.current?.stop();
+    };
   }, []);
-
-  useEffect(() => {
-    setShouldDrill(direction === "ja-to-zh");
-  }, [direction]);
 
   const handleGenerate = async () => {
     const trimmed = inputText.trim();
@@ -94,6 +106,7 @@ export default function AddPage() {
           phraseId,
           categoryId,
           shouldDrill,
+          generationMode: "fast",
         }),
       });
       const data = await res.json();
@@ -115,10 +128,48 @@ export default function AddPage() {
       });
       const nextResult = { ...(data as Result), id: localPhrase.id };
       setResult(nextResult);
+      setLoading(false);
+      void generateExplanation(nextResult, authHeaders);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const generateExplanation = async (
+    baseResult: Result,
+    authHeaders: Record<string, string>,
+  ) => {
+    setExplanationLoading(true);
+    try {
+      const res = await fetch("/api/phrase/explain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({
+          phraseId: baseResult.id,
+          direction: baseResult.direction,
+          japanese: baseResult.japanese,
+          chinese: baseResult.chinese,
+          pinyin: baseResult.pinyin,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? "解説生成に失敗しました");
+      }
+      updateLocalPhrase(baseResult.id ?? "", {
+        explanation: data.explanation,
+      });
+      setResult((current) =>
+        current?.id === baseResult.id
+          ? { ...current, explanation: data.explanation }
+          : current,
+      );
+    } catch (err) {
+      console.warn("[AddPage] explanation generation failed", err);
+    } finally {
+      setExplanationLoading(false);
     }
   };
 
@@ -127,6 +178,14 @@ export default function AddPage() {
     setResult(null);
     setError(null);
     setSpeechError(null);
+    setExplanationLoading(false);
+  };
+
+  const clearSpeechTimeout = () => {
+    if (speechTimeoutRef.current) {
+      window.clearTimeout(speechTimeoutRef.current);
+      speechTimeoutRef.current = null;
+    }
   };
 
   const handleVoiceInput = () => {
@@ -139,11 +198,19 @@ export default function AddPage() {
       return;
     }
 
+    const supportError = getSpeechRecognitionSupportError();
+    if (supportError) {
+      setSpeechError(supportError);
+      setListening(false);
+      recognitionRef.current = null;
+      return;
+    }
+
     const Recognition =
       window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!Recognition) {
       setSpeechError(
-        "このブラウザは音声入力に未対応です。Chrome / Safari の最新版で試してください。",
+        "このブラウザは音声入力に未対応です。手入力、またはスマホ標準キーボードのマイクを使ってください。",
       );
       return;
     }
@@ -157,6 +224,7 @@ export default function AddPage() {
     let finalTranscript = "";
 
     recognition.onstart = () => {
+      clearSpeechTimeout();
       setListening(true);
     };
 
@@ -180,28 +248,41 @@ export default function AddPage() {
     recognition.onerror = (event) => {
       if (
         suppressSpeechErrorRef.current ||
-        event.error === "aborted" ||
-        event.error === "no-speech"
+        event.error === "aborted"
       ) {
         suppressSpeechErrorRef.current = false;
         setListening(false);
+        recognitionRef.current = null;
         return;
       }
-      setSpeechError(`音声入力エラー: ${event.error}`);
+      clearSpeechTimeout();
+      setSpeechError(getSpeechRecognitionErrorMessage(event.error));
       setListening(false);
+      recognitionRef.current = null;
     };
 
     recognition.onend = () => {
+      clearSpeechTimeout();
       suppressSpeechErrorRef.current = false;
       setListening(false);
       recognitionRef.current = null;
     };
 
     try {
+      speechTimeoutRef.current = window.setTimeout(() => {
+        recognitionRef.current?.stop();
+        recognitionRef.current = null;
+        setListening(false);
+        setSpeechError(
+          "音声入力の開始に時間がかかっています。手入力、またはスマホ標準キーボードのマイクを使ってください。",
+        );
+      }, 8000);
       recognition.start();
     } catch {
+      clearSpeechTimeout();
       setListening(false);
-      setSpeechError("音声入力を開始できませんでした。少し待って再度試してください。");
+      recognitionRef.current = null;
+      setSpeechError("音声入力を開始できませんでした。手入力、またはスマホ標準キーボードのマイクを使ってください。");
     }
   };
 
@@ -218,7 +299,10 @@ export default function AddPage() {
           <div className="grid grid-cols-[1fr_auto_1fr] items-center bg-neutral-950/70 px-4 py-3 text-base font-bold">
             <button
               type="button"
-              onClick={() => setDirection("ja-to-zh")}
+              onClick={() => {
+                setDirection("ja-to-zh");
+                setShouldDrill(true);
+              }}
               className={`rounded-xl px-3 py-2.5 transition ${
                 direction === "ja-to-zh"
                   ? "text-emerald-300"
@@ -230,9 +314,11 @@ export default function AddPage() {
             <button
               type="button"
               onClick={() =>
-                setDirection((value) =>
-                  value === "ja-to-zh" ? "zh-to-ja" : "ja-to-zh",
-                )
+                setDirection((value) => {
+                  const next = value === "ja-to-zh" ? "zh-to-ja" : "ja-to-zh";
+                  setShouldDrill(next === "ja-to-zh");
+                  return next;
+                })
               }
               aria-label="翻訳方向を切り替え"
               className="rounded-full px-3 py-1.5 text-3xl leading-none text-emerald-400 hover:bg-neutral-900"
@@ -241,7 +327,10 @@ export default function AddPage() {
             </button>
             <button
               type="button"
-              onClick={() => setDirection("zh-to-ja")}
+              onClick={() => {
+                setDirection("zh-to-ja");
+                setShouldDrill(false);
+              }}
               className={`rounded-xl px-3 py-2.5 transition ${
                 direction === "zh-to-ja"
                   ? "text-emerald-300"
@@ -323,6 +412,8 @@ export default function AddPage() {
           )}
         </section>
 
+        <DataHandlingNotice />
+
         <div className="-mt-3 flex flex-col gap-3">
           <label className="flex items-start gap-3 rounded-2xl bg-neutral-950/50 p-3.5 text-sm text-neutral-300">
             <input
@@ -384,13 +475,13 @@ export default function AddPage() {
                 </button>
               )}
             </div>
-            {result.explanation && (
+            {(explanationLoading || result.explanation) && (
               <div>
                 <div className="text-sm font-bold text-neutral-500">
                   解説
                 </div>
                 <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-neutral-300">
-                  {result.explanation}
+                  {result.explanation || "解説を生成中..."}
                 </div>
               </div>
             )}
