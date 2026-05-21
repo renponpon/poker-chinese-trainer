@@ -208,7 +208,7 @@ export default function LibraryView() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="日本語・中国語・ピンインで検索"
-        className="w-full rounded-2xl bg-neutral-900 px-4 py-3 text-base text-neutral-100 placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+        className="w-full rounded-2xl bg-neutral-900 px-4 py-3 text-base text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
       />
 
       {filterOpen && (
@@ -231,7 +231,7 @@ export default function LibraryView() {
           </div>
 
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
+            <label className="flex flex-col gap-1 text-xs text-neutral-400">
               状況カテゴリ
               <select
                 value={categoryFilter}
@@ -247,7 +247,7 @@ export default function LibraryView() {
                 ))}
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
+            <label className="flex flex-col gap-1 text-xs text-neutral-400">
               ドリル対象
               <select
                 value={drillFilter}
@@ -302,10 +302,10 @@ export default function LibraryView() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-[11px] font-bold text-neutral-400">
+                      <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-[11px] font-bold text-neutral-300">
                         {p.direction === "zh-to-ja" ? "中→日" : "日→中"}
                       </span>
-                      <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-[11px] text-neutral-400">
+                      <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-[11px] text-neutral-300">
                         {category?.label ?? "未分類"}
                       </span>
                       {!p.shouldDrill && (
@@ -326,13 +326,13 @@ export default function LibraryView() {
                 {expanded && (
                   <div className="border-t border-neutral-800/70 px-4 pb-4 pt-4">
                     <div className="rounded-2xl bg-neutral-950/60 p-4">
-                      <div className="text-xs font-bold uppercase tracking-wide text-neutral-500">
+                      <div className="text-xs font-bold uppercase tracking-wide text-neutral-400">
                         日本語
                       </div>
                       <div className="mt-1 text-xl font-semibold leading-relaxed text-neutral-100">
                         {p.japanese}
                       </div>
-                      <div className="mt-4 text-xs font-bold uppercase tracking-wide text-neutral-500">
+                      <div className="mt-4 text-xs font-bold uppercase tracking-wide text-neutral-400">
                         中国語
                       </div>
                       <div className="mt-1 break-words [overflow-wrap:anywhere] text-2xl font-bold leading-relaxed text-emerald-300">

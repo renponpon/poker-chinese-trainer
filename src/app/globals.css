@@ -1,8 +1,34 @@
 @import "tailwindcss";
 
+@theme {
+  /* Midnight Ink + Amber palette */
+  --color-neutral-50: #f8fafc;
+  --color-neutral-100: #f2f4f8;
+  --color-neutral-200: #e2e8f0;
+  --color-neutral-300: #d3dae6;
+  --color-neutral-400: #b2bccb;
+  --color-neutral-500: #8f9bb0;
+  --color-neutral-600: #6f7b91;
+  --color-neutral-700: #3d485c;
+  --color-neutral-800: #242d3f;
+  --color-neutral-900: #182033;
+  --color-neutral-950: #0b0f19;
+
+  /* Keep emerald utility classes, map them to soft iris tones */
+  --color-emerald-300: #d8ddff;
+  --color-emerald-400: #b9c2ff;
+  --color-emerald-500: #8f9bff;
+  --color-emerald-600: #7078e8;
+
+  --color-yellow-100: #fef3c7;
+  --color-yellow-900: #78350f;
+  --color-red-200: #fecaca;
+  --color-red-900: #7f1d1d;
+}
+
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --background: #0b0f19;
+  --foreground: #f2f4f8;
 }
 
 html,
@@ -13,7 +39,7 @@ body {
     ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, "Noto Sans", "Hiragino Sans", "Yu Gothic UI",
     "Meiryo", sans-serif;
-  background-color: #0a0a0a;
+  background-color: #0b0f19;
 }
 
 * {
