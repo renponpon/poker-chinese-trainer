@@ -18,8 +18,7 @@ export type PhrasePackOption<T extends string> = {
 
 export const PHRASE_PACK_SCENE_OPTIONS: Array<PhrasePackOption<PhrasePackScene>> = [
   { id: "auto", label: "お任せ", categoryId: null },
-  { id: "poker-table", label: "ポーカー卓", categoryId: "poker-table" },
-  { id: "floor", label: "カジノ・フロア手続き", categoryId: "floor" },
+  { id: "casino", label: "カジノ", categoryId: "poker-table" },
   { id: "restaurant", label: "レストラン・カフェ", categoryId: "restaurant" },
   { id: "shopping", label: "買い物", categoryId: "shopping" },
   { id: "transport", label: "移動・タクシー", categoryId: "transport" },
@@ -86,6 +85,8 @@ const toneIds = new Set(PHRASE_PACK_TONE_OPTIONS.map((option) => option.id));
 const LEGACY_SCENE_MAP: Record<string, PhrasePackScene | null> = {
   hospital: null,
   other: null,
+  "poker-table": "casino",
+  floor: "casino",
 };
 
 const LEGACY_LEVEL_MAP: Record<string, PhrasePackLevel> = {
@@ -111,16 +112,32 @@ export function getCategoryIdForScene(scene: PhrasePackScene): string | null {
   return PHRASE_PACK_SCENE_OPTIONS.find((option) => option.id === scene)?.categoryId ?? null;
 }
 
+export function getCategoryIdsForScene(scene: PhrasePackScene): string[] {
+  if (scene === "casino") return ["poker-table", "floor"];
+  const categoryId = getCategoryIdForScene(scene);
+  return categoryId ? [categoryId] : [];
+}
+
+export function getSceneCategoryHint(scene: PhrasePackScene): string {
+  if (scene === "casino") {
+    return "カジノ: ポーカー卓・フロア手続き（categoryId は poker-table または floor）";
+  }
+  const label = getPhrasePackSceneLabel(scene);
+  const categoryId = getCategoryIdForScene(scene) ?? "other";
+  return `${label}: ${categoryId}`;
+}
+
 export function sanitizePhrasePackProfile(input: Partial<PhrasePackProfile>): PhrasePackProfile {
   const scenes = (input.scenes ?? [])
     .map((scene) => LEGACY_SCENE_MAP[scene] ?? scene)
-    .filter((scene): scene is PhrasePackScene => sceneIds.has(scene as PhrasePackScene))
-    .slice(0, PHRASE_PACK_SCENE_LIMIT);
+    .filter((scene): scene is PhrasePackScene => sceneIds.has(scene as PhrasePackScene));
 
-  const normalizedScenes = scenes.includes("auto")
+  const dedupedScenes = [...new Set(scenes)].slice(0, PHRASE_PACK_SCENE_LIMIT);
+
+  const normalizedScenes = dedupedScenes.includes("auto")
     ? (["auto"] as PhrasePackScene[])
-    : scenes.length
-      ? scenes
+    : dedupedScenes.length
+      ? dedupedScenes
       : (["auto"] as PhrasePackScene[]);
 
   const rawLevel = input.level;

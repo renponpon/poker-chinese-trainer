@@ -101,6 +101,75 @@ export async function countAiUsageToday(params: {
   return count ?? 0;
 }
 
+export async function countPhrasePackUsageToday(params: {
+  userId: string | null;
+  ipHash: string | null;
+  actorType: AiUsageActorType;
+  now?: Date;
+}): Promise<number | null> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return null;
+
+  const start = startOfUtcDay(params.now ?? new Date());
+  let query = supabase
+    .from("ai_usage_events")
+    .select("id", { count: "exact", head: true })
+    .eq("actor_type", params.actorType)
+    .eq("endpoint", "/api/phrase/generate-pack")
+    .eq("mode", "phrase_pack")
+    .eq("success", true)
+    .gte("created_at", start.toISOString());
+
+  if (params.userId) {
+    query = query.eq("user_id", params.userId);
+  } else if (params.ipHash) {
+    query = query.eq("ip_hash", params.ipHash);
+  } else {
+    return null;
+  }
+
+  const { count, error } = await query;
+  if (error) {
+    console.error("[ai_usage_events] phrase pack count failed", error);
+    return null;
+  }
+  return count ?? 0;
+}
+
+export async function isValidPhrasePackRequest(params: {
+  packRequestId: string;
+  actorType: AiUsageActorType;
+  userId: string | null;
+  ipHash: string | null;
+}): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return process.env.NODE_ENV !== "production";
+
+  let query = supabase
+    .from("ai_usage_events")
+    .select("id", { count: "exact", head: true })
+    .eq("request_id", params.packRequestId)
+    .eq("endpoint", "/api/phrase/generate-pack")
+    .eq("mode", "phrase_pack")
+    .eq("success", true)
+    .eq("actor_type", params.actorType);
+
+  if (params.userId) {
+    query = query.eq("user_id", params.userId);
+  } else if (params.ipHash) {
+    query = query.eq("ip_hash", params.ipHash);
+  } else {
+    return false;
+  }
+
+  const { count, error } = await query;
+  if (error) {
+    console.error("[ai_usage_events] phrase pack request lookup failed", error);
+    return false;
+  }
+  return (count ?? 0) > 0;
+}
+
 export async function recordAiUsageEvent(
   input: AiUsageEventInput,
 ): Promise<boolean> {

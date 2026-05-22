@@ -6,13 +6,15 @@ import {
   getPhrasePackLevelLabel,
   getPhrasePackSceneLabel,
   getPhrasePackToneLabel,
+  getSceneCategoryHint,
   sanitizePhrasePackProfile,
 } from "@/lib/personal-phrase-pack";
 import { detectDuplicateInList } from "@/lib/phrase-dedupe";
 import { recordAiUsageEvent } from "@/lib/server/supabase-admin";
 import {
-  assertWithinDailyAiLimit,
+  assertWithinPhrasePackDailyLimit,
   identifyRequestActor,
+  PhrasePackLimitError,
   UsageLimitError,
   UsageTrackingError,
   type RequestActor,
@@ -31,15 +33,8 @@ const ENDPOINT = "/api/phrase/generate-pack";
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
 const PACK_SIZE = 10;
 const GENERATE_TARGET = 12;
-const MAX_GENERATION_ATTEMPTS = 2;
-const REQUIRED_HEADINGS = [
-  "【単語分解と骨組み】",
-  "【使用する場面】",
-  "【他の自然な言い方】",
-  "【相手の想定返答】",
-  "【発音のコツ】",
-  "【類似・関連フレーズ】",
-];
+const MAX_PHRASE_ATTEMPTS = 2;
+const PHRASE_MAX_OUTPUT_TOKENS = 4096;
 const CATEGORY_IDS = new Set([
   "poker-table",
   "floor",
@@ -59,6 +54,14 @@ type GeneratePackRequest = {
 
 type GeneratedPackResponse = {
   phrases?: unknown;
+};
+
+type PhraseCore = {
+  direction: "ja-to-zh";
+  japanese: string;
+  chinese: string;
+  pinyin: string;
+  categoryId: string;
 };
 
 class ApiRouteError extends Error {
@@ -87,16 +90,12 @@ export async function POST(req: Request) {
     const payload = { profile, existingChinese };
     inputChars = JSON.stringify(payload).length;
 
-    await assertWithinDailyAiLimit(actor);
+    await assertWithinPhrasePackDailyLimit(actor);
 
-    const generated = await generatePack(profile, existingChinese);
+    const generated = await generatePhrasesOnly(profile, existingChinese);
     outputChars = generated.reduce(
       (sum, phrase) =>
-        sum +
-        phrase.japanese.length +
-        phrase.chinese.length +
-        phrase.pinyin.length +
-        phrase.explanation.length,
+        sum + phrase.japanese.length + phrase.chinese.length + phrase.pinyin.length,
       0,
     );
 
@@ -116,6 +115,7 @@ export async function POST(req: Request) {
       phrases: generated.map((phrase) => ({
         id: createId(),
         ...phrase,
+        explanation: "",
       })),
     });
   } catch (error) {
@@ -177,10 +177,10 @@ function parseExistingChinese(value: unknown): string[] {
     .slice(0, 50);
 }
 
-async function generatePack(
+async function generatePhrasesOnly(
   profile: PhrasePackProfile,
   existingChinese: string[],
-): Promise<GeneratedPhrasePackItem[]> {
+): Promise<PhraseCore[]> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new ApiRouteError("GEMINI_API_KEY が設定されていません", 500, "missing_gemini_api_key");
@@ -188,45 +188,34 @@ async function generatePack(
 
   const ai = new GoogleGenAI({ apiKey });
   let lastError: ApiRouteError | null = null;
+  let collected: PhraseCore[] = [];
+  const seenChinese = [...existingChinese];
 
-  for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt += 1) {
-    const prompt = buildPrompt(profile, existingChinese, attempt);
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        maxOutputTokens: 65536,
-      },
-    });
-
-    const text = response.text;
-    if (!text) {
-      lastError = new ApiRouteError(
-        "Gemini から空の応答が返りました",
-        502,
-        "empty_gemini_response",
-      );
-      continue;
-    }
-
+  for (let attempt = 1; attempt <= MAX_PHRASE_ATTEMPTS; attempt += 1) {
     try {
-      const parsed = parseGeneratedPack(text, profile);
-      if (parsed.length === PACK_SIZE) return parsed;
+      const missingCount = Math.max(0, PACK_SIZE - collected.length);
+      const targetCount = attempt === 1 ? GENERATE_TARGET : Math.max(missingCount + 2, 4);
+      const text = await callGemini(
+        ai,
+        buildPhrasesPrompt(profile, seenChinese, attempt, targetCount),
+        PHRASE_MAX_OUTPUT_TOKENS,
+      );
+      collected = mergePhraseResults(collected, parsePhrasesOnly(text, profile, seenChinese), seenChinese);
+      if (collected.length >= PACK_SIZE) {
+        return collected.slice(0, PACK_SIZE);
+      }
       lastError = new ApiRouteError(
         "10件のフレーズを作れませんでした。もう一度お試しください。",
         502,
         "invalid_phrase_count",
       );
     } catch (error) {
-      lastError =
-        error instanceof ApiRouteError
-          ? error
-          : new ApiRouteError(
-              "生成結果の解析に失敗しました",
-              502,
-              "invalid_gemini_response",
-            );
+      lastError = wrapParseError(error);
+      console.error("[/api/phrase/generate-pack] phrase parse failed", {
+        attempt,
+        code: lastError.code,
+        preview: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -237,29 +226,79 @@ async function generatePack(
   );
 }
 
-function buildPrompt(
+async function callGemini(
+  ai: GoogleGenAI,
+  prompt: string,
+  maxOutputTokens: number,
+): Promise<string> {
+  const response = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      maxOutputTokens,
+    },
+  });
+
+  const text = response.text;
+  if (!text) {
+    throw new ApiRouteError(
+      "Gemini から空の応答が返りました",
+      502,
+      "empty_gemini_response",
+    );
+  }
+  return text;
+}
+
+function mergePhraseResults(
+  current: PhraseCore[],
+  incoming: PhraseCore[],
+  seenChinese: string[],
+): PhraseCore[] {
+  const merged = [...current];
+  for (const phrase of incoming) {
+    if (merged.length >= PACK_SIZE) break;
+    if (detectDuplicateInList(phrase.chinese, seenChinese)) continue;
+    if (merged.some((item) => detectDuplicateInList(phrase.chinese, [item.chinese]))) continue;
+    seenChinese.push(phrase.chinese);
+    merged.push(phrase);
+  }
+  return merged;
+}
+
+function wrapParseError(error: unknown): ApiRouteError {
+  if (error instanceof ApiRouteError) return error;
+  return new ApiRouteError(
+    "生成結果の解析に失敗しました",
+    502,
+    "invalid_gemini_response",
+  );
+}
+
+function buildPhrasesPrompt(
   profile: PhrasePackProfile,
-  existingChinese: string[],
+  seenChinese: string[],
   attempt: number,
+  targetCount: number,
 ): string {
   const isAutoScene = profile.scenes.includes("auto");
   const sceneLabels = profile.scenes.map(getPhrasePackSceneLabel);
   const categoryHints = isAutoScene
     ? "お任せ: 食事・買い物・移動・ホテル・日常会話など、汎用的で使いやすい表現をバランスよく"
-    : profile.scenes
-        .map((scene) => `${getPhrasePackSceneLabel(scene)}: ${getCategoryIdForScene(scene) ?? "other"}`)
-        .join("\n- ");
+    : profile.scenes.map((scene) => getSceneCategoryHint(scene)).join("\n- ");
   const levelGuide = getLevelGuide(profile.level);
   const retryNote =
     attempt > 1
-      ? "\n重要: 前回は件数不足でした。必ず phrases 配列に12件入れてください。"
+      ? `\n重要: 前回は件数不足でした。不足分を含めて必ず phrases 配列に${targetCount}件入れてください。`
       : "";
 
   return `あなたは、中国語圏の実生活・旅行・仕事・ライブポーカーの現場で使う表現に詳しい実践的な中国語コーチです。
 
 目的:
-日本人ユーザーが近い将来そのまま口に出せる、中国語フレーズ${GENERATE_TARGET}件を作る。
+日本人ユーザーが近い将来そのまま口に出せる、中国語フレーズ${targetCount}件を作る。
 一般教材ではなく、ユーザー回答に合う具体的なパックにする。
+explanation はこの段階では不要。フレーズ本体だけ返す。
 ${retryNote}
 
 ユーザー回答:
@@ -272,33 +311,20 @@ ${retryNote}
 - ${categoryHints}
 
 既にユーザーが持つ中国語表現（重複して出さない）:
-${existingChinese.length ? existingChinese.map((item) => `- ${item}`).join("\n") : "- なし"}
+${seenChinese.length ? seenChinese.map((item) => `- ${item}`).join("\n") : "- なし"}
 
 生成ルール:
-- 必ず${GENERATE_TARGET}件作る
+- 必ず${targetCount}件作る
 - direction は全件 "ja-to-zh"
 - 中国語は簡体字、ピンインは声調記号付き
 - 日本語は自然な日本語で、ユーザーが言いたい内容にする
 - 中国語はユーザーのレベルに合わせる。初心者向けなら短く、仕事/生活レベルなら必要に応じて少し詳しくする
 - 言い方の希望を優先する。短く通じる/自然/丁寧/詳しく説明/おまかせを反映する
-- ${GENERATE_TARGET}件の意味を被らせない。言い換えだけで数を増やさない
+- ${targetCount}件の意味を被らせない。言い換えだけで数を増やさない
 - 場面が複数ある場合は、選ばれた場面にバランスよく配分する
 - categoryId は上のカテゴリ対応から選ぶ。迷う場合は "other"
 - 過度に乱暴・失礼・性的・差別的・政治的な表現は禁止
-
-explanation ルール:
-- explanation は必ず日本語
-- 以下の6つの見出しをこの表記のまま必ず含める
-  【単語分解と骨組み】
-  【使用する場面】
-  【他の自然な言い方】
-  【相手の想定返答】
-  【発音のコツ】
-  【類似・関連フレーズ】
-- 各セクションの間は必ず1行空ける
-- 各見出しは2〜4行程度に収める（省略しない）
-- 中国語（簡体字）を書いた場合は、必ず直後に半角括弧で声調記号付きピンインを添える
-- JSONを途中で切らない。phrases 配列は必ず ${GENERATE_TARGET} 件完結させる
+- JSONを途中で切らない。phrases 配列は必ず ${targetCount} 件完結させる
 
 必ずJSONのみを返す。Markdownコードブロックは禁止。
 {
@@ -308,36 +334,31 @@ explanation ルール:
       "japanese": "日本語",
       "chinese": "中国語（簡体字）",
       "pinyin": "ピンイン（声調記号付き）",
-      "categoryId": "restaurant",
-      "explanation": "日本語解説"
+      "categoryId": "restaurant"
     }
   ]
 }`;
 }
 
-function parseGeneratedPack(
+function parsePhrasesOnly(
   text: string,
   profile: PhrasePackProfile,
-): GeneratedPhrasePackItem[] {
+  seenChinese: string[],
+): PhraseCore[] {
   const parsed = extractJson(text) as GeneratedPackResponse;
   if (!Array.isArray(parsed.phrases)) {
     throw new ApiRouteError("生成結果に phrases が含まれていません", 502, "invalid_gemini_response");
   }
 
-  const fallbackCategory =
-    profile.scenes.find((scene) => scene !== "auto")
-      ? getCategoryIdForScene(profile.scenes.find((scene) => scene !== "auto") as PhrasePackScene)
-      : null;
-  const category = fallbackCategory ?? "other";
-  const output: GeneratedPhrasePackItem[] = [];
-  const previousChinese: string[] = [];
+  const fallbackCategory = getFallbackCategory(profile);
+  const output: PhraseCore[] = [];
+  const previousChinese = [...seenChinese];
 
   for (const raw of parsed.phrases) {
     if (output.length >= PACK_SIZE) break;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
     try {
-      const item = raw as Partial<GeneratedPhrasePackItem>;
-      const phrase = normalizeGeneratedPhrase(item, category);
+      const phrase = normalizePhraseCore(raw as Partial<GeneratedPhrasePackItem>, fallbackCategory);
       const duplicate = detectDuplicateInList(phrase.chinese, previousChinese);
       if (duplicate) continue;
       previousChinese.push(phrase.chinese);
@@ -348,6 +369,33 @@ function parseGeneratedPack(
   }
 
   return output;
+}
+
+function getFallbackCategory(profile: PhrasePackProfile): string {
+  const scene = profile.scenes.find((item) => item !== "auto");
+  if (!scene) return "other";
+  return getCategoryIdForScene(scene as PhrasePackScene) ?? "other";
+}
+
+function normalizePhraseCore(
+  item: Partial<GeneratedPhrasePackItem>,
+  fallbackCategory: string,
+): PhraseCore {
+  const japanese = normalizeText(item.japanese, "japanese", 120);
+  const chinese = normalizeText(item.chinese, "chinese", 80);
+  const pinyin = normalizeText(item.pinyin, "pinyin", 120);
+  const categoryId =
+    typeof item.categoryId === "string" && CATEGORY_IDS.has(item.categoryId)
+      ? item.categoryId
+      : fallbackCategory;
+
+  return {
+    direction: "ja-to-zh",
+    japanese,
+    chinese,
+    pinyin,
+    categoryId,
+  };
 }
 
 function getLevelGuide(level: PhrasePackProfile["level"]): string {
@@ -365,35 +413,6 @@ function getLevelGuide(level: PhrasePackProfile["level"]): string {
   }
 }
 
-function normalizeGeneratedPhrase(
-  item: Partial<GeneratedPhrasePackItem>,
-  fallbackCategory: string,
-): GeneratedPhrasePackItem {
-  const japanese = normalizeText(item.japanese, "japanese", 120);
-  const chinese = normalizeText(item.chinese, "chinese", 80);
-  const pinyin = normalizeText(item.pinyin, "pinyin", 120);
-  const explanation = normalizeText(item.explanation, "explanation", 4000);
-  for (const heading of REQUIRED_HEADINGS) {
-    if (!explanation.includes(heading)) {
-      throw new ApiRouteError("解説の形式が正しくありません", 502, "invalid_explanation");
-    }
-  }
-
-  const categoryId =
-    typeof item.categoryId === "string" && CATEGORY_IDS.has(item.categoryId)
-      ? item.categoryId
-      : fallbackCategory;
-
-  return {
-    direction: "ja-to-zh",
-    japanese,
-    chinese,
-    pinyin,
-    explanation,
-    categoryId,
-  };
-}
-
 function normalizeText(value: unknown, field: string, maxChars: number): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new ApiRouteError(`生成結果の ${field} が空です`, 502, "invalid_gemini_response");
@@ -402,13 +421,47 @@ function normalizeText(value: unknown, field: string, maxChars: number): string 
 }
 
 function extractJson(text: string): unknown {
-  const trimmed = text.trim();
-  const jsonStart = trimmed.indexOf("{");
-  const jsonEnd = trimmed.lastIndexOf("}");
-  if (jsonStart < 0 || jsonEnd < 0) {
+  const cleaned = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
+  const jsonStart = cleaned.indexOf("{");
+  if (jsonStart < 0) {
     throw new ApiRouteError("Gemini からの応答に JSON が見つかりません", 502, "invalid_gemini_response");
   }
-  return JSON.parse(trimmed.slice(jsonStart, jsonEnd + 1));
+
+  const candidates = [
+    cleaned.slice(jsonStart, cleaned.lastIndexOf("}") + 1),
+    cleaned.slice(jsonStart),
+    repairTruncatedJson(cleaned.slice(jsonStart)),
+  ].filter((candidate) => candidate.length > 1);
+
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
+}
+
+function repairTruncatedJson(text: string): string {
+  let repaired = text.trim();
+  repaired = repaired.replace(/,\s*"[^"]*"?\s*:?\s*"[^"]*$/, "");
+  repaired = repaired.replace(/,\s*\{[^}]*$/, "");
+  repaired = repaired.replace(/,\s*$/, "");
+
+  const openBraces = (repaired.match(/\{/g) ?? []).length;
+  const closeBraces = (repaired.match(/\}/g) ?? []).length;
+  const openBrackets = (repaired.match(/\[/g) ?? []).length;
+  const closeBrackets = (repaired.match(/\]/g) ?? []).length;
+
+  repaired += "]".repeat(Math.max(0, openBrackets - closeBrackets));
+  repaired += "}".repeat(Math.max(0, openBraces - closeBraces));
+  return repaired;
 }
 
 async function recordUsage(input: {
@@ -447,7 +500,11 @@ function normalizeRouteError(error: unknown): {
   if (error instanceof RequestValidationError) {
     return { status: error.status, code: error.code, message: error.message };
   }
-  if (error instanceof UsageLimitError || error instanceof UsageTrackingError) {
+  if (
+    error instanceof UsageLimitError ||
+    error instanceof UsageTrackingError ||
+    error instanceof PhrasePackLimitError
+  ) {
     return { status: error.status, code: error.code, message: error.message };
   }
   if (error instanceof ApiRouteError) {
@@ -459,4 +516,3 @@ function normalizeRouteError(error: unknown): {
     message: error instanceof Error ? error.message : "サーバーエラーが発生しました",
   };
 }
-

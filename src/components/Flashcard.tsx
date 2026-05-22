@@ -8,9 +8,10 @@ import type { Phrase, Score } from "@/lib/types";
 type FlashcardProps = {
   phrase: Phrase;
   onScore: (score: Score) => void;
+  explanationPending?: boolean;
 };
 
-export default function Flashcard({ phrase, onScore }: FlashcardProps) {
+export default function Flashcard({ phrase, onScore, explanationPending = false }: FlashcardProps) {
   const [isFlipped, setIsFlipped] = useState(false);
   const advanceTimeoutRef = useRef<number | null>(null);
   const isChinesePrompt = phrase.direction === "zh-to-ja";
@@ -126,13 +127,17 @@ export default function Flashcard({ phrase, onScore }: FlashcardProps) {
             )}
           </div>
 
-          {phrase.explanation && (
+          {phrase.explanation ? (
             <div
               className="mt-4 min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain whitespace-pre-wrap px-1 pb-2 text-left text-base leading-relaxed text-neutral-200"
             >
               {phrase.explanation}
             </div>
-          )}
+          ) : explanationPending ? (
+            <div className="mt-4 px-1 text-sm text-neutral-500">
+              解説を作成中...
+            </div>
+          ) : null}
         </div>
       </div>
 

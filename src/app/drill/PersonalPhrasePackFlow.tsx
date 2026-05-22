@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getAuthHeaders } from "@/lib/auth-headers";
-import { addLocalPhrase, loadNickname, loadOwnerKey } from "@/lib/local-phrases";
+import { addLocalPhrase } from "@/lib/local-phrases";
+import { enqueuePackExplanationJob } from "@/lib/pending-pack-explanations";
 import {
   PHRASE_PACK_DETAILS_MAX_CHARS,
   PHRASE_PACK_PROFILE_KEY,
@@ -10,7 +11,7 @@ import {
   PHRASE_PACK_LEVEL_OPTIONS,
   PHRASE_PACK_SCENE_OPTIONS,
   PHRASE_PACK_TONE_OPTIONS,
-  getCategoryIdForScene,
+  getCategoryIdsForScene,
   sanitizePhrasePackProfile,
 } from "@/lib/personal-phrase-pack";
 import {
@@ -50,6 +51,8 @@ const defaultProfile: PhrasePackProfile = {
   details: "",
 };
 
+const GENERATION_STEPS = [30, 65, 90, 98] as const;
+
 export default function PersonalPhrasePackFlow({
   phrases,
   buttonClassName,
@@ -59,8 +62,9 @@ export default function PersonalPhrasePackFlow({
   const [profile, setProfile] = useState<PhrasePackProfile>(defaultProfile);
   const [preview, setPreview] = useState<PreviewItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [packRequestId, setPackRequestId] = useState("");
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -74,9 +78,26 @@ export default function PersonalPhrasePackFlow({
   }, []);
 
   const categoryHints = useMemo(
-    () => profile.scenes.map((scene) => getCategoryIdForScene(scene)),
+    () => profile.scenes.flatMap((scene) => getCategoryIdsForScene(scene)),
     [profile.scenes],
   );
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingProgress(0);
+      return;
+    }
+
+    let step = 0;
+    setLoadingProgress(GENERATION_STEPS[0]);
+
+    const timer = window.setInterval(() => {
+      step = Math.min(step + 1, GENERATION_STEPS.length - 1);
+      setLoadingProgress(GENERATION_STEPS[step]);
+    }, 2500);
+
+    return () => window.clearInterval(timer);
+  }, [loading]);
 
   const handleSceneToggle = (scene: PhrasePackScene) => {
     setProfile((current) => {
@@ -106,6 +127,7 @@ export default function PersonalPhrasePackFlow({
     setLoading(true);
     setPreview([]);
     setSelectedIds(new Set());
+    setPackRequestId("");
 
     try {
       window.localStorage.setItem(PHRASE_PACK_PROFILE_KEY, JSON.stringify(normalized));
@@ -126,6 +148,13 @@ export default function PersonalPhrasePackFlow({
       if (!items.length) {
         throw new Error("生成結果が空でした。もう一度お試しください。");
       }
+
+      const requestId = typeof data.requestId === "string" ? data.requestId : "";
+      if (!requestId) {
+        throw new Error("生成結果の識別子が取得できませんでした。");
+      }
+
+      setPackRequestId(requestId);
       setPreview(items);
       setSelectedIds(
         new Set(
@@ -134,6 +163,7 @@ export default function PersonalPhrasePackFlow({
             .map((item) => item.id),
         ),
       );
+      setLoadingProgress(100);
     } catch (err) {
       setError(err instanceof Error ? err.message : "フレーズ生成に失敗しました");
     } finally {
@@ -141,16 +171,18 @@ export default function PersonalPhrasePackFlow({
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     const selected = preview.filter((item) => selectedIds.has(item.id));
     if (!selected.length) {
       setError("追加するフレーズを1つ以上選んでください。");
       return;
     }
+    if (!packRequestId) {
+      setError("フレーズパックの情報が見つかりません。もう一度作成してください。");
+      return;
+    }
 
-    setSaving(true);
     setError("");
-
     const createdAt = new Date().toISOString();
     const saved = [...selected].reverse().map((item) =>
       addLocalPhrase({
@@ -158,7 +190,7 @@ export default function PersonalPhrasePackFlow({
         japanese: item.japanese,
         chinese: item.chinese,
         pinyin: item.pinyin,
-        explanation: item.explanation,
+        explanation: "",
         audioUrl: null,
         createdAt,
         direction: "ja-to-zh",
@@ -169,27 +201,20 @@ export default function PersonalPhrasePackFlow({
       }),
     ).reverse();
 
+    void enqueuePackExplanationJob({
+      packRequestId,
+      phrases: saved,
+    });
+
     onSaved(saved);
     setOpen(false);
     setPreview([]);
+    setPackRequestId("");
+  };
 
-    try {
-      const authHeaders = await getAuthHeaders();
-      await fetch("/api/phrase/save-pack", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({
-          ownerKey: loadOwnerKey(),
-          nickname: loadNickname(),
-          phrases: saved,
-        }),
-        keepalive: true,
-      });
-    } catch (err) {
-      console.warn("[PersonalPhrasePackFlow] cloud save failed", err);
-    } finally {
-      setSaving(false);
-    }
+  const handleBackToQuestions = () => {
+    setPreview([]);
+    setPackRequestId("");
   };
 
   return (
@@ -202,22 +227,20 @@ export default function PersonalPhrasePackFlow({
           "rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-emerald-400"
         }
       >
-        フレーズを追加
+        追加
       </button>
 
       {open && (
         <div className="fixed inset-0 z-[100] flex items-end bg-black/70 p-3 sm:items-center sm:justify-center">
           <div className="max-h-[92vh] w-full overflow-y-auto rounded-3xl bg-neutral-950 p-4 shadow-2xl shadow-black/60 sm:max-w-2xl sm:p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-extrabold text-neutral-100">
-                  あなた用のフレーズを10個作ります
-                </h2>
-              </div>
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="min-w-0 flex-1 text-lg font-extrabold leading-snug text-neutral-100 sm:text-xl">
+                フレーズを作成します
+              </h2>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="rounded-full px-3 py-2 text-sm font-bold text-neutral-400 hover:bg-neutral-900 hover:text-neutral-100"
+                className="shrink-0 rounded-full px-3 py-2 text-sm font-bold text-neutral-400 hover:bg-neutral-900 hover:text-neutral-100"
               >
                 閉じる
               </button>
@@ -229,13 +252,15 @@ export default function PersonalPhrasePackFlow({
               </div>
             )}
 
-            {preview.length === 0 ? (
+            {loading ? (
+              <GenerationProgress progress={loadingProgress} />
+            ) : preview.length === 0 ? (
               <div className="mt-5 space-y-6">
                 <QuestionBlock
-                  title="どんな場面で使うフレーズを作りたいですか？"
+                  title="どんな場面で使いたいですか？"
                   hint="最大3つ"
                 >
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <div className="grid grid-cols-2 gap-2">
                     {PHRASE_PACK_SCENE_OPTIONS.map((option) => (
                       <ChoiceButton
                         key={option.id}
@@ -264,7 +289,7 @@ export default function PersonalPhrasePackFlow({
                   />
                 </QuestionBlock>
 
-                <QuestionBlock title="もう少し具体的に、どんな状況ですか？（スキップ可）">
+                <QuestionBlock title="具体的にどんな状況ですか？（スキップ可）">
                   <textarea
                     value={profile.details}
                     onChange={(event) =>
@@ -283,22 +308,22 @@ export default function PersonalPhrasePackFlow({
 
                 <button
                   type="button"
-                  disabled={loading || profile.scenes.length === 0}
+                  disabled={profile.scenes.length === 0}
                   onClick={handleGenerate}
                   className="w-full rounded-2xl bg-emerald-500 px-5 py-4 text-base font-extrabold text-neutral-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
                 >
-                  {loading ? "フレーズを生成中..." : "10個のフレーズを作る"}
+                  フレーズを作成
                 </button>
               </div>
             ) : (
               <div className="mt-5">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div className="text-sm text-neutral-400">
-                    追加したいフレーズを選んでください。
+                    追加したいフレーズを選んでください。保存後すぐドリルを始められます。
                   </div>
                   <button
                     type="button"
-                    onClick={() => setPreview([])}
+                    onClick={handleBackToQuestions}
                     className="text-sm font-bold text-neutral-400 hover:text-neutral-100"
                   >
                     質問に戻る
@@ -350,11 +375,11 @@ export default function PersonalPhrasePackFlow({
 
                 <button
                   type="button"
-                  disabled={saving || selectedIds.size === 0}
+                  disabled={selectedIds.size === 0}
                   onClick={handleSave}
                   className="mt-4 w-full rounded-2xl bg-emerald-500 px-5 py-4 text-base font-extrabold text-neutral-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
                 >
-                  {saving ? "保存中..." : `${selectedIds.size}件をドリルに追加`}
+                  {`${selectedIds.size}件をドリルに追加`}
                 </button>
               </div>
             )}
@@ -376,14 +401,29 @@ function QuestionBlock({
 }) {
   return (
     <section>
-      <div className="flex items-baseline justify-between gap-3">
-        <h3 className="text-base font-bold text-neutral-100">{title}</h3>
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <h3 className="text-sm font-bold leading-snug text-neutral-100 sm:text-base">
+          {title}
+        </h3>
         {hint && (
-          <span className="shrink-0 text-sm text-neutral-500">{hint}</span>
+          <span className="shrink-0 text-xs text-neutral-500 sm:text-sm">{hint}</span>
         )}
       </div>
       <div className="mt-3">{children}</div>
     </section>
+  );
+}
+
+function GenerationProgress({ progress }: { progress: number }) {
+  return (
+    <div className="mt-10 px-1 pb-6">
+      <div className="h-2 overflow-hidden rounded-full bg-neutral-900">
+        <div
+          className="h-full rounded-full bg-emerald-500 transition-all duration-700 ease-out"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -402,8 +442,8 @@ function ChoiceButton({
       onClick={onClick}
       className={
         selected
-          ? "rounded-2xl border border-emerald-400 bg-emerald-500/15 px-3 py-3 text-sm font-bold text-emerald-100"
-          : "rounded-2xl border border-neutral-800 bg-neutral-900 px-3 py-3 text-sm font-bold text-neutral-300 hover:border-neutral-600"
+          ? "rounded-2xl border border-emerald-400 bg-emerald-500/15 px-2.5 py-3 text-center text-xs font-bold leading-snug text-emerald-100 sm:px-3 sm:text-sm"
+          : "rounded-2xl border border-neutral-800 bg-neutral-900 px-2.5 py-3 text-center text-xs font-bold leading-snug text-neutral-300 hover:border-neutral-600 sm:px-3 sm:text-sm"
       }
     >
       {children}
@@ -433,9 +473,11 @@ function OptionList<T extends PhrasePackLevel | PhrasePackTone>({
               : "w-full rounded-2xl border border-neutral-800 bg-neutral-900 p-4 text-left hover:border-neutral-600"
           }
         >
-          <div className="text-sm font-bold text-neutral-100">{option.label}</div>
+          <div className="text-sm font-bold leading-snug text-neutral-100">{option.label}</div>
           {option.description && (
-            <div className="mt-1 text-sm text-neutral-500">{option.description}</div>
+            <div className="mt-1 text-xs leading-snug text-neutral-500 sm:text-sm">
+              {option.description}
+            </div>
           )}
         </button>
       ))}
@@ -452,6 +494,7 @@ function buildPreviewItems(items: GeneratedPackItem[], phrases: Phrase[]): Previ
     const duplicateKind = existingDuplicate.kind ?? packDuplicate;
     return {
       ...item,
+      explanation: "",
       duplicateKind,
       matchedChinese: existingDuplicate.matchedChinese,
     };
@@ -472,4 +515,3 @@ function toggleSelection(
     return next;
   });
 }
-

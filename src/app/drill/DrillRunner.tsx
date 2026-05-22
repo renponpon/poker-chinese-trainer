@@ -6,6 +6,14 @@ import Flashcard from "@/components/Flashcard";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { loadLocalPhrases, loadOwnerKey } from "@/lib/local-phrases";
 import {
+  getPendingExplanationIds,
+  isExplanationPending,
+  PENDING_EXPLANATIONS_CHANGED_EVENT,
+  PHRASE_UPDATED_EVENT,
+  refreshPhrasesFromStorage,
+  resumePendingPackJobs,
+} from "@/lib/pending-pack-explanations";
+import {
   applyScore,
   ensureSrsItems,
   getDuePhrases,
@@ -22,6 +30,7 @@ export default function DrillRunner() {
   const [hydrated, setHydrated] = useState(false);
   const [queue, setQueue] = useState<Phrase[]>([]);
   const [completed, setCompleted] = useState(0);
+  const [pendingExplanationIds, setPendingExplanationIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     primeSpeech();
@@ -33,7 +42,29 @@ export default function DrillRunner() {
     const due = getDuePhrases(localPhrases, stored);
     const shuffled = [...due].sort(() => Math.random() - 0.5);
     setQueue(shuffled);
+    setPendingExplanationIds(new Set(getPendingExplanationIds()));
+    resumePendingPackJobs();
     setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    const syncPhrases = () => {
+      const localPhrases = refreshPhrasesFromStorage();
+      setPhrases(localPhrases);
+      setQueue((prev) =>
+        prev.map((phrase) => localPhrases.find((item) => item.id === phrase.id) ?? phrase),
+      );
+    };
+    const syncPending = () => {
+      setPendingExplanationIds(new Set(getPendingExplanationIds()));
+    };
+
+    window.addEventListener(PHRASE_UPDATED_EVENT, syncPhrases);
+    window.addEventListener(PENDING_EXPLANATIONS_CHANGED_EVENT, syncPending);
+    return () => {
+      window.removeEventListener(PHRASE_UPDATED_EVENT, syncPhrases);
+      window.removeEventListener(PENDING_EXPLANATIONS_CHANGED_EVENT, syncPending);
+    };
   }, []);
 
   const total = useMemo(() => queue.length + completed, [queue.length, completed]);
@@ -86,6 +117,7 @@ export default function DrillRunner() {
     const nextItems = ensureSrsItems(nextPhrases, items);
     setItems(nextItems);
     setQueue((prev) => [...prev, ...newPhrases]);
+    setPendingExplanationIds(new Set(getPendingExplanationIds()));
   };
 
   if (!hydrated) {
@@ -201,7 +233,13 @@ export default function DrillRunner() {
       </div>
 
       <div className="min-h-0 flex-1">
-        <Flashcard phrase={current} onScore={handleScore} />
+        <Flashcard
+          phrase={current}
+          onScore={handleScore}
+          explanationPending={
+            pendingExplanationIds.has(current.id) || isExplanationPending(current.id)
+          }
+        />
       </div>
     </div>
   );

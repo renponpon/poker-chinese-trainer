@@ -42,8 +42,7 @@ export type GeneratedPhrase = {
 
 export type PhrasePackScene =
   | "auto"
-  | "poker-table"
-  | "floor"
+  | "casino"
   | "restaurant"
   | "shopping"
   | "transport"

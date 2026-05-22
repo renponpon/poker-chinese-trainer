@@ -1,8 +1,10 @@
 import { createHash } from "crypto";
 import {
   countAiUsageToday,
+  countPhrasePackUsageToday,
   getUserIdFromAccessToken,
   isUsageTrackingConfigured,
+  isValidPhrasePackRequest,
   type AiUsageActorType,
 } from "@/lib/server/supabase-admin";
 
@@ -33,8 +35,34 @@ export class UsageTrackingError extends Error {
   }
 }
 
+export class PhrasePackLimitError extends Error {
+  status = 429;
+  code = "phrase_pack_quota_exceeded";
+
+  constructor(isUser: boolean) {
+    super(
+      isUser
+        ? "本日のフレーズパック作成上限（4回）に達しました。明日またお試しください。"
+        : "本日のフレーズパック作成上限（2回）に達しました。ログインすると1日4回まで使えます。",
+    );
+    this.name = "PhrasePackLimitError";
+  }
+}
+
+export class PhrasePackRequestError extends Error {
+  status = 403;
+  code = "invalid_phrase_pack_request";
+
+  constructor() {
+    super("フレーズパックの生成記録が見つかりません。もう一度パックを作成してください。");
+    this.name = "PhrasePackRequestError";
+  }
+}
+
 const DEFAULT_GUEST_DAILY_LIMIT = 20;
 const DEFAULT_USER_DAILY_LIMIT = 100;
+const DEFAULT_GUEST_PHRASE_PACK_DAILY_LIMIT = 2;
+const DEFAULT_USER_PHRASE_PACK_DAILY_LIMIT = 4;
 
 export async function identifyRequestActor(
   req: Request,
@@ -80,6 +108,50 @@ export async function assertWithinDailyAiLimit(actor: RequestActor): Promise<num
   }
 
   return currentCount;
+}
+
+export function getPhrasePackDailyLimit(actor: RequestActor): number {
+  return actor.type === "user"
+    ? getPositiveIntEnv("PHRASE_PACK_USER_DAILY_LIMIT", DEFAULT_USER_PHRASE_PACK_DAILY_LIMIT)
+    : getPositiveIntEnv("PHRASE_PACK_GUEST_DAILY_LIMIT", DEFAULT_GUEST_PHRASE_PACK_DAILY_LIMIT);
+}
+
+export async function assertWithinPhrasePackDailyLimit(actor: RequestActor): Promise<number> {
+  const dailyLimit = getPhrasePackDailyLimit(actor);
+  const currentCount = await countPhrasePackUsageToday({
+    actorType: actor.type,
+    userId: actor.userId,
+    ipHash: actor.ipHash,
+  });
+
+  if (currentCount === null) {
+    if (process.env.NODE_ENV === "production" && !isUsageTrackingConfigured()) {
+      throw new UsageTrackingError();
+    }
+    console.warn("[usage-limits] Phrase pack tracking is not configured; allowing request in development.");
+    return 0;
+  }
+
+  if (currentCount >= dailyLimit) {
+    throw new PhrasePackLimitError(actor.type === "user");
+  }
+
+  return currentCount;
+}
+
+export async function assertValidPhrasePackRequest(
+  actor: RequestActor,
+  packRequestId: string,
+): Promise<void> {
+  const valid = await isValidPhrasePackRequest({
+    packRequestId,
+    actorType: actor.type,
+    userId: actor.userId,
+    ipHash: actor.ipHash,
+  });
+  if (!valid) {
+    throw new PhrasePackRequestError();
+  }
 }
 
 function getClientIp(req: Request): string {
