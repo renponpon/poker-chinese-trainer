@@ -14,6 +14,7 @@ import {
 } from "@/lib/srs";
 import { primeSpeech } from "@/lib/speech";
 import type { Phrase, Score, SrsItem } from "@/lib/types";
+import PersonalPhrasePackFlow from "./PersonalPhrasePackFlow";
 
 export default function DrillRunner() {
   const [phrases, setPhrases] = useState<Phrase[]>([]);
@@ -79,6 +80,14 @@ export default function DrillRunner() {
     setCompleted((c) => c + 1);
   };
 
+  const handlePackSaved = (newPhrases: Phrase[]) => {
+    const nextPhrases = [...newPhrases, ...phrases];
+    setPhrases(nextPhrases);
+    const nextItems = ensureSrsItems(nextPhrases, items);
+    setItems(nextItems);
+    setQueue((prev) => [...prev, ...newPhrases]);
+  };
+
   if (!hydrated) {
     return (
       <div className="flex min-h-[300px] items-center justify-center text-sm text-neutral-500">
@@ -96,12 +105,15 @@ export default function DrillRunner() {
         <div className="text-sm text-neutral-500">
           翻訳すると、保存したフレーズをあとで練習できます。
         </div>
-        <Link
-          href="/"
-          className="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-neutral-950 hover:bg-emerald-400"
-        >
-          翻訳する
-        </Link>
+        <div className="flex flex-wrap justify-center gap-2">
+          <PersonalPhrasePackFlow phrases={phrases} onSaved={handlePackSaved} />
+          <Link
+            href="/"
+            className="rounded-xl bg-neutral-950/80 px-5 py-3 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
+          >
+            翻訳する
+          </Link>
+        </div>
       </div>
     );
   }
@@ -115,12 +127,15 @@ export default function DrillRunner() {
         <div className="text-sm text-neutral-500">
           ライブラリから覚えたいフレーズを「ドリルに追加」できます。
         </div>
-        <Link
-          href="/library"
-          className="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-neutral-950 hover:bg-emerald-400"
-        >
-          ライブラリへ
-        </Link>
+        <div className="flex flex-wrap justify-center gap-2">
+          <PersonalPhrasePackFlow phrases={phrases} onSaved={handlePackSaved} />
+          <Link
+            href="/library"
+            className="rounded-xl bg-neutral-950/80 px-5 py-3 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
+          >
+            ライブラリへ
+          </Link>
+        </div>
       </div>
     );
   }
@@ -136,6 +151,11 @@ export default function DrillRunner() {
           {completed} 件をレビューしました。お疲れさま。
         </div>
         <div className="mt-2 flex gap-2">
+          <PersonalPhrasePackFlow
+            phrases={phrases}
+            onSaved={handlePackSaved}
+            buttonClassName="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-neutral-950 hover:bg-emerald-400"
+          />
           <Link
             href="/"
             className="rounded-xl bg-neutral-950/80 px-5 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-800"
@@ -154,14 +174,21 @@ export default function DrillRunner() {
           <h1 className="text-2xl font-extrabold text-neutral-100">
             今日のドリル
           </h1>
-          <div className="text-right text-sm text-neutral-500">
-            <span>
-              残り <span className="font-bold text-emerald-300">{queue.length}</span>{" "}
-              件 / 完了 {completed} 件
-            </span>
-            <span className="ml-3">
-              {total > 0 ? Math.round((completed / total) * 100) : 0}%
-            </span>
+          <div className="flex items-center gap-3">
+            <PersonalPhrasePackFlow
+              phrases={phrases}
+              onSaved={handlePackSaved}
+              buttonClassName="rounded-xl bg-neutral-900 px-3 py-2 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
+            />
+            <div className="text-right text-sm text-neutral-500">
+              <span>
+                残り <span className="font-bold text-emerald-300">{queue.length}</span>{" "}
+                件 / 完了 {completed} 件
+              </span>
+              <span className="ml-3">
+                {total > 0 ? Math.round((completed / total) * 100) : 0}%
+              </span>
+            </div>
           </div>
         </div>
       </div>

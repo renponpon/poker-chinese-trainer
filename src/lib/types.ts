@@ -40,6 +40,37 @@ export type GeneratedPhrase = {
   explanation: string;
 };
 
+export type PhrasePackScene =
+  | "auto"
+  | "poker-table"
+  | "floor"
+  | "restaurant"
+  | "shopping"
+  | "transport"
+  | "hotel"
+  | "work"
+  | "daily";
+
+export type PhrasePackLevel = "entry" | "basic" | "intermediate" | "advanced";
+
+export type PhrasePackTone =
+  | "short"
+  | "natural"
+  | "polite"
+  | "detailed"
+  | "auto";
+
+export type PhrasePackProfile = {
+  scenes: PhrasePackScene[];
+  level: PhrasePackLevel;
+  tone: PhrasePackTone;
+  details: string;
+};
+
+export type GeneratedPhrasePackItem = GeneratedPhrase & {
+  categoryId: string | null;
+};
+
 export type PhraseCategory = {
   id: string;
   label: string;
