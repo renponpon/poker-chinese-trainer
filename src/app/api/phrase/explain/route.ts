@@ -13,43 +13,12 @@ import {
 } from "@/lib/server/usage-limits";
 import { RequestValidationError } from "@/lib/server/validation";
 import type { PhraseDirection } from "@/lib/types";
+import { buildExplainRequestPrompt } from "@/lib/explanation-prompt";
 
 export const runtime = "nodejs";
 
 const ENDPOINT = "/api/phrase/explain";
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
-
-const EXPLANATION_PROMPT = `あなたは、マカオ・中国語圏での実生活、旅行・仕事会話に詳しい実践的な中国語コーチです。
-
-ユーザーには翻訳結果とピンインが表示済みです。
-あなたの仕事は、スマホで見返しやすい日本語解説だけを作ることです。
-
-ルール:
-- explanation は必ず日本語
-- 読みやすさを最優先し、短い文で適度に改行する
-- 各セクションの間は必ず1行空ける
-- 中国語（簡体字）を書いた場合は、必ず直後に半角括弧で声調記号付きピンインを添える
-- 必ず JSON のみを返す
-- JSON のキーは explanation のみ
-
-日→中の場合のセクション名（この表記をそのまま使う）:
-【単語分解と骨組み】
-【使用する場面】
-【他の自然な言い方】
-【相手の想定返答】
-【発音のコツ】
-【類似・関連フレーズ】
-
-中→日の場合のセクション名（この表記をそのまま使う）:
-【意味】
-【使用する場面】
-【返答するときの例】
-【発音のコツ】
-【類似・関連フレーズ】
-
-{
-  "explanation": "日本語の解説"
-}`;
 
 type ExplainRequest = {
   phraseId?: unknown;
@@ -98,7 +67,12 @@ export async function POST(req: Request) {
     const japanese = normalizeText(body.japanese, "japanese");
     const chinese = normalizeText(body.chinese, "chinese");
     const pinyin = normalizeText(body.pinyin, "pinyin", true);
-    const payload = JSON.stringify({ direction, japanese, chinese, pinyin });
+    const payload = buildExplainRequestPrompt({
+      direction,
+      japanese,
+      chinese,
+      pinyin,
+    });
     inputChars = payload.length;
 
     await assertWithinDailyAiLimit(actor);
@@ -111,7 +85,7 @@ export async function POST(req: Request) {
     const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
-      contents: `${EXPLANATION_PROMPT}\n\n翻訳結果:\n${payload}`,
+      contents: payload,
       config: { responseMimeType: "application/json" },
     });
     const text = response.text;

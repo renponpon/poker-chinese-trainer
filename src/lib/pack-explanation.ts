@@ -1,4 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
+import {
+  buildPackBatchExplanationPrompt,
+  buildPackSingleExplanationPrompt,
+} from "@/lib/explanation-prompt";
 
 export const PACK_EXPLANATION_GEMINI_MODEL = "gemini-3.1-flash-lite";
 export const PACK_EXPLANATION_BATCH_SIZE = 4;
@@ -48,7 +52,7 @@ async function generatePackExplanationBatch(
   try {
     const response = await ai.models.generateContent({
       model: PACK_EXPLANATION_GEMINI_MODEL,
-      contents: buildBatchExplanationPrompt(phrases),
+      contents: buildPackBatchExplanationPrompt(phrases),
       config: {
         responseMimeType: "application/json",
         maxOutputTokens: BATCH_EXPLANATION_MAX_OUTPUT_TOKENS,
@@ -76,7 +80,7 @@ export async function generatePackExplanation(
   try {
     const response = await ai.models.generateContent({
       model: PACK_EXPLANATION_GEMINI_MODEL,
-      contents: buildSingleExplanationPrompt(phrase),
+      contents: buildPackSingleExplanationPrompt(phrase),
       config: {
         responseMimeType: "application/json",
         maxOutputTokens: SINGLE_EXPLANATION_MAX_OUTPUT_TOKENS,
@@ -99,44 +103,6 @@ export async function generatePackExplanation(
   }
 
   return buildTemplateExplanation(phrase);
-}
-
-function buildBatchExplanationPrompt(phrases: PackExplanationInput[]): string {
-  const phraseList = phrases
-    .map(
-      (phrase, index) =>
-        `${index + 1}. 日本語: ${phrase.japanese}\n   中国語: ${phrase.chinese}\n   ピンイン: ${phrase.pinyin}`,
-    )
-    .join("\n");
-
-  return `あなたは、マカオ・中国語圏での実生活、旅行・仕事会話に詳しい実践的な中国語コーチです。
-
-次の${phrases.length}件のフレーズについて、スマホで見返しやすい日本語解説を作る。
-入力順と同じ順序で、必ず${phrases.length}件返す。
-
-フレーズ一覧:
-${phraseList}
-
-ルール:
-- explanation は必ず日本語
-- 各セクションの間は必ず1行空ける
-- 中国語（簡体字）を書いた場合は、必ず直後に半角括弧で声調記号付きピンインを添える
-- 各 explanation には以下の6見出しをこの表記のまま必ず含める
-  【単語分解と骨組み】
-  【使用する場面】
-  【他の自然な言い方】
-  【相手の想定返答】
-  【発音のコツ】
-  【類似・関連フレーズ】
-- 各見出しは2〜3行程度に収める
-- JSONを途中で切らない
-
-必ずJSONのみを返す。
-{
-  "explanations": [
-    { "explanation": "日本語解説" }
-  ]
-}`;
 }
 
 function parseBatchExplanations(
@@ -166,34 +132,6 @@ function parseBatchExplanations(
     output.push(explanation);
   }
   return output;
-}
-
-function buildSingleExplanationPrompt(phrase: PackExplanationInput): string {
-  return `あなたは、マカオ・中国語圏での実生活、旅行・仕事会話に詳しい実践的な中国語コーチです。
-
-次のフレーズについて、スマホで見返しやすい日本語解説を1件だけ作る。
-
-日本語: ${phrase.japanese}
-中国語: ${phrase.chinese}
-ピンイン: ${phrase.pinyin}
-
-ルール:
-- explanation は必ず日本語
-- 各セクションの間は必ず1行空ける
-- 中国語（簡体字）を書いた場合は、必ず直後に半角括弧で声調記号付きピンインを添える
-- 以下の6見出しをこの表記のまま必ず含める
-  【単語分解と骨組み】
-  【使用する場面】
-  【他の自然な言い方】
-  【相手の想定返答】
-  【発音のコツ】
-  【類似・関連フレーズ】
-- 各見出しは2〜3行程度に収める
-- 必ず JSON のみを返す
-
-{
-  "explanation": "日本語解説"
-}`;
 }
 
 export function buildTemplateExplanation(phrase: PackExplanationInput): string {
