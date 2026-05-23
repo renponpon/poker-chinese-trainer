@@ -1,11 +1,10 @@
 import { after, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { createId } from "@/lib/id";
-import { updatePhraseExplanation } from "@/lib/notion";
-import { getBearerToken, updateSupabasePhraseExplanation } from "@/lib/supabase";
+import { updatePhraseFollowUp } from "@/lib/notion";
+import { getBearerToken, updateSupabasePhraseFollowUp } from "@/lib/supabase";
 import { recordAiUsageEvent } from "@/lib/server/supabase-admin";
 import {
-  assertWithinDailyAiLimit,
   identifyRequestActor,
   UsageLimitError,
   UsageTrackingError,
@@ -67,6 +66,7 @@ export async function POST(req: Request) {
     const japanese = normalizeText(body.japanese, "japanese");
     const chinese = normalizeText(body.chinese, "chinese");
     const pinyin = normalizeText(body.pinyin, "pinyin", true);
+    const needsPinyin = !pinyin;
     const payload = buildExplainRequestPrompt({
       direction,
       japanese,
@@ -74,8 +74,6 @@ export async function POST(req: Request) {
       pinyin,
     });
     inputChars = payload.length;
-
-    await assertWithinDailyAiLimit(actor);
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -93,7 +91,7 @@ export async function POST(req: Request) {
       throw new ApiRouteError("Gemini から空の応答が返りました", 502, "empty_gemini_response");
     }
     outputChars = text.length;
-    const explanation = extractExplanation(text);
+    const { explanation, pinyin: generatedPinyin } = extractExplainResponse(text, needsPinyin);
 
     await recordUsage({
       requestId,
@@ -108,27 +106,40 @@ export async function POST(req: Request) {
     after(async () => {
       try {
         if (accessToken) {
-          const updated = await updateSupabasePhraseExplanation(
-            accessToken,
-            phraseId,
+          const updated = await updateSupabasePhraseFollowUp(accessToken, phraseId, {
             explanation,
-          );
+            pinyin: generatedPinyin,
+          });
           if (!updated) {
             await sleep(1000);
-            await updateSupabasePhraseExplanation(accessToken, phraseId, explanation);
+            await updateSupabasePhraseFollowUp(accessToken, phraseId, {
+              explanation,
+              pinyin: generatedPinyin,
+            });
           }
         }
-        const notionUpdated = await updatePhraseExplanation(phraseId, explanation);
+        const notionUpdated = await updatePhraseFollowUp(phraseId, {
+          explanation,
+          pinyin: generatedPinyin,
+        });
         if (!notionUpdated) {
           await sleep(1000);
-          await updatePhraseExplanation(phraseId, explanation);
+          await updatePhraseFollowUp(phraseId, {
+            explanation,
+            pinyin: generatedPinyin,
+          });
         }
       } catch (saveError) {
         console.error("[/api/phrase/explain] save error", { requestId, saveError });
       }
     });
 
-    return NextResponse.json({ requestId, phraseId, explanation });
+    return NextResponse.json({
+      requestId,
+      phraseId,
+      explanation,
+      ...(generatedPinyin ? { pinyin: generatedPinyin } : {}),
+    });
   } catch (error) {
     const normalized = normalizeRouteError(error);
     console.error("[/api/phrase/explain] error", {
@@ -156,7 +167,10 @@ export async function POST(req: Request) {
   }
 }
 
-function extractExplanation(text: string): string {
+function extractExplainResponse(
+  text: string,
+  needsPinyin: boolean,
+): { explanation: string; pinyin?: string } {
   const trimmed = text.trim();
   const jsonStart = trimmed.indexOf("{");
   const jsonEnd = trimmed.lastIndexOf("}");
@@ -165,11 +179,20 @@ function extractExplanation(text: string): string {
   }
   const parsed = JSON.parse(trimmed.slice(jsonStart, jsonEnd + 1)) as {
     explanation?: unknown;
+    pinyin?: unknown;
   };
   if (typeof parsed.explanation !== "string" || !parsed.explanation.trim()) {
     throw new ApiRouteError("解説の生成結果が空です", 502, "empty_explanation");
   }
-  return parsed.explanation.trim();
+  const explanation = parsed.explanation.trim();
+  const pinyin =
+    typeof parsed.pinyin === "string" && parsed.pinyin.trim()
+      ? parsed.pinyin.trim()
+      : undefined;
+  if (needsPinyin && !pinyin) {
+    console.warn("[/api/phrase/explain] pinyin missing in Gemini response");
+  }
+  return { explanation, pinyin };
 }
 
 function normalizeText(value: unknown, field: string, allowEmpty = false): string {

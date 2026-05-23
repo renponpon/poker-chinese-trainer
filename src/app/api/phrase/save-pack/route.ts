@@ -3,7 +3,7 @@ import { createPhrase } from "@/lib/notion";
 import { createSupabasePhrase, getBearerToken } from "@/lib/supabase";
 import { identifyRequestActor } from "@/lib/server/usage-limits";
 import { RequestValidationError } from "@/lib/server/validation";
-import type { Phrase } from "@/lib/types";
+import type { Phrase, PhraseDirection, PhraseSource } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -80,13 +80,24 @@ function normalizePhrases(value: unknown): Phrase[] {
       explanation: normalizeText(phrase.explanation, "explanation", 5000),
       audioUrl: null,
       createdAt: normalizeText(phrase.createdAt, "createdAt", 80),
-      direction: "ja-to-zh",
+      direction: normalizeDirection(phrase.direction),
       categoryId: normalizeOptionalText(phrase.categoryId, 64) ?? null,
-      shouldDrill: true,
-      source: "prototype",
-      usedAt: null,
+      shouldDrill: phrase.shouldDrill !== false,
+      source: normalizeSource(phrase.source),
+      usedAt: normalizeOptionalText(phrase.usedAt, 80) ?? null,
     };
   });
+}
+
+function normalizeDirection(value: unknown): PhraseDirection {
+  return value === "zh-to-ja" ? "zh-to-ja" : "ja-to-zh";
+}
+
+function normalizeSource(value: unknown): PhraseSource {
+  if (value === "conversation" || value === "manual" || value === "prototype") {
+    return value;
+  }
+  return "prototype";
 }
 
 function normalizeText(value: unknown, field: string, maxChars: number): string {

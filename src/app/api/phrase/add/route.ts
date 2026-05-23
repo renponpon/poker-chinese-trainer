@@ -4,6 +4,7 @@ import { createId } from "@/lib/id";
 import { createPhrase } from "@/lib/notion";
 import { createSupabasePhrase, getBearerToken } from "@/lib/supabase";
 import { translateWithAzure } from "@/lib/server/azure-translator";
+import { DEEPL_MODEL, translateWithDeepL } from "@/lib/server/deepl-translator";
 import { recordAiUsageEvent } from "@/lib/server/supabase-admin";
 import {
   assertWithinDailyAiLimit,
@@ -25,49 +26,9 @@ export const runtime = "nodejs";
 const ENDPOINT = "/api/phrase/add";
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
 const AZURE_TRANSLATOR_MODEL = "azure-translator-text-v3";
-type GenerationMode = "fast" | "full";
-type TranslationProvider = "azure" | "gemini";
-
-const FAST_SYSTEM_PROMPT = `あなたは実践的な中国語翻訳エンジンです。
-ユーザーは日本人のライブポーカープレイヤーです。
-
-目的:
-- とにかく速く、自然な普通話の中国語とピンインを返す
-- 解説は不要
-
-ルール:
-- 中国語は簡体字
-- ピンインは声調記号付き
-- 短く自然な現場表現を優先
-- 必ず JSON のみを返す
-
-{
-  "direction": "ja-to-zh",
-  "japanese": "ユーザー入力の日本語",
-  "chinese": "自然な中国語",
-  "pinyin": "ピンイン",
-  "explanation": ""
-}`;
-
-const FAST_ZH_TO_JA_PROMPT = `あなたは実践的な中国語翻訳エンジンです。
-ユーザーは聞き取った中国語の意味をすぐ知りたい日本人です。
-
-目的:
-- とにかく速く、自然な日本語訳とピンインを返す
-- 解説は不要
-
-ルール:
-- 中国語は簡体字に整える
-- ピンインは声調記号付き
-- 必ず JSON のみを返す
-
-{
-  "direction": "zh-to-ja",
-  "japanese": "自然な日本語訳",
-  "chinese": "入力中国語を自然に整えたもの",
-  "pinyin": "ピンイン",
-  "explanation": ""
-}`;
+import type { GenerationMode } from "@/lib/generation-mode";
+import { parseGenerationMode } from "@/lib/generation-mode";
+type TranslationProvider = "azure" | "deepl" | "gemini";
 
 const SYSTEM_PROMPT = `あなたは、マカオ・中国本土・台湾を含む中国語圏での実生活、ライブポーカー、カジノ、旅行会話に詳しい実践的な中国語コーチです。
 
@@ -90,6 +51,7 @@ const SYSTEM_PROMPT = `あなたは、マカオ・中国本土・台湾を含む
   ## 発音のコツ・注意点
   ## 類似・関連フレーズ
 - 各見出しは1〜3行で、短くても実践的にする
+- 画面上にすでに表示されている翻訳ペア（日本語↔中国語の全文対訳）を explanation 内で繰り返さない
 - explanation の中で中国語（簡体字）を書いた場合は、必ず直後に半角括弧で声調記号付きピンインを添えること。例外なし
   良い例: 「再来一杯(zài lái yī bēi)」「好的，马上来(hǎo de, mǎshàng lái)」
   悪い例: 「再来一杯」だけでピンインを省略する
@@ -121,6 +83,7 @@ const ZH_TO_JA_PROMPT = `あなたは、中国語圏で実生活・ライブポ�
   ## 返答するときの例
   ## 発音のコツ・注意点
   ## 類似・関連フレーズ
+- 画面上にすでに表示されている翻訳ペア（日本語↔中国語の全文対訳）を explanation 内で繰り返さない
 - explanation の中で中国語（簡体字）を書いた場合は、必ず直後に半角括弧で声調記号付きピンインを添えること
 
 必ず以下の JSON 形式のみを返答してください。前後の文章や Markdown コードブロックは禁止。
@@ -183,21 +146,13 @@ export async function POST(req: Request) {
     }
 
     validated = validatePhraseAddRequest(parseJsonObject(rawBody));
-    const generationMode: GenerationMode =
-      (rawBody as { generationMode?: unknown }).generationMode === "fast"
-        ? "fast"
-        : "full";
+    const generationMode = parseGenerationMode(
+      (rawBody as { generationMode?: unknown }).generationMode,
+    );
+    const persist = (rawBody as { persist?: unknown }).persist !== false;
     await assertWithinDailyAiLimit(actor);
 
-    const provider: TranslationProvider =
-      generationMode === "fast" ? "azure" : "gemini";
-    const generated =
-      provider === "azure"
-        ? await translateWithAzure({
-            direction: validated.direction,
-            text: validated.inputText,
-          })
-        : await generateWithGemini(validated, generationMode);
+    const { generated, provider } = await translateByMode(generationMode, validated);
     outputChars =
       generated.japanese.length +
       generated.chinese.length +
@@ -223,47 +178,49 @@ export async function POST(req: Request) {
       errorCode: null,
     });
 
-    after(async () => {
-      try {
-        const phrase = {
-          id: request.phraseId,
-          japanese: generated.japanese,
-          chinese: generated.chinese,
-          pinyin: generated.pinyin,
-          explanation: generated.explanation,
-          audioUrl: null,
-          direction: request.direction,
-          categoryId: request.categoryId,
-          shouldDrill: request.shouldDrill,
-          source: request.source,
-          usedAt: request.source === "conversation" ? new Date().toISOString() : null,
-        };
-        if (accessToken) {
-          await createSupabasePhrase(accessToken, phrase);
+    if (persist) {
+      after(async () => {
+        try {
+          const phrase = {
+            id: request.phraseId,
+            japanese: generated.japanese,
+            chinese: generated.chinese,
+            pinyin: generated.pinyin,
+            explanation: generated.explanation,
+            audioUrl: null,
+            direction: request.direction,
+            categoryId: request.categoryId,
+            shouldDrill: request.shouldDrill,
+            source: request.source,
+            usedAt: request.source === "conversation" ? new Date().toISOString() : null,
+          };
+          if (accessToken) {
+            await createSupabasePhrase(accessToken, phrase);
+          }
+          await createPhrase({
+            phraseId: request.phraseId,
+            japanese: generated.japanese,
+            chinese: generated.chinese,
+            pinyin: generated.pinyin,
+            explanation: generated.explanation,
+            ownerKey: request.ownerKey,
+            nickname: request.nickname,
+            direction: request.direction,
+            categoryId: request.categoryId,
+            shouldDrill: request.shouldDrill,
+            source: request.source,
+          });
+        } catch (saveError) {
+          console.error("[/api/phrase/add] save error", { requestId, saveError });
         }
-        await createPhrase({
-          phraseId: request.phraseId,
-          japanese: generated.japanese,
-          chinese: generated.chinese,
-          pinyin: generated.pinyin,
-          explanation: generated.explanation,
-          ownerKey: request.ownerKey,
-          nickname: request.nickname,
-          direction: request.direction,
-          categoryId: request.categoryId,
-          shouldDrill: request.shouldDrill,
-          source: request.source,
-        });
-      } catch (saveError) {
-        console.error("[/api/phrase/add] save error", { requestId, saveError });
-      }
-    });
+      });
+    }
 
     return NextResponse.json({
       id: request.phraseId,
       requestId,
       provider,
-      model: provider === "azure" ? AZURE_TRANSLATOR_MODEL : GEMINI_MODEL,
+      model: providerModel(provider),
       ...generated,
       audioUrl: null,
     });
@@ -321,13 +278,65 @@ async function recordUsage(input: {
     audioDurationMs: null,
     success: input.success,
     errorCode: input.errorCode,
-    model: input.provider === "azure" ? AZURE_TRANSLATOR_MODEL : GEMINI_MODEL,
+    model: input.provider ? providerModel(input.provider) : null,
   });
+}
+
+async function translateByMode(
+  mode: GenerationMode,
+  validated: ValidatedPhraseAddRequest,
+): Promise<{
+  generated: GeneratedPhrase;
+  provider: TranslationProvider;
+}> {
+  switch (mode) {
+    case "speed":
+      return {
+        generated: await translateWithAzure({
+          direction: validated.direction,
+          text: validated.inputText,
+          skipPinyin: true,
+        }),
+        provider: "azure",
+      };
+    case "normal":
+      return translateNormal(validated);
+    case "quality":
+      return {
+        generated: await generateWithGemini(validated),
+        provider: "gemini",
+      };
+  }
+}
+
+async function translateNormal(validated: ValidatedPhraseAddRequest): Promise<{
+  generated: GeneratedPhrase;
+  provider: Extract<TranslationProvider, "deepl" | "azure">;
+}> {
+  if (process.env.DEEPL_API_KEY) {
+    try {
+      const generated = await translateWithDeepL({
+        direction: validated.direction,
+        text: validated.inputText,
+      });
+      return { generated, provider: "deepl" };
+    } catch (error) {
+      console.warn("[/api/phrase/add] DeepL failed, falling back to Azure", {
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+  }
+
+  const generated = await translateWithAzure({
+    direction: validated.direction,
+    text: validated.inputText,
+    skipPinyin: true,
+  });
+  return { generated, provider: "azure" };
 }
 
 async function generateWithGemini(
   validated: ValidatedPhraseAddRequest,
-  generationMode: GenerationMode,
 ): Promise<GeneratedPhrase> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -336,13 +345,7 @@ async function generateWithGemini(
 
   const ai = new GoogleGenAI({ apiKey });
   const prompt =
-    generationMode === "fast"
-      ? validated.direction === "zh-to-ja"
-        ? FAST_ZH_TO_JA_PROMPT
-        : FAST_SYSTEM_PROMPT
-      : validated.direction === "zh-to-ja"
-        ? ZH_TO_JA_PROMPT
-        : SYSTEM_PROMPT;
+    validated.direction === "zh-to-ja" ? ZH_TO_JA_PROMPT : SYSTEM_PROMPT;
 
   const response = await ai.models.generateContent({
     model: GEMINI_MODEL,
@@ -357,6 +360,17 @@ async function generateWithGemini(
     throw new ApiRouteError("Gemini から空の応答が返りました", 502, "empty_gemini_response");
   }
   return extractJson(text);
+}
+
+function providerModel(provider: TranslationProvider): string {
+  switch (provider) {
+    case "deepl":
+      return DEEPL_MODEL;
+    case "azure":
+      return AZURE_TRANSLATOR_MODEL;
+    case "gemini":
+      return GEMINI_MODEL;
+  }
 }
 
 function normalizeRouteError(error: unknown): {

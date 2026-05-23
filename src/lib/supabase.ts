@@ -30,13 +30,33 @@ type SrsRow = {
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
+let browserClient: SupabaseClient | null = null;
+
 export function isSupabaseConfigured(): boolean {
   return Boolean(url && anonKey);
 }
 
 export function getBrowserSupabase(): SupabaseClient | null {
-  if (!isSupabaseConfigured()) return null;
-  return createClient(url!, anonKey!);
+  if (!isSupabaseConfigured() || typeof window === "undefined") return null;
+  if (!browserClient) {
+    browserClient = createClient(url!, anonKey!, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+        flowType: "pkce",
+      },
+    });
+  }
+  return browserClient;
+}
+
+export function getAuthCallbackUrl(): string {
+  if (typeof window !== "undefined") {
+    return `${window.location.origin}/auth/callback`;
+  }
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "");
+  return appUrl ? `${appUrl}/auth/callback` : "/auth/callback";
 }
 
 function getServerSupabase(accessToken?: string): SupabaseClient | null {
@@ -91,15 +111,30 @@ export async function updateSupabasePhraseExplanation(
   phraseId: string,
   explanation: string,
 ): Promise<boolean> {
+  return updateSupabasePhraseFollowUp(accessToken, phraseId, { explanation });
+}
+
+export async function updateSupabasePhraseFollowUp(
+  accessToken: string,
+  phraseId: string,
+  updates: { explanation: string; pinyin?: string },
+): Promise<boolean> {
   const supabase = getServerSupabase(accessToken);
   if (!supabase) return false;
 
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError || !userData.user) return false;
 
+  const payload: { explanation: string; pinyin?: string } = {
+    explanation: updates.explanation,
+  };
+  if (updates.pinyin) {
+    payload.pinyin = updates.pinyin;
+  }
+
   const { data, error } = await supabase
     .from("phrases")
-    .update({ explanation })
+    .update(payload)
     .eq("id", phraseId)
     .eq("user_id", userData.user.id)
     .select("id");

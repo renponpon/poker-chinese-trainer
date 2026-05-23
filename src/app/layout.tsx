@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import AuthSessionKeeper from "@/components/AuthSessionKeeper";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,7 +20,10 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="ja">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <AuthSessionKeeper />
+        {children}
+      </body>
     </html>
   );
 }

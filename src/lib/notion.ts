@@ -213,6 +213,13 @@ export async function updatePhraseExplanation(
   phraseId: string,
   explanation: string,
 ): Promise<boolean> {
+  return updatePhraseFollowUp(phraseId, { explanation });
+}
+
+export async function updatePhraseFollowUp(
+  phraseId: string,
+  updates: { explanation: string; pinyin?: string },
+): Promise<boolean> {
   if (!notion || !databaseId || !phraseId) return false;
 
   await ensureOwnerProperties();
@@ -230,11 +237,16 @@ export async function updatePhraseExplanation(
   const page = response.results[0] as { id?: string } | undefined;
   if (!page?.id) return false;
 
+  const properties: Record<string, unknown> = {
+    Grammar: { rich_text: [{ text: { content: updates.explanation } }] },
+  };
+  if (updates.pinyin) {
+    properties.Pinyin = { rich_text: [{ text: { content: updates.pinyin } }] };
+  }
+
   await notion.pages.update({
     page_id: page.id,
-    properties: {
-      Grammar: { rich_text: [{ text: { content: explanation } }] },
-    } as never,
+    properties: properties as never,
   });
   return true;
 }

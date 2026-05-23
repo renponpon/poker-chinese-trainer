@@ -138,18 +138,20 @@ export function buildTemplateExplanation(phrase: PackExplanationInput): string {
   return ensureExplanationHeadings("", phrase);
 }
 
+const PLACEHOLDER = "（未生成）";
+
 function ensureExplanationHeadings(
   explanation: string,
   phrase: PackExplanationInput,
 ): string {
   let result = explanation.trim();
   if (!result) {
-    result = `【単語分解と骨組み】\n${phrase.japanese} → ${phrase.chinese}（${phrase.pinyin}）`;
+    result = `【単語分解と骨組み】\n${PLACEHOLDER}`;
   }
 
   for (const heading of REQUIRED_HEADINGS) {
     if (!result.includes(heading)) {
-      result += `\n\n${heading}\n${phrase.japanese} → ${phrase.chinese}（${phrase.pinyin}）`;
+      result += `\n\n${heading}\n${PLACEHOLDER}`;
     }
   }
 

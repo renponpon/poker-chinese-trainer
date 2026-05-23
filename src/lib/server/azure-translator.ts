@@ -26,14 +26,17 @@ type AzureTransliterationResponse = Array<{
 export async function translateWithAzure(input: {
   direction: PhraseDirection;
   text: string;
+  skipPinyin?: boolean;
 }): Promise<GeneratedPhrase> {
   const translated = await translateText(input);
   const chinese = input.direction === "ja-to-zh" ? translated : input.text;
   const japanese = input.direction === "ja-to-zh" ? input.text : translated;
-  const pinyin = await transliterateChinese(chinese).catch((error) => {
-    console.warn("[azure-translator] transliteration failed", error);
-    return "";
-  });
+  const pinyin = input.skipPinyin
+    ? ""
+    : await transliterateChinesePinyin(chinese).catch((error) => {
+        console.warn("[azure-translator] transliteration failed", error);
+        return "";
+      });
 
   return {
     direction: input.direction,
@@ -74,7 +77,7 @@ async function translateText(input: {
   return translated;
 }
 
-async function transliterateChinese(chinese: string): Promise<string> {
+export async function transliterateChinesePinyin(chinese: string): Promise<string> {
   if (!chinese.trim()) return "";
 
   const key = getRequiredEnv("AZURE_TRANSLATOR_KEY");

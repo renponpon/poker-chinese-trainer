@@ -1,5 +1,6 @@
 import type { Phrase, PhraseCategory } from "./types";
 import { createId } from "./id";
+import { loadSrsData, saveSrsData } from "./srs";
 import { STARTER_PHRASES } from "./starter-phrases";
 
 const PHRASES_KEY = "poker-chinese-local-phrases-v1";
@@ -106,6 +107,11 @@ export function updateLocalPhrase(id: string, updates: Partial<Phrase>): Phrase[
 export function deleteLocalPhrase(id: string): void {
   const current = loadLocalPhrases();
   saveLocalPhrases(current.filter((phrase) => phrase.id !== id));
+}
+
+export function deleteLocalPhraseAndSrs(id: string): void {
+  deleteLocalPhrase(id);
+  saveSrsData(loadSrsData().filter((item) => item.id !== id));
 }
 
 export function loadPhraseCategories(): PhraseCategory[] {

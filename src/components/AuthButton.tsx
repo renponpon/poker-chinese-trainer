@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { getBrowserSupabase, isSupabaseConfigured } from "@/lib/supabase";
+import { getBrowserSupabase, getAuthCallbackUrl, isSupabaseConfigured } from "@/lib/supabase";
 
 export default function AuthButton() {
   const [open, setOpen] = useState(false);
@@ -16,9 +16,9 @@ export default function AuthButton() {
     const supabase = getBrowserSupabase();
     if (!supabase) return;
 
-    void supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user);
-      setEmail(data.user?.email ?? "");
+    void supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
+      setEmail(data.session?.user?.email ?? "");
     });
 
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -67,8 +67,7 @@ export default function AuthButton() {
     const { error } = await supabase.auth.signInWithOtp({
       email: nextEmail,
       options: {
-        emailRedirectTo:
-          process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin,
+        emailRedirectTo: getAuthCallbackUrl(),
       },
     });
     setStatus(
@@ -81,7 +80,7 @@ export default function AuthButton() {
   const handleLogout = async () => {
     const supabase = getBrowserSupabase();
     if (supabase) {
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
     }
     setUser(null);
     setStatus(null);

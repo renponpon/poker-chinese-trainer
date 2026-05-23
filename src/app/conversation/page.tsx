@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import BottomNav from "@/components/BottomNav";
+import GenerationModeToggle from "@/components/GenerationModeToggle";
 import { getAuthHeaders } from "@/lib/auth-headers";
+import type { GenerationMode } from "@/lib/generation-mode";
 import { createId } from "@/lib/id";
-import { addLocalPhrase, loadNickname, loadOwnerKey } from "@/lib/local-phrases";
-import SpeechPlayButton from "@/components/SpeechPlayButton";
-import { playChinese, playJapanese, primeSpeech } from "@/lib/speech";
+import { addLocalPhrase, loadLocalPhrases, loadNickname, loadOwnerKey, updateLocalPhrase } from "@/lib/local-phrases";
+import { ensureSrsItems, loadSrsData } from "@/lib/srs";
+import { playChinese, playJapanese, primeSpeech, stopSpeech } from "@/lib/speech";
 import type { SpeechPlayOptions } from "@/lib/speech";
 import {
   getSpeechRecognitionErrorMessage,
@@ -18,17 +20,20 @@ import {
 } from "@/lib/speech-recognition";
 import { useHighAccuracySpeech } from "@/lib/use-high-accuracy-speech";
 import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
-import type { PhraseDirection } from "@/lib/types";
+import type { PhraseDirection, Phrase } from "@/lib/types";
 
 type Speaker = "ja" | "zh";
 
 type Message = {
   id: string;
   speaker: Speaker;
+  direction: PhraseDirection;
   japanese: string;
   chinese: string;
   pinyin: string;
+  explanation: string;
   provider?: string;
+  inDrill?: boolean;
 };
 
 type SpeechRecognitionEvent = Event & {
@@ -64,12 +69,17 @@ export default function ConversationPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [speaker, setSpeaker] = useState<Speaker>("ja");
+  const [generationMode, setGenerationMode] = useState<GenerationMode>("speed");
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState<Speaker | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ownerKey] = useState(() => loadOwnerKey());
   const [nickname] = useState(() => loadNickname());
   const [inputFocused, setInputFocused] = useState(false);
+  const [selectingForDrill, setSelectingForDrill] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [addingToDrill, setAddingToDrill] = useState(false);
+  const [drillAddError, setDrillAddError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const translatingRef = useRef(false);
   const suppressSpeechErrorRef = useRef(false);
@@ -133,10 +143,10 @@ export default function ConversationPage() {
           ownerKey,
           nickname,
           phraseId,
-          categoryId: "conversation",
-          shouldDrill: false,
+          shouldDrill: true,
           source: "conversation",
-          generationMode: "fast",
+          generationMode,
+          persist: false,
         }),
       });
       const data = await res.json();
@@ -144,29 +154,18 @@ export default function ConversationPage() {
         throw new Error(data.error ?? "翻訳に失敗しました");
       }
 
-      addLocalPhrase({
-        id: phraseId,
-        direction,
-        japanese: data.japanese,
-        chinese: data.chinese,
-        pinyin: data.pinyin,
-        explanation: data.explanation,
-        audioUrl: null,
-        categoryId: "conversation",
-        shouldDrill: false,
-        source: "conversation",
-        usedAt: new Date().toISOString(),
-      });
-
       setMessages((current) => [
         ...current,
         {
           id: phraseId,
           speaker: source,
+          direction,
           japanese: data.japanese,
           chinese: data.chinese,
-          pinyin: data.pinyin,
+          pinyin: data.pinyin ?? "",
+          explanation: data.explanation ?? "",
           provider: data.provider,
+          inDrill: false,
         },
       ]);
       setDraft("");
@@ -175,6 +174,156 @@ export default function ConversationPage() {
     } finally {
       translatingRef.current = false;
       setLoading(false);
+    }
+  };
+
+  const startDrillSelection = () => {
+    const byId = new Map(loadLocalPhrases().map((phrase) => [phrase.id, phrase]));
+    setMessages((current) =>
+      current.map((message) => {
+        const stored = byId.get(message.id);
+        return {
+          ...message,
+          inDrill: stored?.shouldDrill ?? message.inDrill ?? false,
+          pinyin: stored?.pinyin ?? message.pinyin,
+          explanation: stored?.explanation ?? message.explanation,
+        };
+      }),
+    );
+    setSelectedIds(new Set());
+    setDrillAddError(null);
+    setSelectingForDrill(true);
+  };
+
+  const cancelDrillSelection = () => {
+    setSelectingForDrill(false);
+    setSelectedIds(new Set());
+    setDrillAddError(null);
+  };
+
+  const togglePhraseSelection = (id: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const enrichPhraseForDrill = async (
+    message: Message,
+    authHeaders: Record<string, string>,
+  ): Promise<Phrase> => {
+    let pinyin = message.pinyin;
+    let explanation = message.explanation;
+    const needsEnrich = !pinyin.trim() || !explanation.trim();
+
+    if (needsEnrich) {
+      const res = await fetch("/api/phrase/explain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({
+          phraseId: message.id,
+          direction: message.direction,
+          japanese: message.japanese,
+          chinese: message.chinese,
+          pinyin: message.pinyin,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? "解説生成に失敗しました");
+      }
+      if (data.pinyin) pinyin = data.pinyin;
+      explanation = data.explanation ?? explanation;
+    }
+
+    const existing = loadLocalPhrases().some((phrase) => phrase.id === message.id);
+    if (existing) {
+      updateLocalPhrase(message.id, {
+        shouldDrill: true,
+        pinyin,
+        explanation,
+      });
+      return loadLocalPhrases().find((phrase) => phrase.id === message.id)!;
+    }
+
+    return addLocalPhrase({
+      id: message.id,
+      direction: message.direction,
+      japanese: message.japanese,
+      chinese: message.chinese,
+      pinyin,
+      explanation,
+      audioUrl: null,
+      categoryId: null,
+      shouldDrill: true,
+      source: "conversation",
+      usedAt: new Date().toISOString(),
+    });
+  };
+
+  const persistPhrasesToCloud = async (
+    phrases: Phrase[],
+    authHeaders: Record<string, string>,
+  ) => {
+    const chunkSize = 10;
+    for (let index = 0; index < phrases.length; index += chunkSize) {
+      const chunk = phrases.slice(index, index + chunkSize);
+      const res = await fetch("/api/phrase/save-pack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({
+          ownerKey,
+          nickname,
+          phrases: chunk,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? "クラウドへの保存に失敗しました");
+      }
+    }
+  };
+
+  const handleAddSelectedToDrill = async () => {
+    const targets = messages.filter(
+      (message) => selectedIds.has(message.id) && !message.inDrill,
+    );
+    if (targets.length === 0) return;
+
+    setAddingToDrill(true);
+    setDrillAddError(null);
+
+    try {
+      const authHeaders = await getAuthHeaders();
+      const savedPhrases: Phrase[] = [];
+      for (const message of targets) {
+        const phrase = await enrichPhraseForDrill(message, authHeaders);
+        savedPhrases.push(phrase);
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === message.id
+              ? {
+                  ...item,
+                  inDrill: true,
+                  pinyin: phrase.pinyin,
+                  explanation: phrase.explanation,
+                }
+              : item,
+          ),
+        );
+      }
+      ensureSrsItems(loadLocalPhrases(), loadSrsData());
+      await persistPhrasesToCloud(savedPhrases, authHeaders);
+      setSelectedIds(new Set());
+      setSelectingForDrill(false);
+    } catch (err) {
+      setDrillAddError(
+        err instanceof Error ? err.message : "ドリルへの追加に失敗しました",
+      );
+    } finally {
+      setAddingToDrill(false);
     }
   };
 
@@ -318,7 +467,7 @@ export default function ConversationPage() {
   return (
     <main
       className={`flex min-h-screen flex-col bg-neutral-950 px-5 pt-8 transition-[padding] duration-200 ${
-        inputFocused ? "pb-4" : "pb-28"
+        inputFocused ? "pb-4" : "pb-[5.5rem]"
       }`}
     >
       <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col">
@@ -331,27 +480,56 @@ export default function ConversationPage() {
           </h1>
           <button
             type="button"
-            onClick={() => setMessages([])}
-            className="text-right text-lg font-bold text-neutral-400 hover:text-neutral-100"
+            onClick={selectingForDrill ? cancelDrillSelection : startDrillSelection}
+            disabled={!selectingForDrill && messages.length === 0}
+            className="text-right text-lg font-bold text-neutral-400 transition hover:text-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            会話を消去
+            {selectingForDrill ? "キャンセル" : "ドリルに追加"}
           </button>
         </header>
 
-        <div className="mt-5 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pb-4">
+        <div className="mt-5 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pb-2">
           {messages.length === 0 ? (
-            <div className="flex h-full min-h-[180px] items-center justify-center text-center text-lg leading-relaxed text-neutral-500">
+            <p className="px-2 pt-1 text-center text-lg leading-relaxed text-neutral-500">
               日本語/中国語を切り替えて話すと、
               <br />
               その場で交互に翻訳できます。
-            </div>
+            </p>
           ) : (
             messages.map((message) => (
-              <ConversationBubble key={message.id} message={message} />
+              <ConversationBubble
+                key={message.id}
+                message={message}
+                selectingForDrill={selectingForDrill}
+                selected={selectedIds.has(message.id)}
+                onToggleSelect={() => togglePhraseSelection(message.id)}
+              />
             ))
           )}
         </div>
 
+        {selectingForDrill && (
+          <div className="mb-3 shrink-0 rounded-2xl bg-neutral-900/80 px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-neutral-400">
+                {selectedIds.size}件選択
+              </span>
+              <button
+                type="button"
+                onClick={() => void handleAddSelectedToDrill()}
+                disabled={selectedIds.size === 0 || addingToDrill}
+                className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-bold text-neutral-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {addingToDrill ? "追加中..." : "ドリルに追加"}
+              </button>
+            </div>
+            {drillAddError && (
+              <p className="mt-2 text-sm text-red-300">{drillAddError}</p>
+            )}
+          </div>
+        )}
+
+        <div className="mt-auto shrink-0">
         {(error || highAccuracySpeech.error) && (
           <div className="mb-3 rounded-2xl bg-red-900/20 px-4 py-3 text-base text-red-200">
             <div>
@@ -374,7 +552,7 @@ export default function ConversationPage() {
         )}
 
         <div className="shrink-0 overflow-hidden rounded-[28px] bg-neutral-900/80">
-          <div className="grid grid-cols-[1fr_auto_1fr] items-center bg-neutral-950/70 px-4 py-1.5 text-base font-bold">
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center bg-neutral-950/70 px-4 py-3 text-base font-bold">
             <button
               type="button"
               onClick={() => setSpeaker("ja")}
@@ -406,8 +584,8 @@ export default function ConversationPage() {
               中国語
             </button>
           </div>
-          <div className="px-5 pt-3">
-            <div className="mb-2 flex items-center justify-between text-base font-bold text-neutral-300">
+          <div className="px-5 pt-5">
+            <div className="mb-3 flex items-center justify-between text-base font-bold text-neutral-300">
               <span>{speaker === "ja" ? "日本語" : "中国語"}</span>
               <button
                 type="button"
@@ -427,17 +605,21 @@ export default function ConversationPage() {
               className="w-full resize-none bg-transparent text-2xl leading-relaxed text-neutral-100 placeholder:text-neutral-600 focus:outline-none"
             />
           </div>
-          <div className="mt-1 grid grid-cols-2 bg-neutral-950/30 text-emerald-300">
+          <div className="mt-3 grid grid-cols-2 bg-neutral-950/30 text-emerald-300">
             <button
               type="button"
               onClick={() => translate(draft, speaker)}
               disabled={loading || !draft.trim()}
               aria-label="送信"
-              className="flex min-h-14 flex-col items-center justify-center gap-1 text-emerald-300 transition hover:bg-neutral-950/50 active:bg-neutral-950/70 disabled:cursor-not-allowed disabled:text-neutral-600"
+              className="flex min-h-20 flex-col items-center justify-center gap-1 text-emerald-300 transition hover:bg-neutral-950/50 active:bg-neutral-950/70 disabled:cursor-not-allowed disabled:text-neutral-600"
             >
               <SendIcon />
               <span className="text-xs font-bold">
-                {loading ? "送信中" : "送信"}
+                {loading
+                  ? generationMode === "quality"
+                    ? "品質生成中"
+                    : "送信中"
+                  : "送信"}
               </span>
             </button>
             <button
@@ -446,7 +628,7 @@ export default function ConversationPage() {
               disabled={loading || highAccuracySpeech.transcribing}
               aria-label="音声入力"
               aria-pressed={listening === speaker || highAccuracySpeech.recording}
-              className={`flex min-h-14 flex-col items-center justify-center gap-1 transition disabled:cursor-not-allowed disabled:text-neutral-600 ${
+              className={`flex min-h-20 flex-col items-center justify-center gap-1 transition disabled:cursor-not-allowed disabled:text-neutral-600 ${
                 listening === speaker || highAccuracySpeech.recording
                   ? "bg-emerald-500 text-neutral-950"
                   : "text-emerald-300 hover:bg-neutral-950/50 active:bg-neutral-950/70"
@@ -463,14 +645,38 @@ export default function ConversationPage() {
             </button>
           </div>
         </div>
+
+        <div className="-mt-1">
+          <div className="flex items-center justify-end rounded-2xl bg-neutral-950/50 px-3 py-2">
+            <GenerationModeToggle
+              value={generationMode}
+              onChange={setGenerationMode}
+            />
+          </div>
+        </div>
+        </div>
       </div>
       <BottomNav />
     </main>
   );
 }
 
-function ConversationBubble({ message }: { message: Message }) {
+function ConversationBubble({
+  message,
+  selectingForDrill = false,
+  selected = false,
+  onToggleSelect,
+}: {
+  message: Message;
+  selectingForDrill?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+}) {
   const isJapaneseSpeaker = message.speaker === "ja";
+  const [playing, setPlaying] = useState(false);
+  const playingRef = useRef(false);
+  const selectable = selectingForDrill && !message.inDrill;
+
   const play = useCallback(
     (options: SpeechPlayOptions) => {
       if (isJapaneseSpeaker) {
@@ -481,18 +687,95 @@ function ConversationBubble({ message }: { message: Message }) {
     },
     [isJapaneseSpeaker, message.chinese, message.japanese],
   );
+
+  useEffect(() => {
+    return () => {
+      if (playingRef.current) {
+        stopSpeech();
+      }
+    };
+  }, []);
+
+  const handleCardClick = () => {
+    if (selectable) {
+      onToggleSelect?.();
+      return;
+    }
+    if (selectingForDrill) return;
+
+    if (playingRef.current) {
+      stopSpeech();
+      playingRef.current = false;
+      setPlaying(false);
+      return;
+    }
+
+    playingRef.current = true;
+    setPlaying(true);
+    play({
+      onEnd: () => {
+        playingRef.current = false;
+        setPlaying(false);
+      },
+    });
+  };
+
   const primaryText = isJapaneseSpeaker ? message.japanese : message.chinese;
   const translatedText = isJapaneseSpeaker ? message.chinese : message.japanese;
   const textClass = "text-2xl font-bold leading-snug";
+  const playLabel = isJapaneseSpeaker
+    ? `中国語訳「${message.chinese}」を再生`
+    : `日本語訳「${message.japanese}」を再生`;
+
   return (
     <div className={`flex ${isJapaneseSpeaker ? "justify-start" : "justify-end"}`}>
-      <div
-        className={`max-w-[82%] rounded-[26px] px-5 py-4 ${
+      <button
+        type="button"
+        onClick={handleCardClick}
+        disabled={selectingForDrill && Boolean(message.inDrill)}
+        aria-label={
+          selectable
+            ? selected
+              ? "選択を解除"
+              : "ドリルに追加するフレーズとして選択"
+            : playing
+              ? "再生を停止"
+              : playLabel
+        }
+        aria-pressed={selectable ? selected : playing}
+        className={`relative max-w-[82%] rounded-[26px] px-5 py-4 text-left transition active:scale-[0.98] ${
           isJapaneseSpeaker
-            ? "rounded-bl-md bg-neutral-900 text-neutral-100"
-            : "rounded-br-md bg-emerald-500 text-neutral-950"
-        }`}
+            ? "rounded-bl-md bg-neutral-900 text-neutral-100 hover:bg-neutral-800"
+            : "rounded-br-md bg-emerald-500 text-neutral-950 hover:bg-emerald-400"
+        } ${
+          playing ? "ring-2 ring-emerald-300/70" : ""
+        } ${
+          selected ? "ring-2 ring-emerald-400" : ""
+        } ${
+          message.inDrill && selectingForDrill ? "opacity-50" : ""
+        } ${
+          selectable ? "cursor-pointer" : ""
+        } disabled:cursor-not-allowed`}
       >
+        {selectable && (
+          <span
+            className={`absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
+              selected
+                ? "bg-emerald-400 text-neutral-950"
+                : isJapaneseSpeaker
+                  ? "border border-neutral-600 text-transparent"
+                  : "border border-neutral-800/60 text-transparent"
+            }`}
+            aria-hidden="true"
+          >
+            ✓
+          </span>
+        )}
+        {message.inDrill && selectingForDrill && (
+          <span className="absolute right-3 top-3 rounded-full bg-neutral-950/20 px-2 py-0.5 text-[10px] font-bold">
+            追加済
+          </span>
+        )}
         <div className={textClass}>
           {primaryText}
         </div>
@@ -503,25 +786,7 @@ function ConversationBubble({ message }: { message: Message }) {
         >
           {translatedText}
         </div>
-        <SpeechPlayButton
-          play={play}
-          className={`mt-1.5 rounded-lg px-1 py-1 text-base font-bold ${
-            isJapaneseSpeaker ? "text-emerald-300" : "text-neutral-800"
-          }`}
-          playingClassName={
-            isJapaneseSpeaker ? "text-emerald-200" : "text-neutral-950"
-          }
-        />
-        {message.provider === "azure" && (
-          <div
-            className={`mt-1 text-xs font-medium ${
-              isJapaneseSpeaker ? "text-neutral-500" : "text-neutral-700"
-            }`}
-          >
-            Azure瞬間翻訳
-          </div>
-        )}
-      </div>
+      </button>
     </div>
   );
 }

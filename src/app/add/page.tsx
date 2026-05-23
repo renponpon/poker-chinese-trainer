@@ -8,6 +8,7 @@ import { getAuthHeaders } from "@/lib/auth-headers";
 import { createId } from "@/lib/id";
 import {
   addLocalPhrase,
+  deleteLocalPhraseAndSrs,
   loadNickname,
   loadOwnerKey,
   updateLocalPhrase,
@@ -24,6 +25,12 @@ import {
 import { useHighAccuracySpeech } from "@/lib/use-high-accuracy-speech";
 import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
 import type { PhraseDirection } from "@/lib/types";
+import { getTranslationProviderLabel } from "@/lib/translation-provider-label";
+
+import GenerationModeToggle from "@/components/GenerationModeToggle";
+import {
+  type GenerationMode,
+} from "@/lib/generation-mode";
 
 type Result = {
   id: string | null;
@@ -69,8 +76,10 @@ export default function AddPage() {
   const [inputText, setInputText] = useState("");
   const [categoryId] = useState<string>("other");
   const [shouldDrill, setShouldDrill] = useState(true);
+  const [generationMode, setGenerationMode] = useState<GenerationMode>("normal");
   const [loading, setLoading] = useState(false);
   const [explanationLoading, setExplanationLoading] = useState(false);
+  const [explanationError, setExplanationError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [listening, setListening] = useState(false);
@@ -81,6 +90,9 @@ export default function AddPage() {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const suppressSpeechErrorRef = useRef(false);
   const speechTimeoutRef = useRef<number | null>(null);
+  const lastSubmittedDraftKeyRef = useRef<string | null>(null);
+  const lastSubmittedPhraseIdRef = useRef<string | null>(null);
+  const activePhraseIdRef = useRef<string | null>(null);
   const highAccuracySpeech = useHighAccuracySpeech();
 
   useEffect(() => {
@@ -97,10 +109,22 @@ export default function AddPage() {
     if (!trimmed) return;
     setLoading(true);
     setError(null);
+    setExplanationError(null);
+    setExplanationLoading(false);
     setResult(null);
     try {
       primeSpeech();
+      const draftKey = buildAddDraftKey(direction, trimmed);
+      const supersededPhraseId =
+        draftKey === lastSubmittedDraftKeyRef.current
+          ? lastSubmittedPhraseIdRef.current
+          : null;
+      if (supersededPhraseId) {
+        deleteLocalPhraseAndSrs(supersededPhraseId);
+      }
+
       const phraseId = createId();
+      activePhraseIdRef.current = phraseId;
       const authHeaders = await getAuthHeaders();
       const res = await fetch("/api/phrase/add", {
         method: "POST",
@@ -113,7 +137,7 @@ export default function AddPage() {
           phraseId,
           categoryId,
           shouldDrill,
-          generationMode: "fast",
+          generationMode,
         }),
       });
       const data = await res.json();
@@ -134,9 +158,16 @@ export default function AddPage() {
         usedAt: null,
       });
       const nextResult = { ...(data as Result), id: localPhrase.id };
+      lastSubmittedDraftKeyRef.current = draftKey;
+      lastSubmittedPhraseIdRef.current = localPhrase.id;
       setResult(nextResult);
       setLoading(false);
-      void generateExplanation(nextResult, authHeaders);
+      if (!data.explanation?.trim()) {
+        setExplanationError(null);
+        void generateExplanation(nextResult, authHeaders);
+      } else {
+        setExplanationError(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -149,6 +180,7 @@ export default function AddPage() {
     authHeaders: Record<string, string>,
   ) => {
     setExplanationLoading(true);
+    setExplanationError(null);
     try {
       const res = await fetch("/api/phrase/explain", {
         method: "POST",
@@ -167,16 +199,28 @@ export default function AddPage() {
       }
       updateLocalPhrase(baseResult.id ?? "", {
         explanation: data.explanation,
+        ...(data.pinyin ? { pinyin: data.pinyin } : {}),
       });
+      if (activePhraseIdRef.current !== baseResult.id) return;
       setResult((current) =>
         current?.id === baseResult.id
-          ? { ...current, explanation: data.explanation }
+          ? {
+              ...current,
+              explanation: data.explanation,
+              ...(data.pinyin ? { pinyin: data.pinyin } : {}),
+            }
           : current,
       );
     } catch (err) {
+      const message = err instanceof Error ? err.message : "解説生成に失敗しました";
       console.warn("[AddPage] explanation generation failed", err);
+      if (activePhraseIdRef.current === baseResult.id) {
+        setExplanationError(message);
+      }
     } finally {
-      setExplanationLoading(false);
+      if (activePhraseIdRef.current === baseResult.id) {
+        setExplanationLoading(false);
+      }
     }
   };
 
@@ -186,6 +230,10 @@ export default function AddPage() {
     setError(null);
     setSpeechError(null);
     setExplanationLoading(false);
+    setExplanationError(null);
+    lastSubmittedDraftKeyRef.current = null;
+    lastSubmittedPhraseIdRef.current = null;
+    activePhraseIdRef.current = null;
   };
 
   const clearSpeechTimeout = () => {
@@ -454,7 +502,11 @@ export default function AddPage() {
             >
               <SendIcon />
               <span className="text-xs font-bold">
-                {loading ? "送信中" : "送信"}
+                {loading
+                  ? generationMode === "quality"
+                    ? "品質モード生成中"
+                    : "送信中"
+                  : "送信"}
               </span>
             </button>
             <button
@@ -502,17 +554,21 @@ export default function AddPage() {
         </section>
 
         <div className="-mt-1 mb-0">
-          <label className="flex items-center gap-3 rounded-2xl bg-neutral-950/50 px-3 py-2 text-sm text-neutral-300">
-            <input
-              type="checkbox"
-              checked={shouldDrill}
-              onChange={(e) => setShouldDrill(e.target.checked)}
-              className="h-4 w-4"
+          <div className="flex items-center justify-between gap-3 rounded-2xl bg-neutral-950/50 px-3 py-2">
+            <label className="flex min-w-0 flex-1 items-center gap-3 text-sm text-neutral-300">
+              <input
+                type="checkbox"
+                checked={shouldDrill}
+                onChange={(e) => setShouldDrill(e.target.checked)}
+                className="h-4 w-4 shrink-0"
+              />
+              <span>フレーズをドリルに追加</span>
+            </label>
+            <GenerationModeToggle
+              value={generationMode}
+              onChange={setGenerationMode}
             />
-            <span>
-              フレーズをドリルに追加
-            </span>
-          </label>
+          </div>
         </div>
 
         {error && (
@@ -527,7 +583,10 @@ export default function AddPage() {
               <div className="rounded-full bg-neutral-950/70 px-3 py-1 text-xs font-bold text-neutral-300">
                 {result.direction === "ja-to-zh" ? "日本語 → 中国語" : "中国語 → 日本語"}
                 {shouldDrill ? " / ドリル対象" : " / ライブラリのみ"}
-                {result.provider === "azure" ? " / Azure瞬間翻訳" : ""}
+                {(() => {
+                  const providerLabel = getTranslationProviderLabel(result.provider);
+                  return providerLabel ? ` / ${providerLabel}` : "";
+                })()}
               </div>
               {result.chinese && (
                 <SpeechPlayButton
@@ -544,10 +603,14 @@ export default function AddPage() {
               <div className="mt-1 break-words [overflow-wrap:anywhere] text-3xl font-bold leading-snug text-white">
                 {result.direction === "ja-to-zh" ? result.chinese : result.japanese}
               </div>
-              {result.direction === "ja-to-zh" && result.pinyin && (
-                <div className="mt-1 text-base tracking-wide text-neutral-300">
-                  {result.pinyin}
-                </div>
+              {result.direction === "ja-to-zh" && (
+                result.pinyin ? (
+                  <div className="mt-1 text-base tracking-wide text-neutral-300">
+                    {result.pinyin}
+                  </div>
+                ) : explanationLoading ? (
+                  <div className="mt-1 text-base text-neutral-500">ピンインを生成中...</div>
+                ) : null
               )}
               {result.direction === "zh-to-ja" && (
                 <>
@@ -556,21 +619,29 @@ export default function AddPage() {
                       {result.chinese}
                     </div>
                   )}
-                  {result.pinyin && (
+                  {result.pinyin ? (
                     <div className="mt-0.5 text-base tracking-wide text-neutral-300">
                       {result.pinyin}
                     </div>
-                  )}
+                  ) : explanationLoading ? (
+                    <div className="mt-0.5 text-base text-neutral-500">ピンインを生成中...</div>
+                  ) : null}
                 </>
               )}
             </div>
-            {(explanationLoading || result.explanation) && (
+            {(explanationLoading || result.explanation || explanationError) && (
               <div>
                 <div className="text-sm font-bold text-neutral-500">
                   解説
                 </div>
-                <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-neutral-300">
-                  {result.explanation || "解説を生成中..."}
+                <div
+                  className={`mt-2 whitespace-pre-wrap text-sm leading-relaxed ${
+                    explanationError ? "text-red-200" : "text-neutral-300"
+                  }`}
+                >
+                  {explanationError ??
+                    result.explanation ??
+                    "解説を生成中..."}
                 </div>
               </div>
             )}
@@ -594,6 +665,10 @@ export default function AddPage() {
       <BottomNav />
     </main>
   );
+}
+
+function buildAddDraftKey(direction: PhraseDirection, text: string): string {
+  return `${direction}:${text}`;
 }
 
 function ConversationIcon() {
