@@ -14,6 +14,7 @@ import {
   saveSrsData,
   statusLabel,
 } from "@/lib/srs";
+import SpeechPlayButton from "@/components/SpeechPlayButton";
 import { playChinese, primeSpeech } from "@/lib/speech";
 import { cn } from "@/lib/utils";
 import type { Phrase, PhraseCategory, SrsItem, SrsStatus } from "@/lib/types";
@@ -348,15 +349,11 @@ export default function LibraryView() {
                       </div>
                     )}
                     <div className="mt-4 flex gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          playChinese(p.chinese);
-                        }}
+                      <SpeechPlayButton
+                        play={(options) => playChinese(p.chinese, options)}
                         className="rounded-full bg-neutral-950/80 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800"
-                      >
-                        ▶ 再生
-                      </button>
+                        playingClassName="text-emerald-300"
+                      />
                       <button
                         onClick={(e) => {
                           e.stopPropagation();

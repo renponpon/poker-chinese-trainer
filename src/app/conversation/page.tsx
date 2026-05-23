@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import BottomNav from "@/components/BottomNav";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { createId } from "@/lib/id";
 import { addLocalPhrase, loadNickname, loadOwnerKey } from "@/lib/local-phrases";
+import SpeechPlayButton from "@/components/SpeechPlayButton";
 import { playChinese, playJapanese, primeSpeech } from "@/lib/speech";
+import type { SpeechPlayOptions } from "@/lib/speech";
 import {
   getSpeechRecognitionErrorMessage,
   getSpeechRecognitionSupportError,
@@ -376,10 +378,10 @@ export default function ConversationPage() {
             <button
               type="button"
               onClick={() => setSpeaker("ja")}
-              className={`rounded-xl px-3 py-1.5 transition ${
+              className={`rounded-xl px-3 py-2 transition ${
                 speaker === "ja"
-                  ? "text-emerald-300"
-                  : "text-neutral-400 hover:bg-neutral-900 hover:text-neutral-100"
+                  ? "bg-emerald-500 text-neutral-950 shadow-sm shadow-emerald-500/30"
+                  : "text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
               }`}
             >
               日本語
@@ -395,10 +397,10 @@ export default function ConversationPage() {
             <button
               type="button"
               onClick={() => setSpeaker("zh")}
-              className={`rounded-xl px-3 py-1.5 transition ${
+              className={`rounded-xl px-3 py-2 transition ${
                 speaker === "zh"
-                  ? "text-emerald-300"
-                  : "text-neutral-400 hover:bg-neutral-900 hover:text-neutral-100"
+                  ? "bg-emerald-500 text-neutral-950 shadow-sm shadow-emerald-500/30"
+                  : "text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
               }`}
             >
               中国語
@@ -469,13 +471,16 @@ export default function ConversationPage() {
 
 function ConversationBubble({ message }: { message: Message }) {
   const isJapaneseSpeaker = message.speaker === "ja";
-  const handlePlay = () => {
-    if (isJapaneseSpeaker) {
-      playChinese(message.chinese);
-    } else {
-      playJapanese(message.japanese);
-    }
-  };
+  const play = useCallback(
+    (options: SpeechPlayOptions) => {
+      if (isJapaneseSpeaker) {
+        playChinese(message.chinese, options);
+      } else {
+        playJapanese(message.japanese, options);
+      }
+    },
+    [isJapaneseSpeaker, message.chinese, message.japanese],
+  );
   const primaryText = isJapaneseSpeaker ? message.japanese : message.chinese;
   const translatedText = isJapaneseSpeaker ? message.chinese : message.japanese;
   const textClass = "text-2xl font-bold leading-snug";
@@ -498,15 +503,15 @@ function ConversationBubble({ message }: { message: Message }) {
         >
           {translatedText}
         </div>
-        <button
-          type="button"
-          onClick={handlePlay}
-          className={`mt-1.5 text-base font-bold ${
+        <SpeechPlayButton
+          play={play}
+          className={`mt-1.5 rounded-lg px-1 py-1 text-base font-bold ${
             isJapaneseSpeaker ? "text-emerald-300" : "text-neutral-800"
           }`}
-        >
-          ▶ 再生
-        </button>
+          playingClassName={
+            isJapaneseSpeaker ? "text-emerald-200" : "text-neutral-950"
+          }
+        />
         {message.provider === "azure" && (
           <div
             className={`mt-1 text-xs font-medium ${

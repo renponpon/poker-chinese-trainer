@@ -12,6 +12,7 @@ import {
   loadOwnerKey,
   updateLocalPhrase,
 } from "@/lib/local-phrases";
+import SpeechPlayButton from "@/components/SpeechPlayButton";
 import { playChinese, primeSpeech } from "@/lib/speech";
 import {
   getSpeechRecognitionErrorMessage,
@@ -372,10 +373,10 @@ export default function AddPage() {
                 setDirection("ja-to-zh");
                 setShouldDrill(true);
               }}
-              className={`rounded-xl px-3 py-2.5 transition ${
+              className={`rounded-xl px-3 py-2 transition ${
                 direction === "ja-to-zh"
-                  ? "text-emerald-300"
-                  : "text-neutral-400 hover:bg-neutral-900 hover:text-neutral-100"
+                  ? "bg-emerald-500 text-neutral-950 shadow-sm shadow-emerald-500/30"
+                  : "text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
               }`}
             >
               日本語
@@ -400,10 +401,10 @@ export default function AddPage() {
                 setDirection("zh-to-ja");
                 setShouldDrill(false);
               }}
-              className={`rounded-xl px-3 py-2.5 transition ${
+              className={`rounded-xl px-3 py-2 transition ${
                 direction === "zh-to-ja"
-                  ? "text-emerald-300"
-                  : "text-neutral-400 hover:bg-neutral-900 hover:text-neutral-100"
+                  ? "bg-emerald-500 text-neutral-950 shadow-sm shadow-emerald-500/30"
+                  : "text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
               }`}
             >
               中国語
@@ -529,12 +530,11 @@ export default function AddPage() {
                 {result.provider === "azure" ? " / Azure瞬間翻訳" : ""}
               </div>
               {result.chinese && (
-                <button
-                  onClick={() => playChinese(result.chinese)}
+                <SpeechPlayButton
+                  play={(options) => playChinese(result.chinese, options)}
                   className="shrink-0 rounded-full bg-neutral-950/80 px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-800"
-                >
-                  ▶ 再生
-                </button>
+                  playingClassName="text-emerald-300"
+                />
               )}
             </div>
             <div>

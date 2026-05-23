@@ -212,14 +212,8 @@ export default function DrillRunner() {
               onSaved={handlePackSaved}
               buttonClassName="rounded-xl bg-neutral-900 px-3 py-2 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
             />
-            <div className="text-right text-sm text-neutral-500">
-              <span>
-                残り <span className="font-bold text-emerald-300">{queue.length}</span>{" "}
-                件 / 完了 {completed} 件
-              </span>
-              <span className="ml-3">
-                {total > 0 ? Math.round((completed / total) * 100) : 0}%
-              </span>
+            <div className="whitespace-nowrap text-right text-sm text-neutral-500">
+              {completed}/{total} · {total > 0 ? Math.round((completed / total) * 100) : 0}%
             </div>
           </div>
         </div>

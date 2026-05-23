@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import SpeechPlayButton from "@/components/SpeechPlayButton";
 import { playChinese } from "@/lib/speech";
+import type { SpeechPlayOptions } from "@/lib/speech";
 import type { Phrase, Score } from "@/lib/types";
 
 type FlashcardProps = {
@@ -11,24 +13,79 @@ type FlashcardProps = {
   explanationPending?: boolean;
 };
 
+const REVEAL_FADE_MS = 200;
+
 export default function Flashcard({ phrase, onScore, explanationPending = false }: FlashcardProps) {
   const [isFlipped, setIsFlipped] = useState(false);
-  const advanceTimeoutRef = useRef<number | null>(null);
+  const [isHidden, setIsHidden] = useState(false);
+  const [isAdvancing, setIsAdvancing] = useState(false);
+  const [skipFlipTransition, setSkipFlipTransition] = useState(false);
+  const revealTimeoutRef = useRef<number | null>(null);
+  const fadeInFrameRef = useRef<number | null>(null);
+  const isInitialPhraseRef = useRef(true);
   const isChinesePrompt = phrase.direction === "zh-to-ja";
+
+  const clearRevealTimeout = useCallback(() => {
+    if (revealTimeoutRef.current) {
+      window.clearTimeout(revealTimeoutRef.current);
+      revealTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearFadeInFrame = useCallback(() => {
+    if (fadeInFrameRef.current) {
+      cancelAnimationFrame(fadeInFrameRef.current);
+      fadeInFrameRef.current = null;
+    }
+  }, []);
+
+  const finishAdvance = useCallback(() => {
+    clearRevealTimeout();
+    setSkipFlipTransition(false);
+    setIsAdvancing(false);
+  }, [clearRevealTimeout]);
+
+  const revealNextCard = useCallback(() => {
+    clearFadeInFrame();
+    clearRevealTimeout();
+
+    fadeInFrameRef.current = requestAnimationFrame(() => {
+      fadeInFrameRef.current = requestAnimationFrame(() => {
+        fadeInFrameRef.current = null;
+        setIsHidden(false);
+        revealTimeoutRef.current = window.setTimeout(() => {
+          revealTimeoutRef.current = null;
+          finishAdvance();
+        }, REVEAL_FADE_MS);
+      });
+    });
+  }, [clearFadeInFrame, clearRevealTimeout, finishAdvance]);
 
   useEffect(() => {
     setIsFlipped(false);
-  }, [phrase.id]);
+
+    if (isInitialPhraseRef.current) {
+      isInitialPhraseRef.current = false;
+      setIsAdvancing(false);
+      setSkipFlipTransition(false);
+      setIsHidden(false);
+      return;
+    }
+
+    setSkipFlipTransition(true);
+    setIsHidden(true);
+    revealNextCard();
+  }, [phrase.id, revealNextCard]);
 
   useEffect(() => {
     return () => {
-      if (advanceTimeoutRef.current) {
-        window.clearTimeout(advanceTimeoutRef.current);
-      }
+      clearRevealTimeout();
+      clearFadeInFrame();
     };
-  }, []);
+  }, [clearRevealTimeout, clearFadeInFrame]);
 
   const handleFlip = useCallback(() => {
+    if (isAdvancing) return;
     if (!isFlipped) {
       setIsFlipped(true);
       if (phrase.audioUrl) {
@@ -40,23 +97,35 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
     } else {
       setIsFlipped(false);
     }
-  }, [isFlipped, phrase.audioUrl, phrase.chinese]);
+  }, [isAdvancing, isFlipped, phrase.audioUrl, phrase.chinese]);
 
   const handleScore = useCallback(
     (score: Score) => {
-      if (advanceTimeoutRef.current) return;
+      if (isAdvancing) return;
 
-      setIsFlipped(false);
-      advanceTimeoutRef.current = window.setTimeout(() => {
+      if (!isFlipped) {
         onScore(score);
-        advanceTimeoutRef.current = null;
-      }, 120);
+        return;
+      }
+
+      setIsAdvancing(true);
+      setSkipFlipTransition(true);
+      setIsFlipped(false);
+      setIsHidden(true);
+
+      fadeInFrameRef.current = requestAnimationFrame(() => {
+        fadeInFrameRef.current = requestAnimationFrame(() => {
+          fadeInFrameRef.current = null;
+          onScore(score);
+        });
+      });
     },
-    [onScore],
+    [isAdvancing, isFlipped, onScore],
   );
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (isAdvancing) return;
       if (e.code === "Space") {
         e.preventDefault();
         handleFlip();
@@ -69,82 +138,114 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isFlipped, handleFlip, handleScore]);
+  }, [handleFlip, handleScore, isAdvancing, isFlipped]);
 
-  const handlePlay = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (phrase.audioUrl) {
-      const audio = new Audio(phrase.audioUrl);
-      audio.play().catch(() => playChinese(phrase.chinese));
-    } else {
-      playChinese(phrase.chinese);
-    }
-  };
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const playSpeech = useCallback(
+    (options: SpeechPlayOptions) => {
+      if (phrase.audioUrl) {
+        const audio = new Audio(phrase.audioUrl);
+        audioRef.current = audio;
+        audio.onended = () => {
+          audioRef.current = null;
+          options.onEnd?.();
+        };
+        audio.onerror = () => {
+          audioRef.current = null;
+          playChinese(phrase.chinese, options);
+        };
+        audio.play().catch(() => {
+          audioRef.current = null;
+          playChinese(phrase.chinese, options);
+        });
+        return;
+      }
+      playChinese(phrase.chinese, options);
+    },
+    [phrase.audioUrl, phrase.chinese],
+  );
+
+  const stopAudio = useCallback(() => {
+    if (!audioRef.current) return;
+    audioRef.current.pause();
+    audioRef.current = null;
+  }, []);
+
+  const cardMotionClass = skipFlipTransition
+    ? "transition-none"
+    : "transition-transform duration-700 ease-out";
+
+  const cardVisibilityClass = isHidden
+    ? "pointer-events-none invisible opacity-0"
+    : "visible opacity-100 transition-opacity duration-200 ease-out";
 
   return (
     <div className="flex h-full w-full flex-col items-center overscroll-none">
-      <div
-        className={cn(
-          "relative min-h-0 w-full flex-1 cursor-pointer preserve-3d perspective-1000 transition-transform duration-700",
-          isFlipped ? "rotate-y-180" : "",
-        )}
-        onClick={handleFlip}
-      >
-        <div className="absolute inset-0 flex touch-none flex-col items-center justify-center rounded-[28px] bg-neutral-900 p-5 backface-hidden sm:p-6">
-          {isChinesePrompt && (
-            <div className="mb-3 text-lg tracking-wide text-neutral-400">
-              {phrase.pinyin}
-            </div>
+      <div className="relative min-h-0 w-full flex-1 overflow-hidden rounded-[28px] bg-neutral-900">
+        <div
+          className={cn(
+            "relative h-full w-full cursor-pointer preserve-3d perspective-1000",
+            cardMotionClass,
+            cardVisibilityClass,
+            isFlipped ? "rotate-y-180" : "",
+            isAdvancing && "pointer-events-none",
           )}
-          <div className="px-1 text-center text-[32px] font-semibold leading-relaxed text-neutral-100 sm:text-4xl">
-            {isChinesePrompt ? phrase.chinese : phrase.japanese}
-          </div>
-          <div className="mt-6 flex items-center gap-2 text-base text-neutral-500">
-            <span>タップして確認</span>
-          </div>
-        </div>
-
-        <div className="absolute inset-0 flex flex-col rounded-[28px] bg-neutral-900 p-4 backface-hidden rotate-y-180 sm:p-5">
-          <button
-            type="button"
-            onClick={handlePlay}
-            className="absolute right-4 top-4 z-10 flex h-10 w-10 touch-none items-center justify-center text-neutral-300 hover:text-emerald-300"
-            aria-label="再生"
-          >
-            <PlayIcon />
-          </button>
-          <div className="shrink-0 touch-none px-12 text-center">
-            <div className="text-lg tracking-wide text-neutral-400 sm:text-xl">
-              {phrase.pinyin}
-            </div>
-            <div className="mt-2 break-keep px-1 text-center text-[34px] font-bold leading-tight text-white sm:text-4xl">
-              {isChinesePrompt ? phrase.japanese : phrase.chinese}
-            </div>
+          onClick={handleFlip}
+        >
+          <div className="absolute inset-0 flex touch-none flex-col items-center justify-center rounded-[28px] bg-neutral-900 p-5 backface-hidden sm:p-6">
             {isChinesePrompt && (
-              <div className="mt-3 text-xl font-semibold text-emerald-200">
-                {phrase.chinese}
+              <div className="mb-3 w-full text-lg tracking-wide [overflow-wrap:anywhere] text-neutral-400">
+                {phrase.pinyin}
               </div>
             )}
+            <div className="w-full px-1 text-center text-[32px] font-semibold leading-relaxed [overflow-wrap:anywhere] text-neutral-100 sm:text-4xl">
+              {isChinesePrompt ? phrase.chinese : phrase.japanese}
+            </div>
+            <div className="mt-6 flex items-center gap-2 text-base text-neutral-500">
+              <span>タップして確認</span>
+            </div>
           </div>
 
-          {phrase.explanation ? (
-            <div
-              className="mt-4 min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain whitespace-pre-wrap px-1 pb-2 text-left text-base leading-relaxed text-neutral-200"
-            >
-              {phrase.explanation}
+          <div className="absolute inset-0 flex flex-col rounded-[28px] bg-neutral-900 p-4 backface-hidden rotate-y-180 sm:p-5">
+            <SpeechPlayButton
+              play={playSpeech}
+              onStop={stopAudio}
+              variant="icon"
+              className="absolute right-4 top-4 z-10 flex h-10 w-10 touch-none items-center justify-center text-neutral-300 hover:text-emerald-300"
+              playingClassName="text-emerald-300"
+            />
+            <div className="w-full min-w-0 shrink-0 touch-none px-12 text-center">
+              <div className="text-lg tracking-wide [overflow-wrap:anywhere] text-neutral-400 sm:text-xl">
+                {phrase.pinyin}
+              </div>
+              <div className="mt-2 w-full px-1 text-center text-[34px] font-bold leading-snug [overflow-wrap:anywhere] text-white sm:text-4xl">
+                {isChinesePrompt ? phrase.japanese : phrase.chinese}
+              </div>
+              {isChinesePrompt && (
+                <div className="mt-3 text-xl font-semibold [overflow-wrap:anywhere] text-emerald-200">
+                  {phrase.chinese}
+                </div>
+              )}
             </div>
-          ) : explanationPending ? (
-            <div className="mt-4 px-1 text-sm text-neutral-500">
-              解説を作成中...
-            </div>
-          ) : null}
+
+            {phrase.explanation ? (
+              <div className="mt-4 min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain whitespace-pre-wrap px-1 pb-2 text-left text-base leading-relaxed text-neutral-200">
+                {phrase.explanation}
+              </div>
+            ) : explanationPending ? (
+              <div className="mt-4 px-1 text-sm text-neutral-500">
+                解説を作成中...
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
       <div
         className={cn(
           "fixed inset-x-0 bottom-[88px] z-30 w-full touch-none bg-neutral-950/95 px-5 pb-3 pt-2 backdrop-blur transition-all duration-300",
-          isFlipped
+          isFlipped && !isAdvancing
             ? "translate-y-0 opacity-100"
             : "pointer-events-none translate-y-full opacity-0",
         )}
@@ -196,18 +297,5 @@ function ScoreButton({
     >
       <span>{children}</span>
     </button>
-  );
-}
-
-function PlayIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-6 w-6"
-      fill="currentColor"
-    >
-      <path d="M8 5v14l11-7z" />
-    </svg>
   );
 }
