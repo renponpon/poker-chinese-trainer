@@ -50,7 +50,7 @@ create table if not exists public.ai_usage_events (
   ip_hash text,
   endpoint text not null,
   feature text check (feature in ('translation', 'explanation', 'speech_to_text', 'usage_event')),
-  provider text check (provider in ('azure', 'gemini', 'openai', 'web_speech', 'unknown')),
+  provider text check (provider in ('azure', 'deepl', 'gemini', 'openai', 'web_speech', 'unknown')),
   mode text,
   source_page text check (source_page in ('add', 'conversation', 'library', 'drill', 'admin')),
   direction text check (direction in ('ja-to-zh', 'zh-to-ja')),

@@ -166,7 +166,7 @@ export default function HomeMenu() {
 
           <details className="mt-2 rounded-xl bg-neutral-900">
             <summary className="cursor-pointer list-none px-4 py-4 text-base font-bold text-neutral-200">
-              入力データのコツ
+              入力データについて
             </summary>
             <div className="px-4 pb-4 pt-1">
               <DataHandlingNotice />
@@ -177,7 +177,7 @@ export default function HomeMenu() {
             href="/feedback"
             className="mt-2 block rounded-xl bg-neutral-900 px-4 py-4 text-base font-bold text-neutral-200 hover:bg-neutral-800"
           >
-            運営への要望
+            運営へのご要望
           </Link>
         </div>
       )}

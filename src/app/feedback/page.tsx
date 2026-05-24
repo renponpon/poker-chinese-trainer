@@ -1,8 +1,6 @@
 import AppHeader from "@/components/AppHeader";
 import BottomNav from "@/components/BottomNav";
 
-const GOOGLE_FORM_URL = "https://forms.gle/e3Yajv9hcEYMPfr48";
-
 export default function FeedbackPage() {
   return (
     <main className="min-h-screen px-5 pb-28 pt-8">
@@ -33,9 +31,7 @@ export default function FeedbackPage() {
         </section>
 
         <a
-          href={GOOGLE_FORM_URL}
-          target="_blank"
-          rel="noreferrer"
+          href="/feedback/form"
           className="rounded-3xl bg-emerald-500 px-5 py-4 text-center text-base font-extrabold text-neutral-950 transition hover:bg-emerald-400"
         >
           フィードバックを送る

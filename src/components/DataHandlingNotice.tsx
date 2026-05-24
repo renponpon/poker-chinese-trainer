@@ -1,10 +1,7 @@
 export default function DataHandlingNotice() {
   return (
     <section className="text-sm leading-relaxed text-neutral-400">
-      <div className="font-bold text-neutral-200">
-        入力データについて
-      </div>
-      <p className="mt-2">
+      <p>
         入力した文章や音声は、翻訳・文字起こし・解説を作るためにAIへ送信されます。作成されたフレーズはこの端末のライブラリに保存され、ログイン中はアカウントにも同期されます。
       </p>
       <p className="mt-2">

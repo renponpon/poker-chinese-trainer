@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+const GOOGLE_FORM_RESPONSE_URL =
+  "https://docs.google.com/forms/d/e/1FAIpQLSdQ7D8vweIA798viydmvW37Yj_aMAMZSvKsIX3SvoZ9bGEUfA/formResponse";
+const GOOGLE_FORM_NAME_ENTRY = "entry.1054141803";
+const GOOGLE_FORM_MESSAGE_ENTRY = "entry.131084111";
+
 type FeedbackBody = {
   nickname?: string;
   ownerKey?: string;
@@ -12,42 +17,20 @@ type FeedbackBody = {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as FeedbackBody;
-    const apiKey = process.env.RESEND_API_KEY;
-    const to = process.env.FEEDBACK_TO_EMAIL;
-
-    if (!apiKey || !to) {
+    const message = normalizeText(body.message, 2000);
+    if (!message) {
       return NextResponse.json(
-        {
-          error:
-            "フィードバック通知の環境変数（RESEND_API_KEY / FEEDBACK_TO_EMAIL）が未設定です。",
-        },
-        { status: 500 },
+        { error: "フィードバック内容を入力してください。" },
+        { status: 400 },
       );
     }
 
-    const text = [
-      "Poker Chinese Trainer α版フィードバック",
-      "",
-      `ニックネーム: ${body.nickname || "(未入力)"}`,
-      `復元コード: ${body.ownerKey || "(未入力)"}`,
-      `登録フレーズ数: ${body.phraseCount ?? 0}`,
-      "",
-      "内容",
-      body.message || "(未入力)",
-    ].join("\n");
-
-    const response = await fetch("https://api.resend.com/emails", {
+    const response = await fetch(GOOGLE_FORM_RESPONSE_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
       },
-      body: JSON.stringify({
-        from: "Poker Chinese Trainer <onboarding@resend.dev>",
-        to,
-        subject: `α版フィードバック: ${body.nickname || "匿名"}`,
-        text,
-      }),
+      body: buildGoogleFormBody(body, message),
     });
 
     if (!response.ok) {
@@ -62,4 +45,19 @@ export async function POST(req: Request) {
       error instanceof Error ? error.message : "フィードバック送信に失敗しました";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+function buildGoogleFormBody(body: FeedbackBody, message: string): string {
+  const params = new URLSearchParams();
+  params.set(
+    GOOGLE_FORM_NAME_ENTRY,
+    normalizeText(body.nickname, 80) || "匿名",
+  );
+  params.set(GOOGLE_FORM_MESSAGE_ENTRY, message);
+  return params.toString();
+}
+
+function normalizeText(value: unknown, maxChars: number): string {
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, maxChars);
 }

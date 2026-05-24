@@ -3,4 +3,4 @@ alter table public.ai_usage_events
 
 alter table public.ai_usage_events
   add constraint ai_usage_events_provider_check
-  check (provider in ('azure', 'gemini', 'openai', 'web_speech', 'unknown'));
+  check (provider in ('azure', 'deepl', 'gemini', 'openai', 'web_speech', 'unknown'));
