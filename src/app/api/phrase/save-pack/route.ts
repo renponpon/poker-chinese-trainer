@@ -1,9 +1,10 @@
 import { after, NextResponse } from "next/server";
 import { createPhrase } from "@/lib/notion";
 import { createSupabasePhrase, getBearerToken } from "@/lib/supabase";
+import { isSupportedDirection, parseDirection } from "@/lib/languages";
 import { identifyRequestActor } from "@/lib/server/usage-limits";
 import { RequestValidationError } from "@/lib/server/validation";
-import type { Phrase, PhraseDirection, PhraseSource } from "@/lib/types";
+import type { LanguageCode, Phrase, PhraseDirection, PhraseSource, ReadingType } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -32,6 +33,12 @@ export async function POST(req: Request) {
           japanese: phrase.japanese,
           chinese: phrase.chinese,
           pinyin: phrase.pinyin,
+          sourceLanguage: phrase.sourceLanguage,
+          targetLanguage: phrase.targetLanguage,
+          sourceText: phrase.sourceText,
+          targetText: phrase.targetText,
+          reading: phrase.reading,
+          readingType: phrase.readingType,
           explanation: phrase.explanation,
           ownerKey,
           nickname,
@@ -72,15 +79,28 @@ function normalizePhrases(value: unknown): Phrase[] {
       throw new RequestValidationError("保存するフレーズの形式が正しくありません");
     }
     const phrase = item as Partial<Phrase>;
+    const direction = normalizeDirection(phrase.direction);
+    const { sourceLanguage, targetLanguage } = parseDirection(direction);
+    const japanese = normalizeOptionalText(phrase.japanese, 500) ?? "";
+    const chinese = normalizeOptionalText(phrase.chinese, 500) ?? "";
+    const pinyin = normalizeOptionalText(phrase.pinyin, 500) ?? "";
     return {
       id: normalizeText(phrase.id, "id", 80),
-      japanese: normalizeText(phrase.japanese, "japanese", 500),
-      chinese: normalizeText(phrase.chinese, "chinese", 500),
-      pinyin: normalizeText(phrase.pinyin, "pinyin", 500),
+      japanese,
+      chinese,
+      pinyin,
+      sourceLanguage: normalizeLanguage(phrase.sourceLanguage, sourceLanguage),
+      targetLanguage: normalizeLanguage(phrase.targetLanguage, targetLanguage),
+      sourceText: normalizeOptionalText(phrase.sourceText, 500) ??
+        (sourceLanguage === "ja" ? japanese : chinese),
+      targetText: normalizeOptionalText(phrase.targetText, 500) ??
+        (targetLanguage === "ja" ? japanese : chinese),
+      reading: normalizeOptionalText(phrase.reading, 500) ?? pinyin,
+      readingType: normalizeReadingType(phrase.readingType, sourceLanguage === "zh" || targetLanguage === "zh" ? "pinyin" : "none"),
       explanation: normalizeText(phrase.explanation, "explanation", 5000),
       audioUrl: null,
       createdAt: normalizeText(phrase.createdAt, "createdAt", 80),
-      direction: normalizeDirection(phrase.direction),
+      direction,
       categoryId: normalizeOptionalText(phrase.categoryId, 64) ?? null,
       shouldDrill: phrase.shouldDrill !== false,
       source: normalizeSource(phrase.source),
@@ -90,7 +110,15 @@ function normalizePhrases(value: unknown): Phrase[] {
 }
 
 function normalizeDirection(value: unknown): PhraseDirection {
-  return value === "zh-to-ja" ? "zh-to-ja" : "ja-to-zh";
+  return isSupportedDirection(value) ? value : "ja-to-zh";
+}
+
+function normalizeLanguage(value: unknown, fallback: LanguageCode): LanguageCode {
+  return typeof value === "string" ? (value as LanguageCode) : fallback;
+}
+
+function normalizeReadingType(value: unknown, fallback: ReadingType): ReadingType {
+  return value === "pinyin" || value === "none" ? value : fallback;
 }
 
 function normalizeSource(value: unknown): PhraseSource {
@@ -112,4 +140,3 @@ function normalizeOptionalText(value: unknown, maxChars: number): string | undef
   const text = value.trim();
   return text ? text.slice(0, maxChars) : undefined;
 }
-

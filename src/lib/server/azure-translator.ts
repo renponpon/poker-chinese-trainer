@@ -1,4 +1,5 @@
 import { createId } from "@/lib/id";
+import { buildGeneratedPhrase, LANGUAGE_CONFIGS, parseDirection } from "@/lib/languages";
 import type { GeneratedPhrase, PhraseDirection } from "@/lib/types";
 
 const DEFAULT_ENDPOINT = "https://api.cognitive.microsofttranslator.com";
@@ -29,22 +30,22 @@ export async function translateWithAzure(input: {
   skipPinyin?: boolean;
 }): Promise<GeneratedPhrase> {
   const translated = await translateText(input);
-  const chinese = input.direction === "ja-to-zh" ? translated : input.text;
-  const japanese = input.direction === "ja-to-zh" ? input.text : translated;
-  const pinyin = input.skipPinyin
+  const { sourceLanguage, targetLanguage } = parseDirection(input.direction);
+  const chineseText =
+    targetLanguage === "zh" ? translated : sourceLanguage === "zh" ? input.text : "";
+  const reading = input.skipPinyin || !chineseText
     ? ""
-    : await transliterateChinesePinyin(chinese).catch((error) => {
+    : await transliterateChinesePinyin(chineseText).catch((error) => {
         console.warn("[azure-translator] transliteration failed", error);
         return "";
       });
 
-  return {
+  return buildGeneratedPhrase({
     direction: input.direction,
-    japanese,
-    chinese,
-    pinyin,
-    explanation: "",
-  };
+    sourceText: input.text,
+    targetText: translated,
+    reading,
+  });
 }
 
 async function translateText(input: {
@@ -54,10 +55,11 @@ async function translateText(input: {
   const key = getRequiredEnv("AZURE_TRANSLATOR_KEY");
   const endpoint = normalizeEndpoint(process.env.AZURE_TRANSLATOR_ENDPOINT);
   const region = process.env.AZURE_TRANSLATOR_REGION;
+  const { sourceLanguage, targetLanguage } = parseDirection(input.direction);
   const params = new URLSearchParams({
     "api-version": API_VERSION,
-    from: input.direction === "ja-to-zh" ? "ja" : "zh-Hans",
-    to: input.direction === "ja-to-zh" ? "zh-Hans" : "ja",
+    from: LANGUAGE_CONFIGS[sourceLanguage].azureCode,
+    to: LANGUAGE_CONFIGS[targetLanguage].azureCode,
   });
 
   const res = await fetch(`${endpoint}/translate?${params.toString()}`, {

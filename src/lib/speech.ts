@@ -18,6 +18,16 @@ function normalizeLang(lang: string): string {
   return lang.toLowerCase().replace("_", "-");
 }
 
+function scoreLangVoice(voice: SpeechSynthesisVoice, preferredLang: string): number {
+  const lang = normalizeLang(voice.lang);
+  const preferred = normalizeLang(preferredLang);
+  let score = 0;
+  if (lang === preferred || lang.startsWith(preferred)) score += 100;
+  else if (lang.startsWith(preferred.split("-")[0])) score += 40;
+  if (voice.localService) score += 30;
+  return score;
+}
+
 function scoreZhVoice(voice: SpeechSynthesisVoice): number {
   const lang = normalizeLang(voice.lang);
   let score = 0;
@@ -25,6 +35,15 @@ function scoreZhVoice(voice: SpeechSynthesisVoice): number {
   else if (lang.startsWith("zh") || lang.startsWith("cmn")) score += 40;
   if (voice.localService) score += 30;
   return score;
+}
+
+function getVoiceForLang(langCode: string): SpeechSynthesisVoice | null {
+  const normalized = normalizeLang(langCode);
+  const language = normalized.split("-")[0];
+  const voices = getVoices()
+    .filter((voice) => normalizeLang(voice.lang).startsWith(language))
+    .sort((a, b) => scoreLangVoice(b, normalized) - scoreLangVoice(a, normalized));
+  return voices[0] ?? null;
 }
 
 function getZhVoiceCandidates(): SpeechSynthesisVoice[] {
@@ -159,6 +178,44 @@ export function playJapanese(text: string, opts: SpeechPlayOptions = {}): void {
   const voice = getJaVoice();
   if (voice) utter.voice = voice;
   utter.lang = "ja-JP";
+  utter.rate = opts.rate ?? 0.95;
+  utter.pitch = 1.0;
+
+  bindUtterance(utter, opts, finish);
+  speakNow(utter);
+
+  function finish() {
+    if (activeSession === opts) {
+      activeSession = null;
+    }
+    opts.onEnd?.();
+  }
+}
+
+export function playSpeechForLang(
+  text: string,
+  langCode: string,
+  opts: SpeechPlayOptions = {},
+): void {
+  if (langCode.toLowerCase().startsWith("zh")) {
+    playChinese(text, opts);
+    return;
+  }
+  if (langCode.toLowerCase().startsWith("ja")) {
+    playJapanese(text, opts);
+    return;
+  }
+  if (typeof window === "undefined") return;
+  if (!text) return;
+  if (!("speechSynthesis" in window)) return;
+
+  endActiveSession();
+  activeSession = opts;
+
+  const utter = new SpeechSynthesisUtterance(text);
+  const voice = getVoiceForLang(langCode);
+  if (voice) utter.voice = voice;
+  utter.lang = langCode;
   utter.rate = opts.rate ?? 0.95;
   utter.pitch = 1.0;
 

@@ -27,12 +27,15 @@ export function cycleGenerationMode(mode: GenerationMode): GenerationMode {
   return GENERATION_MODE_ORDER[(index + 1) % GENERATION_MODE_ORDER.length];
 }
 
-export function getGenerationModeTitle(mode: GenerationMode): string {
+export function getGenerationModeTitle(mode: GenerationMode, readingLabel = "ピンイン"): string {
+  const followUp = readingLabel
+    ? `${readingLabel}・解説は後から`
+    : "解説は後から";
   switch (mode) {
     case "speed":
-      return "Azureで最速翻訳（ピンイン・解説は後から）";
+      return `Azureで最速翻訳（${followUp}）`;
     case "normal":
-      return "DeepLで翻訳（ピンイン・解説は後から）";
+      return `DeepLで翻訳（${followUp}）`;
     case "quality":
       return "Geminiで場面に合わせた翻訳と解説";
   }

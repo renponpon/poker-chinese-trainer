@@ -14,7 +14,14 @@ import {
   updateLocalPhrase,
 } from "@/lib/local-phrases";
 import SpeechPlayButton from "@/components/SpeechPlayButton";
-import { playChinese, primeSpeech } from "@/lib/speech";
+import { playSpeechForLang, primeSpeech } from "@/lib/speech";
+import {
+  ACTIVE_TARGET_LANGUAGE_CODES,
+  buildDirection,
+  getLanguageLabel,
+  LANGUAGE_CONFIGS,
+  parseDirection,
+} from "@/lib/languages";
 import {
   getSpeechRecognitionErrorMessage,
   getSpeechRecognitionSupportError,
@@ -24,7 +31,7 @@ import {
 } from "@/lib/speech-recognition";
 import { useHighAccuracySpeech } from "@/lib/use-high-accuracy-speech";
 import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
-import type { PhraseDirection } from "@/lib/types";
+import type { LanguageCode, PhraseDirection } from "@/lib/types";
 import { getTranslationProviderLabel } from "@/lib/translation-provider-label";
 
 import GenerationModeToggle from "@/components/GenerationModeToggle";
@@ -38,6 +45,12 @@ type Result = {
   japanese: string;
   chinese: string;
   pinyin: string;
+  sourceLanguage: LanguageCode;
+  targetLanguage: LanguageCode;
+  sourceText: string;
+  targetText: string;
+  reading: string;
+  readingType: "pinyin" | "none";
   explanation: string;
   provider?: string;
 };
@@ -72,6 +85,7 @@ declare global {
 }
 
 export default function AddPage() {
+  const [targetLanguage, setTargetLanguage] = useState<LanguageCode>("zh");
   const [direction, setDirection] = useState<PhraseDirection>("ja-to-zh");
   const [inputText, setInputText] = useState("");
   const [categoryId] = useState<string>("other");
@@ -150,6 +164,12 @@ export default function AddPage() {
         japanese: data.japanese,
         chinese: data.chinese,
         pinyin: data.pinyin,
+        sourceLanguage: data.sourceLanguage,
+        targetLanguage: data.targetLanguage,
+        sourceText: data.sourceText,
+        targetText: data.targetText,
+        reading: data.reading,
+        readingType: data.readingType,
         explanation: data.explanation,
         audioUrl: null,
         categoryId,
@@ -191,6 +211,9 @@ export default function AddPage() {
           japanese: baseResult.japanese,
           chinese: baseResult.chinese,
           pinyin: baseResult.pinyin,
+          sourceText: baseResult.sourceText,
+          targetText: baseResult.targetText,
+          reading: baseResult.reading,
         }),
       });
       const data = await res.json();
@@ -199,7 +222,7 @@ export default function AddPage() {
       }
       updateLocalPhrase(baseResult.id ?? "", {
         explanation: data.explanation,
-        ...(data.pinyin ? { pinyin: data.pinyin } : {}),
+        ...(data.pinyin ? { pinyin: data.pinyin, reading: data.pinyin } : {}),
       });
       if (activePhraseIdRef.current !== baseResult.id) return;
       setResult((current) =>
@@ -207,7 +230,7 @@ export default function AddPage() {
           ? {
               ...current,
               explanation: data.explanation,
-              ...(data.pinyin ? { pinyin: data.pinyin } : {}),
+              ...(data.pinyin ? { pinyin: data.pinyin, reading: data.pinyin } : {}),
             }
           : current,
       );
@@ -251,7 +274,7 @@ export default function AddPage() {
       setListening(false);
     }
     void highAccuracySpeech.startRecording({
-      languageHint: direction === "zh-to-ja" ? "zh-CN" : "ja-JP",
+      languageHint: LANGUAGE_CONFIGS[parseDirection(direction).sourceLanguage].speechRecognitionCode,
       sourcePage: "add",
       onTranscript: setInputText,
     });
@@ -298,7 +321,7 @@ export default function AddPage() {
 
     const recognition = new Recognition();
     recognitionRef.current = recognition;
-    recognition.lang = direction === "zh-to-ja" ? "zh-CN" : "ja-JP";
+    recognition.lang = LANGUAGE_CONFIGS[parseDirection(direction).sourceLanguage].speechRecognitionCode;
     recognition.interimResults = true;
     recognition.continuous = false;
 
@@ -418,11 +441,11 @@ export default function AddPage() {
             <button
               type="button"
               onClick={() => {
-                setDirection("ja-to-zh");
+                setDirection(buildDirection("ja", targetLanguage));
                 setShouldDrill(true);
               }}
               className={`rounded-xl px-3 py-2 transition ${
-                direction === "ja-to-zh"
+                parseDirection(direction).sourceLanguage === "ja"
                   ? "bg-emerald-500 text-neutral-950 shadow-sm shadow-emerald-500/30"
                   : "text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
               }`}
@@ -433,8 +456,12 @@ export default function AddPage() {
               type="button"
               onClick={() =>
                 setDirection((value) => {
-                  const next = value === "ja-to-zh" ? "zh-to-ja" : "ja-to-zh";
-                  setShouldDrill(next === "ja-to-zh");
+                  const current = parseDirection(value);
+                  const next =
+                    current.sourceLanguage === "ja"
+                      ? buildDirection(targetLanguage, "ja")
+                      : buildDirection("ja", targetLanguage);
+                  setShouldDrill(parseDirection(next).targetLanguage !== "ja");
                   return next;
                 })
               }
@@ -446,22 +473,22 @@ export default function AddPage() {
             <button
               type="button"
               onClick={() => {
-                setDirection("zh-to-ja");
+                setDirection(buildDirection(targetLanguage, "ja"));
                 setShouldDrill(false);
               }}
               className={`rounded-xl px-3 py-2 transition ${
-                direction === "zh-to-ja"
+                parseDirection(direction).sourceLanguage === targetLanguage
                   ? "bg-emerald-500 text-neutral-950 shadow-sm shadow-emerald-500/30"
                   : "text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
               }`}
             >
-              中国語
+              {getLanguageLabel(targetLanguage)}
             </button>
           </div>
 
           <div className="px-5 pt-5">
             <div className="mb-3 flex items-center justify-between text-base font-bold text-neutral-300">
-              <span>{direction === "ja-to-zh" ? "日本語" : "中国語"}</span>
+              <span>{getLanguageLabel(parseDirection(direction).sourceLanguage)}</span>
               <button
                 type="button"
                 onClick={() => setInputText("")}
@@ -476,9 +503,9 @@ export default function AddPage() {
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
               placeholder={
-                direction === "ja-to-zh"
+                parseDirection(direction).sourceLanguage === "ja"
                   ? "日本語を入力"
-                  : "中国語を入力"
+                  : `${getLanguageLabel(targetLanguage)}を入力`
               }
               rows={3}
               className="w-full resize-none bg-transparent text-2xl leading-relaxed text-neutral-100 placeholder:text-neutral-600 focus:outline-none"
@@ -554,7 +581,37 @@ export default function AddPage() {
         </section>
 
         <div className="-mt-1 mb-0">
-          <div className="flex items-center justify-between gap-3 rounded-2xl bg-neutral-950/50 px-3 py-2">
+          <div className="flex flex-col gap-2 rounded-2xl bg-neutral-950/50 px-3 py-2">
+            {ACTIVE_TARGET_LANGUAGE_CODES.length > 1 && (
+              <div className="grid grid-cols-2 gap-2">
+                {ACTIVE_TARGET_LANGUAGE_CODES.map((language) => (
+                  <button
+                    key={language}
+                    type="button"
+                    onClick={() => {
+                      setTargetLanguage(language);
+                      setDirection((currentDirection) => {
+                        const current = parseDirection(currentDirection);
+                        const next =
+                          current.sourceLanguage === "ja"
+                            ? buildDirection("ja", language)
+                            : buildDirection(language, "ja");
+                        setShouldDrill(parseDirection(next).targetLanguage !== "ja");
+                        return next;
+                      });
+                    }}
+                    className={`rounded-xl px-3 py-2 text-sm font-bold transition ${
+                      targetLanguage === language
+                        ? "bg-emerald-500 text-neutral-950"
+                        : "bg-neutral-900 text-neutral-300 hover:bg-neutral-800"
+                    }`}
+                  >
+                    {getLanguageLabel(language)}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-3">
             <label className="flex min-w-0 flex-1 items-center gap-3 text-sm text-neutral-300">
               <input
                 type="checkbox"
@@ -567,7 +624,9 @@ export default function AddPage() {
             <GenerationModeToggle
               value={generationMode}
               onChange={setGenerationMode}
+              readingLabel={targetLanguage === "zh" ? "ピンイン" : ""}
             />
+            </div>
           </div>
         </div>
 
@@ -581,16 +640,22 @@ export default function AddPage() {
           <div className="-mt-2 flex flex-col gap-3 rounded-[28px] bg-neutral-900/70 p-4">
             <div className="flex items-center justify-between gap-2">
               <div className="rounded-full bg-neutral-950/70 px-3 py-1 text-xs font-bold text-neutral-300">
-                {result.direction === "ja-to-zh" ? "日本語 → 中国語" : "中国語 → 日本語"}
+                {getLanguageLabel(result.sourceLanguage)} → {getLanguageLabel(result.targetLanguage)}
                 {shouldDrill ? " / ドリル対象" : " / ライブラリのみ"}
                 {(() => {
                   const providerLabel = getTranslationProviderLabel(result.provider);
                   return providerLabel ? ` / ${providerLabel}` : "";
                 })()}
               </div>
-              {result.chinese && (
+              {result.targetText && (
                 <SpeechPlayButton
-                  play={(options) => playChinese(result.chinese, options)}
+                  play={(options) =>
+                    playSpeechForLang(
+                      result.targetText,
+                      LANGUAGE_CONFIGS[result.targetLanguage].speechSynthesisCode,
+                      options,
+                    )
+                  }
                   className="shrink-0 rounded-full bg-neutral-950/80 px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-800"
                   playingClassName="text-emerald-300"
                 />
@@ -598,30 +663,30 @@ export default function AddPage() {
             </div>
             <div>
               <div className="text-xs font-bold text-neutral-500">
-                {result.direction === "ja-to-zh" ? "中国語" : "日本語訳"}
+                {getLanguageLabel(result.targetLanguage)}
               </div>
               <div className="mt-1 break-words [overflow-wrap:anywhere] text-3xl font-bold leading-snug text-white">
-                {result.direction === "ja-to-zh" ? result.chinese : result.japanese}
+                {result.targetText}
               </div>
-              {result.direction === "ja-to-zh" && (
-                result.pinyin ? (
+              {result.readingType === "pinyin" && (
+                result.reading ? (
                   <div className="mt-1 text-base tracking-wide text-neutral-300">
-                    {result.pinyin}
+                    {result.reading}
                   </div>
                 ) : explanationLoading ? (
                   <div className="mt-1 text-base text-neutral-500">ピンインを生成中...</div>
                 ) : null
               )}
-              {result.direction === "zh-to-ja" && (
+              {result.targetLanguage === "ja" && result.sourceLanguage === "zh" && (
                 <>
                   {result.chinese && (
                     <div className="mt-2 break-words [overflow-wrap:anywhere] text-xl leading-snug text-neutral-400">
                       {result.chinese}
                     </div>
                   )}
-                  {result.pinyin ? (
+                  {result.reading ? (
                     <div className="mt-0.5 text-base tracking-wide text-neutral-300">
-                      {result.pinyin}
+                      {result.reading}
                     </div>
                   ) : explanationLoading ? (
                     <div className="mt-0.5 text-base text-neutral-500">ピンインを生成中...</div>

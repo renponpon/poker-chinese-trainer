@@ -1,5 +1,15 @@
 import { Client } from "@notionhq/client";
-import type { Phrase, PhraseDirection, PhraseSource, Score, SrsItem, SrsStatus } from "./types";
+import type {
+  LanguageCode,
+  Phrase,
+  PhraseDirection,
+  PhraseSource,
+  ReadingType,
+  Score,
+  SrsItem,
+  SrsStatus,
+} from "./types";
+import { isSupportedDirection, parseDirection } from "./languages";
 
 const apiKey = process.env.NOTION_API_KEY;
 const databaseId = process.env.NOTION_DATABASE_ID;
@@ -43,7 +53,7 @@ const getSelectName = (prop: NotionProperty | undefined): string | undefined =>
   prop?.select?.name;
 
 const isDirection = (value: string | undefined): value is PhraseDirection =>
-  value === "ja-to-zh" || value === "zh-to-ja";
+  isSupportedDirection(value);
 
 const isSource = (value: string | undefined): value is PhraseSource =>
   value === "manual" || value === "conversation" || value === "prototype";
@@ -88,6 +98,12 @@ async function ensureOwnerProperties(): Promise<void> {
           select: { options: [{ name: "ja-to-zh" }, { name: "zh-to-ja" }] },
         },
         Category: { rich_text: {} },
+        "Source Language": { rich_text: {} },
+        "Target Language": { rich_text: {} },
+        "Source Text": { rich_text: {} },
+        "Target Text": { rich_text: {} },
+        Reading: { rich_text: {} },
+        "Reading Type": { rich_text: {} },
         "Should Drill": { select: { options: [{ name: "yes" }, { name: "no" }] } },
         Source: {
           select: {
@@ -118,13 +134,22 @@ export async function getPhrases(): Promise<Phrase[]> {
 
   return (response.results as unknown as NotionPage[]).map((page) => {
     const props = page.properties;
+    const japanese = getRichText(props["Japanese"]);
+    const chinese =
+      getRichText(props["Chinese (Natural)"]) ||
+      getRichText(props["Chinese (Literal)"]);
+    const pinyin = getRichText(props["Pinyin"]);
     return {
       id: page.id,
-      japanese: getRichText(props["Japanese"]),
-      chinese:
-        getRichText(props["Chinese (Natural)"]) ||
-        getRichText(props["Chinese (Literal)"]),
-      pinyin: getRichText(props["Pinyin"]),
+      japanese,
+      chinese,
+      pinyin,
+      sourceLanguage: "ja",
+      targetLanguage: "zh",
+      sourceText: japanese,
+      targetText: chinese,
+      reading: pinyin,
+      readingType: "pinyin",
       explanation: getRichText(props["Grammar"]),
       audioUrl: props["Audio URL"]?.url ?? null,
       createdAt: page.created_time,
@@ -151,6 +176,12 @@ export async function createPhrase(input: {
   shouldDrill?: boolean;
   source?: PhraseSource;
   usedAt?: string | null;
+  sourceLanguage?: LanguageCode;
+  targetLanguage?: LanguageCode;
+  sourceText?: string;
+  targetText?: string;
+  reading?: string;
+  readingType?: ReadingType;
 }): Promise<{ id: string } | null> {
   if (!notion || !databaseId) return null;
 
@@ -183,6 +214,36 @@ export async function createPhrase(input: {
   }
   if (input.direction) {
     properties.Direction = { select: { name: input.direction } };
+  }
+  if (input.sourceLanguage) {
+    properties["Source Language"] = {
+      rich_text: [{ text: { content: input.sourceLanguage } }],
+    };
+  }
+  if (input.targetLanguage) {
+    properties["Target Language"] = {
+      rich_text: [{ text: { content: input.targetLanguage } }],
+    };
+  }
+  if (input.sourceText) {
+    properties["Source Text"] = {
+      rich_text: [{ text: { content: input.sourceText } }],
+    };
+  }
+  if (input.targetText) {
+    properties["Target Text"] = {
+      rich_text: [{ text: { content: input.targetText } }],
+    };
+  }
+  if (input.reading) {
+    properties.Reading = {
+      rich_text: [{ text: { content: input.reading } }],
+    };
+  }
+  if (input.readingType) {
+    properties["Reading Type"] = {
+      rich_text: [{ text: { content: input.readingType } }],
+    };
   }
   if (input.categoryId) {
     properties.Category = {
@@ -275,6 +336,19 @@ function pageToPhraseAndSrs(page: NotionPage): {
       }
     : null;
 
+  const direction = isDirection(directionName) ? directionName : "ja-to-zh";
+  const { sourceLanguage, targetLanguage } = parseDirection(direction);
+  const sourceText =
+    getRichText(props["Source Text"]) ||
+    (sourceLanguage === "ja"
+      ? getRichText(props["Japanese"])
+      : getRichText(props["Chinese (Natural)"]) || getRichText(props["Chinese (Literal)"]));
+  const targetText =
+    getRichText(props["Target Text"]) ||
+    (targetLanguage === "ja"
+      ? getRichText(props["Japanese"])
+      : getRichText(props["Chinese (Natural)"]) || getRichText(props["Chinese (Literal)"]));
+
   return {
     phrase: {
       id: phraseId,
@@ -283,10 +357,20 @@ function pageToPhraseAndSrs(page: NotionPage): {
         getRichText(props["Chinese (Natural)"]) ||
         getRichText(props["Chinese (Literal)"]),
       pinyin: getRichText(props["Pinyin"]),
+      sourceLanguage:
+        (getRichText(props["Source Language"]) as LanguageCode) || sourceLanguage,
+      targetLanguage:
+        (getRichText(props["Target Language"]) as LanguageCode) || targetLanguage,
+      sourceText,
+      targetText,
+      reading: getRichText(props.Reading) || getRichText(props["Pinyin"]),
+      readingType:
+        (getRichText(props["Reading Type"]) as ReadingType) ||
+        (sourceLanguage === "zh" || targetLanguage === "zh" ? "pinyin" : "none"),
       explanation: getRichText(props["Grammar"]),
       audioUrl: props["Audio URL"]?.url ?? null,
       createdAt: page.created_time,
-      direction: isDirection(directionName) ? directionName : "ja-to-zh",
+      direction,
       categoryId: getRichText(props.Category) || null,
       shouldDrill: getSelectName(props["Should Drill"]) !== "no",
       source: isSource(sourceName) ? sourceName : "manual",

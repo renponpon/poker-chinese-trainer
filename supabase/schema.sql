@@ -6,9 +6,15 @@ create table if not exists public.phrases (
   japanese text not null default '',
   chinese text not null default '',
   pinyin text not null default '',
+  source_language text not null default 'ja',
+  target_language text not null default 'zh',
+  source_text text not null default '',
+  target_text text not null default '',
+  reading text not null default '',
+  reading_type text not null default 'pinyin' check (reading_type in ('pinyin', 'none')),
   explanation text not null default '',
   audio_url text,
-  direction text not null check (direction in ('ja-to-zh', 'zh-to-ja')),
+  direction text not null check (direction ~ '^[a-z]{2,3}-to-[a-z]{2,3}$'),
   category_id text,
   should_drill boolean not null default true,
   source text not null default 'manual' check (source in ('manual', 'conversation', 'prototype')),
@@ -53,7 +59,7 @@ create table if not exists public.ai_usage_events (
   provider text check (provider in ('azure', 'deepl', 'gemini', 'openai', 'web_speech', 'unknown')),
   mode text,
   source_page text check (source_page in ('add', 'conversation', 'library', 'drill', 'admin')),
-  direction text check (direction in ('ja-to-zh', 'zh-to-ja')),
+  direction text check (direction is null or direction ~ '^[a-z]{2,3}-to-[a-z]{2,3}$'),
   input_chars integer not null default 0 check (input_chars >= 0),
   output_chars integer not null default 0 check (output_chars >= 0),
   audio_duration_ms integer check (audio_duration_ms >= 0),
@@ -136,6 +142,9 @@ create index if not exists phrases_user_created_idx
 
 create index if not exists phrases_user_direction_idx
   on public.phrases(user_id, direction);
+
+create index if not exists phrases_user_language_pair_idx
+  on public.phrases(user_id, source_language, target_language, created_at desc);
 
 create index if not exists srs_user_next_review_idx
   on public.srs_items(user_id, next_review_at);

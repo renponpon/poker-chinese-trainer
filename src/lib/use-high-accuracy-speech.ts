@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getAuthHeaders } from "./auth-headers";
 
-type LanguageHint = "ja-JP" | "zh-CN" | "auto";
+type LanguageHint = string;
 
 type StartOptions = {
   languageHint: LanguageHint;

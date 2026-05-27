@@ -1,3 +1,4 @@
+import { buildGeneratedPhrase, LANGUAGE_CONFIGS, parseDirection } from "@/lib/languages";
 import type { GeneratedPhrase, PhraseDirection } from "@/lib/types";
 const DEEPL_TIMEOUT_MS = 8_000;
 const DEEPL_FREE_ENDPOINT = "https://api-free.deepl.com";
@@ -28,8 +29,9 @@ export async function translateWithDeepL(input: {
   }
 
   const endpoint = resolveDeepLEndpoint();
-  const sourceLang = input.direction === "ja-to-zh" ? "JA" : "ZH";
-  const targetLang = input.direction === "ja-to-zh" ? "ZH" : "JA";
+  const { sourceLanguage, targetLanguage } = parseDirection(input.direction);
+  const sourceLang = LANGUAGE_CONFIGS[sourceLanguage].deeplSourceCode;
+  const targetLang = LANGUAGE_CONFIGS[targetLanguage].deeplTargetCode;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEEPL_TIMEOUT_MS);
 
@@ -65,16 +67,11 @@ export async function translateWithDeepL(input: {
       throw new DeepLError("DeepL から空の翻訳が返りました");
     }
 
-    const chinese = input.direction === "ja-to-zh" ? translated : input.text;
-    const japanese = input.direction === "ja-to-zh" ? input.text : translated;
-
-    return {
+    return buildGeneratedPhrase({
       direction: input.direction,
-      japanese,
-      chinese,
-      pinyin: "",
-      explanation: "",
-    };
+      sourceText: input.text,
+      targetText: translated,
+    });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new DeepLError("DeepL がタイムアウトしました");

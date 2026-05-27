@@ -1,5 +1,6 @@
 import type { Phrase, PhraseCategory } from "./types";
 import { createId } from "./id";
+import { parseDirection } from "./languages";
 import { loadSrsData, saveSrsData } from "./srs";
 import { STARTER_PHRASES } from "./starter-phrases";
 
@@ -84,7 +85,7 @@ export function saveLocalPhrases(phrases: Phrase[]): void {
 }
 
 export function addLocalPhrase(
-  input: Omit<Phrase, "id" | "createdAt"> & { id?: string; createdAt?: string },
+  input: Partial<Phrase> & { id?: string; createdAt?: string },
 ): Phrase {
   const phrase = normalizePhrase({
     ...input,
@@ -157,6 +158,16 @@ export function saveOwnerKey(ownerKey: string): void {
 
 function normalizePhrase(input: Partial<Phrase>): Phrase {
   const direction = input.direction ?? "ja-to-zh";
+  const { sourceLanguage, targetLanguage } = parseDirection(direction);
+  const sourceText =
+    input.sourceText ??
+    (sourceLanguage === "ja" ? input.japanese : input.chinese) ??
+    "";
+  const targetText =
+    input.targetText ??
+    (targetLanguage === "ja" ? input.japanese : input.chinese) ??
+    "";
+  const reading = input.reading ?? input.pinyin ?? "";
   const categoryId =
     !input.categoryId || input.categoryId === "uncategorized"
       ? null
@@ -166,6 +177,12 @@ function normalizePhrase(input: Partial<Phrase>): Phrase {
     japanese: input.japanese ?? "",
     chinese: input.chinese ?? "",
     pinyin: input.pinyin ?? "",
+    sourceLanguage: input.sourceLanguage ?? sourceLanguage,
+    targetLanguage: input.targetLanguage ?? targetLanguage,
+    sourceText,
+    targetText,
+    reading,
+    readingType: input.readingType ?? (targetLanguage === "zh" || sourceLanguage === "zh" ? "pinyin" : "none"),
     explanation: input.explanation ?? "",
     audioUrl: input.audioUrl ?? null,
     createdAt: input.createdAt ?? new Date().toISOString(),

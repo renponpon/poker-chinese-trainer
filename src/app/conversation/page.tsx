@@ -7,9 +7,15 @@ import GenerationModeToggle from "@/components/GenerationModeToggle";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import type { GenerationMode } from "@/lib/generation-mode";
 import { createId } from "@/lib/id";
+import {
+  ACTIVE_TARGET_LANGUAGE_CODES,
+  buildDirection,
+  getLanguageLabel,
+  LANGUAGE_CONFIGS,
+} from "@/lib/languages";
 import { addLocalPhrase, loadLocalPhrases, loadNickname, loadOwnerKey, updateLocalPhrase } from "@/lib/local-phrases";
 import { ensureSrsItems, loadSrsData } from "@/lib/srs";
-import { playChinese, playJapanese, primeSpeech, stopSpeech } from "@/lib/speech";
+import { playSpeechForLang, primeSpeech, stopSpeech } from "@/lib/speech";
 import type { SpeechPlayOptions } from "@/lib/speech";
 import {
   getSpeechRecognitionErrorMessage,
@@ -20,9 +26,9 @@ import {
 } from "@/lib/speech-recognition";
 import { useHighAccuracySpeech } from "@/lib/use-high-accuracy-speech";
 import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
-import type { PhraseDirection, Phrase } from "@/lib/types";
+import type { LanguageCode, PhraseDirection, Phrase } from "@/lib/types";
 
-type Speaker = "ja" | "zh";
+type Speaker = "ja" | "target";
 
 type Message = {
   id: string;
@@ -31,6 +37,12 @@ type Message = {
   japanese: string;
   chinese: string;
   pinyin: string;
+  sourceLanguage: LanguageCode;
+  targetLanguage: LanguageCode;
+  sourceText: string;
+  targetText: string;
+  reading: string;
+  readingType: "pinyin" | "none";
   explanation: string;
   provider?: string;
   inDrill?: boolean;
@@ -68,6 +80,7 @@ declare global {
 export default function ConversationPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
+  const [targetLanguage, setTargetLanguage] = useState<LanguageCode>("zh");
   const [speaker, setSpeaker] = useState<Speaker>("ja");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("speed");
   const [loading, setLoading] = useState(false);
@@ -115,7 +128,10 @@ export default function ConversationPage() {
     }
     setSpeaker(source);
     void highAccuracySpeech.startRecording({
-      languageHint: source === "zh" ? "zh-CN" : "ja-JP",
+      languageHint:
+        source === "target"
+          ? LANGUAGE_CONFIGS[targetLanguage].speechRecognitionCode
+          : LANGUAGE_CONFIGS.ja.speechRecognitionCode,
       sourcePage: "conversation",
       onTranscript: setDraft,
     });
@@ -126,7 +142,8 @@ export default function ConversationPage() {
     if (!trimmed) return;
     if (translatingRef.current) return;
 
-    const direction: PhraseDirection = source === "ja" ? "ja-to-zh" : "zh-to-ja";
+    const direction: PhraseDirection =
+      source === "ja" ? buildDirection("ja", targetLanguage) : buildDirection(targetLanguage, "ja");
     const phraseId = createId();
     translatingRef.current = true;
     setLoading(true);
@@ -163,6 +180,12 @@ export default function ConversationPage() {
           japanese: data.japanese,
           chinese: data.chinese,
           pinyin: data.pinyin ?? "",
+          sourceLanguage: data.sourceLanguage,
+          targetLanguage: data.targetLanguage,
+          sourceText: data.sourceText,
+          targetText: data.targetText,
+          reading: data.reading ?? data.pinyin ?? "",
+          readingType: data.readingType,
           explanation: data.explanation ?? "",
           provider: data.provider,
           inDrill: false,
@@ -186,6 +209,7 @@ export default function ConversationPage() {
           ...message,
           inDrill: stored?.shouldDrill ?? message.inDrill ?? false,
           pinyin: stored?.pinyin ?? message.pinyin,
+          reading: stored?.reading ?? message.reading,
           explanation: stored?.explanation ?? message.explanation,
         };
       }),
@@ -215,6 +239,7 @@ export default function ConversationPage() {
     authHeaders: Record<string, string>,
   ): Promise<Phrase> => {
     let pinyin = message.pinyin;
+    let reading = message.reading;
     let explanation = message.explanation;
     const needsEnrich = !pinyin.trim() || !explanation.trim();
 
@@ -228,13 +253,19 @@ export default function ConversationPage() {
           japanese: message.japanese,
           chinese: message.chinese,
           pinyin: message.pinyin,
+          sourceText: message.sourceText,
+          targetText: message.targetText,
+          reading: message.reading,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error ?? "解説生成に失敗しました");
       }
-      if (data.pinyin) pinyin = data.pinyin;
+      if (data.pinyin) {
+        pinyin = data.pinyin;
+        reading = data.pinyin;
+      }
       explanation = data.explanation ?? explanation;
     }
 
@@ -243,6 +274,7 @@ export default function ConversationPage() {
       updateLocalPhrase(message.id, {
         shouldDrill: true,
         pinyin,
+        reading,
         explanation,
       });
       return loadLocalPhrases().find((phrase) => phrase.id === message.id)!;
@@ -254,6 +286,12 @@ export default function ConversationPage() {
       japanese: message.japanese,
       chinese: message.chinese,
       pinyin,
+      sourceLanguage: message.sourceLanguage,
+      targetLanguage: message.targetLanguage,
+      sourceText: message.sourceText,
+      targetText: message.targetText,
+      reading,
+      readingType: message.readingType,
       explanation,
       audioUrl: null,
       categoryId: null,
@@ -308,6 +346,7 @@ export default function ConversationPage() {
                   ...item,
                   inDrill: true,
                   pinyin: phrase.pinyin,
+                  reading: phrase.reading,
                   explanation: phrase.explanation,
                 }
               : item,
@@ -329,7 +368,8 @@ export default function ConversationPage() {
 
   const handleVoiceInput = (source: Speaker) => {
     setError(null);
-    const direction: PhraseDirection = source === "ja" ? "ja-to-zh" : "zh-to-ja";
+    const direction: PhraseDirection =
+      source === "ja" ? buildDirection("ja", targetLanguage) : buildDirection(targetLanguage, "ja");
     if (shouldUseHighAccuracySpeechFirst()) {
       handleHighAccuracyVoiceInput(source);
       return;
@@ -366,7 +406,10 @@ export default function ConversationPage() {
 
     const recognition = new Recognition();
     recognitionRef.current = recognition;
-    recognition.lang = source === "zh" ? "zh-CN" : "ja-JP";
+    recognition.lang =
+      source === "target"
+        ? LANGUAGE_CONFIGS[targetLanguage].speechRecognitionCode
+        : LANGUAGE_CONFIGS.ja.speechRecognitionCode;
     recognition.interimResults = true;
     recognition.continuous = false;
 
@@ -491,7 +534,7 @@ export default function ConversationPage() {
         <div className="mt-5 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pb-2">
           {messages.length === 0 ? (
             <p className="px-2 pt-1 text-center text-lg leading-relaxed text-neutral-500">
-              日本語/中国語を切り替えて話すと、
+              日本語/{getLanguageLabel(targetLanguage)}を切り替えて話すと、
               <br />
               その場で交互に翻訳できます。
             </p>
@@ -566,7 +609,7 @@ export default function ConversationPage() {
             </button>
             <button
               type="button"
-              onClick={() => setSpeaker((value) => (value === "ja" ? "zh" : "ja"))}
+              onClick={() => setSpeaker((value) => (value === "ja" ? "target" : "ja"))}
               aria-label="入力言語を切り替え"
               className="rounded-full px-3 py-0.5 text-2xl leading-none text-emerald-400 hover:bg-neutral-900"
             >
@@ -574,19 +617,19 @@ export default function ConversationPage() {
             </button>
             <button
               type="button"
-              onClick={() => setSpeaker("zh")}
+              onClick={() => setSpeaker("target")}
               className={`rounded-xl px-3 py-2 transition ${
-                speaker === "zh"
+                speaker === "target"
                   ? "bg-emerald-500 text-neutral-950 shadow-sm shadow-emerald-500/30"
                   : "text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
               }`}
             >
-              中国語
+              {getLanguageLabel(targetLanguage)}
             </button>
           </div>
           <div className="px-5 pt-5">
             <div className="mb-3 flex items-center justify-between text-base font-bold text-neutral-300">
-              <span>{speaker === "ja" ? "日本語" : "中国語"}</span>
+              <span>{speaker === "ja" ? "日本語" : getLanguageLabel(targetLanguage)}</span>
               <button
                 type="button"
                 onClick={() => setDraft("")}
@@ -600,7 +643,7 @@ export default function ConversationPage() {
               onChange={(event) => setDraft(event.target.value)}
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
-              placeholder={speaker === "zh" ? "中国語を入力" : "日本語を入力"}
+              placeholder={speaker === "target" ? `${getLanguageLabel(targetLanguage)}を入力` : "日本語を入力"}
               rows={2}
               className="w-full resize-none bg-transparent text-2xl leading-relaxed text-neutral-100 placeholder:text-neutral-600 focus:outline-none"
             />
@@ -647,11 +690,35 @@ export default function ConversationPage() {
         </div>
 
         <div className="-mt-1">
-          <div className="flex items-center justify-end rounded-2xl bg-neutral-950/50 px-3 py-2">
+          <div className="flex flex-col gap-2 rounded-2xl bg-neutral-950/50 px-3 py-2">
+            {ACTIVE_TARGET_LANGUAGE_CODES.length > 1 && (
+              <div className="grid grid-cols-2 gap-2">
+                {ACTIVE_TARGET_LANGUAGE_CODES.map((language) => (
+                  <button
+                    key={language}
+                    type="button"
+                    onClick={() => {
+                      setTargetLanguage(language);
+                      setSpeaker("ja");
+                    }}
+                    className={`rounded-xl px-3 py-2 text-sm font-bold transition ${
+                      targetLanguage === language
+                        ? "bg-emerald-500 text-neutral-950"
+                        : "bg-neutral-900 text-neutral-300 hover:bg-neutral-800"
+                    }`}
+                  >
+                    {getLanguageLabel(language)}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center justify-end">
             <GenerationModeToggle
               value={generationMode}
               onChange={setGenerationMode}
+              readingLabel={targetLanguage === "zh" ? "ピンイン" : ""}
             />
+            </div>
           </div>
         </div>
         </div>
@@ -679,13 +746,13 @@ function ConversationBubble({
 
   const play = useCallback(
     (options: SpeechPlayOptions) => {
-      if (isJapaneseSpeaker) {
-        playChinese(message.chinese, options);
-      } else {
-        playJapanese(message.japanese, options);
-      }
+      playSpeechForLang(
+        message.targetText,
+        LANGUAGE_CONFIGS[message.targetLanguage].speechSynthesisCode,
+        options,
+      );
     },
-    [isJapaneseSpeaker, message.chinese, message.japanese],
+    [message.targetLanguage, message.targetText],
   );
 
   useEffect(() => {
@@ -720,12 +787,12 @@ function ConversationBubble({
     });
   };
 
-  const primaryText = isJapaneseSpeaker ? message.japanese : message.chinese;
-  const translatedText = isJapaneseSpeaker ? message.chinese : message.japanese;
+  const primaryText = message.sourceText;
+  const translatedText = message.targetText;
   const textClass = "text-2xl font-bold leading-snug";
   const playLabel = isJapaneseSpeaker
-    ? `中国語訳「${message.chinese}」を再生`
-    : `日本語訳「${message.japanese}」を再生`;
+    ? `${getLanguageLabel(message.targetLanguage)}訳「${message.targetText}」を再生`
+    : `日本語訳「${message.targetText}」を再生`;
 
   return (
     <div className={`flex ${isJapaneseSpeaker ? "justify-start" : "justify-end"}`}>

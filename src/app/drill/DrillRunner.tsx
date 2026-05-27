@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import Flashcard from "@/components/Flashcard";
 import { getAuthHeaders } from "@/lib/auth-headers";
+import { ACTIVE_TARGET_LANGUAGE_CODES, getLanguageLabel } from "@/lib/languages";
 import { loadLocalPhrases, loadOwnerKey } from "@/lib/local-phrases";
 import {
   getPendingExplanationIds,
@@ -21,12 +22,13 @@ import {
   saveSrsData,
 } from "@/lib/srs";
 import { primeSpeech } from "@/lib/speech";
-import type { Phrase, Score, SrsItem } from "@/lib/types";
+import type { LanguageCode, Phrase, Score, SrsItem } from "@/lib/types";
 import PersonalPhrasePackFlow from "./PersonalPhrasePackFlow";
 
 export default function DrillRunner() {
   const [phrases, setPhrases] = useState<Phrase[]>([]);
   const [items, setItems] = useState<SrsItem[]>([]);
+  const [targetLanguage, setTargetLanguage] = useState<LanguageCode>("zh");
   const [hydrated, setHydrated] = useState(false);
   const [queue, setQueue] = useState<Phrase[]>([]);
   const [completed, setCompleted] = useState(0);
@@ -39,13 +41,21 @@ export default function DrillRunner() {
     let stored = loadSrsData();
     stored = ensureSrsItems(localPhrases, stored);
     setItems(stored);
-    const due = getDuePhrases(localPhrases, stored);
+    const due = getDuePhrases(filterPhrasesByTarget(localPhrases, "zh"), stored);
     const shuffled = [...due].sort(() => Math.random() - 0.5);
     setQueue(shuffled);
     setPendingExplanationIds(new Set(getPendingExplanationIds()));
     resumePendingPackJobs();
     setHydrated(true);
   }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const due = getDuePhrases(filterPhrasesByTarget(phrases, targetLanguage), items);
+    const shuffled = [...due].sort(() => Math.random() - 0.5);
+    setQueue(shuffled);
+    setCompleted(0);
+  }, [hydrated, items, phrases, targetLanguage]);
 
   useEffect(() => {
     const syncPhrases = () => {
@@ -70,9 +80,20 @@ export default function DrillRunner() {
   const total = useMemo(() => queue.length + completed, [queue.length, completed]);
   const current = queue[0] ?? null;
   const drillPhraseCount = useMemo(
-    () => phrases.filter((phrase) => phrase.shouldDrill).length,
+    () =>
+      phrases.filter(
+        (phrase) => phrase.shouldDrill && phrase.targetLanguage === targetLanguage,
+      ).length,
+    [phrases, targetLanguage],
+  );
+  const drillCountsByLanguage = useMemo(
+    () => ({
+      zh: phrases.filter((phrase) => phrase.shouldDrill && phrase.targetLanguage === "zh").length,
+      en: phrases.filter((phrase) => phrase.shouldDrill && phrase.targetLanguage === "en").length,
+    }),
     [phrases],
   );
+  const showLanguageTabs = ACTIVE_TARGET_LANGUAGE_CODES.length > 1;
 
   const handleScore = (score: Score) => {
     if (!current) return;
@@ -116,7 +137,10 @@ export default function DrillRunner() {
     setPhrases(nextPhrases);
     const nextItems = ensureSrsItems(nextPhrases, items);
     setItems(nextItems);
-    setQueue((prev) => [...prev, ...newPhrases]);
+    setQueue((prev) => [
+      ...prev,
+      ...newPhrases.filter((phrase) => phrase.targetLanguage === targetLanguage),
+    ]);
     setPendingExplanationIds(new Set(getPendingExplanationIds()));
   };
 
@@ -153,14 +177,23 @@ export default function DrillRunner() {
   if (drillPhraseCount === 0) {
     return (
       <div className="flex flex-col items-center gap-4 rounded-3xl bg-neutral-900/70 p-10 text-center">
+        {showLanguageTabs && (
+          <LanguageTabs
+            value={targetLanguage}
+            counts={drillCountsByLanguage}
+            onChange={setTargetLanguage}
+          />
+        )}
         <div className="text-lg font-semibold text-neutral-200">
-          ドリル対象がありません
+          {getLanguageLabel(targetLanguage)}のドリル対象がありません
         </div>
         <div className="text-sm text-neutral-500">
           ライブラリから覚えたいフレーズを「ドリルに追加」できます。
         </div>
         <div className="flex flex-wrap justify-center gap-2">
-          <PersonalPhrasePackFlow phrases={phrases} onSaved={handlePackSaved} />
+          {targetLanguage === "zh" && (
+            <PersonalPhrasePackFlow phrases={phrases} onSaved={handlePackSaved} />
+          )}
           <Link
             href="/library"
             className="rounded-xl bg-neutral-950/80 px-5 py-3 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
@@ -175,6 +208,13 @@ export default function DrillRunner() {
   if (!current) {
     return (
       <div className="flex flex-col items-center gap-4 rounded-3xl bg-neutral-900/70 p-10 text-center">
+        {showLanguageTabs && (
+          <LanguageTabs
+            value={targetLanguage}
+            counts={drillCountsByLanguage}
+            onChange={setTargetLanguage}
+          />
+        )}
         <div className="text-3xl">🎉</div>
         <div className="text-lg font-semibold text-neutral-200">
           今日のドリル完了
@@ -183,11 +223,13 @@ export default function DrillRunner() {
           {completed} 件をレビューしました。お疲れさま。
         </div>
         <div className="mt-2 flex gap-2">
-          <PersonalPhrasePackFlow
-            phrases={phrases}
-            onSaved={handlePackSaved}
-            buttonClassName="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-neutral-950 hover:bg-emerald-400"
-          />
+          {targetLanguage === "zh" && (
+            <PersonalPhrasePackFlow
+              phrases={phrases}
+              onSaved={handlePackSaved}
+              buttonClassName="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-neutral-950 hover:bg-emerald-400"
+            />
+          )}
           <Link
             href="/"
             className="rounded-xl bg-neutral-950/80 px-5 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-800"
@@ -204,14 +246,16 @@ export default function DrillRunner() {
       <div className="shrink-0 touch-none">
         <div className="flex items-end justify-between gap-3">
           <h1 className="text-2xl font-extrabold text-neutral-100">
-            今日のドリル
+            {getLanguageLabel(targetLanguage)}ドリル
           </h1>
           <div className="flex items-center gap-3">
-            <PersonalPhrasePackFlow
-              phrases={phrases}
-              onSaved={handlePackSaved}
-              buttonClassName="rounded-xl bg-neutral-900 px-3 py-2 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
-            />
+            {targetLanguage === "zh" && (
+              <PersonalPhrasePackFlow
+                phrases={phrases}
+                onSaved={handlePackSaved}
+                buttonClassName="rounded-xl bg-neutral-900 px-3 py-2 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
+              />
+            )}
             <div className="whitespace-nowrap text-right text-sm text-neutral-500">
               {completed}/{total} · {total > 0 ? Math.round((completed / total) * 100) : 0}%
             </div>
@@ -225,6 +269,13 @@ export default function DrillRunner() {
           style={{ width: `${total > 0 ? (completed / total) * 100 : 0}%` }}
         />
       </div>
+      {showLanguageTabs && (
+        <LanguageTabs
+          value={targetLanguage}
+          counts={drillCountsByLanguage}
+          onChange={setTargetLanguage}
+        />
+      )}
 
       <div className="min-h-0 flex-1">
         <Flashcard
@@ -235,6 +286,42 @@ export default function DrillRunner() {
           }
         />
       </div>
+    </div>
+  );
+}
+
+function filterPhrasesByTarget(phrases: Phrase[], targetLanguage: LanguageCode): Phrase[] {
+  return phrases.filter((phrase) => phrase.targetLanguage === targetLanguage);
+}
+
+function LanguageTabs({
+  value,
+  counts,
+  onChange,
+}: {
+  value: LanguageCode;
+  counts: { zh: number; en: number };
+  onChange: (value: LanguageCode) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {ACTIVE_TARGET_LANGUAGE_CODES.map((language) => (
+        <button
+          key={language}
+          type="button"
+          onClick={() => onChange(language)}
+          className={`rounded-xl px-3 py-2 text-sm font-bold transition ${
+            value === language
+              ? "bg-emerald-500 text-neutral-950"
+              : "bg-neutral-900 text-neutral-300 hover:bg-neutral-800"
+          }`}
+        >
+          {getLanguageLabel(language)}
+          <span className="ml-1 text-xs opacity-70">
+            {language === "zh" ? counts.zh : counts.en}
+          </span>
+        </button>
+      ))}
     </div>
   );
 }

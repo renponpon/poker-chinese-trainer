@@ -1,4 +1,5 @@
 import { createId } from "@/lib/id";
+import { isSupportedDirection, parseDirection } from "@/lib/languages";
 import type { PhraseDirection, PhraseSource } from "@/lib/types";
 
 export type ValidatedPhraseAddRequest = {
@@ -66,7 +67,9 @@ export function validatePhraseAddRequest(
     phraseId,
     categoryId,
     shouldDrill:
-      typeof raw.shouldDrill === "boolean" ? raw.shouldDrill : direction === "ja-to-zh",
+      typeof raw.shouldDrill === "boolean"
+        ? raw.shouldDrill
+        : parseDirection(direction).targetLanguage !== "ja",
     source,
   };
 }
@@ -82,7 +85,7 @@ export function getInputMaxChars(source: PhraseSource): number {
 
 function normalizeDirection(value: unknown): PhraseDirection {
   if (value === undefined || value === null || value === "") return "ja-to-zh";
-  if (value === "ja-to-zh" || value === "zh-to-ja") return value;
+  if (isSupportedDirection(value)) return value;
   throw new RequestValidationError("翻訳方向が正しくありません");
 }
 

@@ -1,4 +1,17 @@
-export type PhraseDirection = "ja-to-zh" | "zh-to-ja";
+export type LanguageCode =
+  | "ja"
+  | "zh"
+  | "en"
+  | "ko"
+  | "es"
+  | "fr"
+  | "de"
+  | "th"
+  | "vi";
+
+export type PhraseDirection = `${LanguageCode}-to-${LanguageCode}`;
+
+export type ReadingType = "pinyin" | "none";
 
 export type PhraseSource = "manual" | "conversation" | "prototype";
 
@@ -7,6 +20,12 @@ export type Phrase = {
   japanese: string;
   chinese: string;
   pinyin: string;
+  sourceLanguage: LanguageCode;
+  targetLanguage: LanguageCode;
+  sourceText: string;
+  targetText: string;
+  reading: string;
+  readingType: ReadingType;
   explanation: string;
   audioUrl: string | null;
   createdAt: string;
@@ -37,6 +56,12 @@ export type GeneratedPhrase = {
   japanese: string;
   chinese: string;
   pinyin: string;
+  sourceLanguage: LanguageCode;
+  targetLanguage: LanguageCode;
+  sourceText: string;
+  targetText: string;
+  reading: string;
+  readingType: ReadingType;
   explanation: string;
 };
 

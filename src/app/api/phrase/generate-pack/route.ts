@@ -61,6 +61,12 @@ type PhraseCore = {
   japanese: string;
   chinese: string;
   pinyin: string;
+  sourceLanguage: "ja";
+  targetLanguage: "zh";
+  sourceText: string;
+  targetText: string;
+  reading: string;
+  readingType: "pinyin";
   categoryId: string;
 };
 
@@ -394,6 +400,12 @@ function normalizePhraseCore(
     japanese,
     chinese,
     pinyin,
+    sourceLanguage: "ja",
+    targetLanguage: "zh",
+    sourceText: japanese,
+    targetText: chinese,
+    reading: pinyin,
+    readingType: "pinyin",
     categoryId,
   };
 }

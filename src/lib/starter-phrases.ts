@@ -2,7 +2,22 @@ import type { Phrase } from "./types";
 
 const STARTER_CREATED_AT = "2026-05-22T00:00:00.000Z";
 
-type StarterSeed = Omit<Phrase, "id" | "createdAt" | "direction" | "shouldDrill" | "source" | "usedAt" | "audioUrl"> & {
+type StarterSeed = Omit<
+  Phrase,
+  | "id"
+  | "createdAt"
+  | "direction"
+  | "shouldDrill"
+  | "source"
+  | "usedAt"
+  | "audioUrl"
+  | "sourceLanguage"
+  | "targetLanguage"
+  | "sourceText"
+  | "targetText"
+  | "reading"
+  | "readingType"
+> & {
   id: string;
 };
 
@@ -379,6 +394,12 @@ const STARTER_SEEDS: StarterSeed[] = [
 
 export const STARTER_PHRASES: Phrase[] = STARTER_SEEDS.map((phrase) => ({
   ...phrase,
+  sourceLanguage: "ja",
+  targetLanguage: "zh",
+  sourceText: phrase.japanese,
+  targetText: phrase.chinese,
+  reading: phrase.pinyin,
+  readingType: "pinyin",
   audioUrl: null,
   createdAt: STARTER_CREATED_AT,
   direction: "ja-to-zh",

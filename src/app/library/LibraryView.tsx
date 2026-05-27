@@ -9,18 +9,24 @@ import {
   updateLocalPhrase,
 } from "@/lib/local-phrases";
 import {
+  ACTIVE_TARGET_LANGUAGE_CODES,
+  getLanguageLabel,
+  LANGUAGE_CONFIGS,
+} from "@/lib/languages";
+import {
   ensureSrsItems,
   loadSrsData,
   saveSrsData,
   statusLabel,
 } from "@/lib/srs";
 import SpeechPlayButton from "@/components/SpeechPlayButton";
-import { playChinese, primeSpeech } from "@/lib/speech";
+import { playSpeechForLang, primeSpeech } from "@/lib/speech";
 import { cn } from "@/lib/utils";
-import type { Phrase, PhraseCategory, SrsItem, SrsStatus } from "@/lib/types";
+import type { LanguageCode, Phrase, PhraseCategory, SrsItem, SrsStatus } from "@/lib/types";
 
 type Filter = "all" | SrsStatus;
 type DrillFilter = "all" | "drill" | "library-only";
+type LanguageFilter = "all" | LanguageCode;
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "全て" },
@@ -42,6 +48,7 @@ export default function LibraryView() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [languageFilter, setLanguageFilter] = useState<LanguageFilter>("all");
   const [drillFilter, setDrillFilter] = useState<DrillFilter>("all");
   const [filterOpen, setFilterOpen] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -147,6 +154,7 @@ export default function LibraryView() {
     return phrases.filter((p) => {
       const it = itemById.get(p.id);
       const status: SrsStatus = it ? it.status : "new";
+      if (!ACTIVE_TARGET_LANGUAGE_CODES.includes(p.targetLanguage)) return false;
       if (filter !== "all" && status !== filter) return false;
       if (categoryFilter !== "all") {
         if (categoryFilter === "uncategorized" && !isUncategorized(p.categoryId)) {
@@ -156,20 +164,25 @@ export default function LibraryView() {
           return false;
         }
       }
+      if (languageFilter !== "all" && p.targetLanguage !== languageFilter) return false;
       if (drillFilter === "drill" && !p.shouldDrill) return false;
       if (drillFilter === "library-only" && p.shouldDrill) return false;
       if (!q) return true;
       return (
         p.japanese.toLowerCase().includes(q) ||
         p.chinese.toLowerCase().includes(q) ||
-        p.pinyin.toLowerCase().includes(q)
+        p.pinyin.toLowerCase().includes(q) ||
+        p.sourceText.toLowerCase().includes(q) ||
+        p.targetText.toLowerCase().includes(q) ||
+        p.reading.toLowerCase().includes(q)
       );
     });
-  }, [phrases, itemById, query, filter, categoryFilter, drillFilter]);
+  }, [phrases, itemById, query, filter, categoryFilter, languageFilter, drillFilter]);
 
   const filterCount =
     (filter === "all" ? 0 : 1) +
     (categoryFilter === "all" ? 0 : 1) +
+    (languageFilter === "all" ? 0 : 1) +
     (drillFilter === "all" ? 0 : 1);
 
   if (!hydrated) {
@@ -208,7 +221,7 @@ export default function LibraryView() {
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="日本語・中国語・ピンインで検索"
+        placeholder="日本語・翻訳・読みで検索"
         className="w-full rounded-2xl bg-neutral-900 px-4 py-3 text-base text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
       />
 
@@ -232,6 +245,23 @@ export default function LibraryView() {
           </div>
 
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {ACTIVE_TARGET_LANGUAGE_CODES.length > 1 && (
+              <label className="flex flex-col gap-1 text-xs text-neutral-400">
+                対象言語
+                <select
+                  value={languageFilter}
+                  onChange={(e) => setLanguageFilter(e.target.value as LanguageFilter)}
+                  className="rounded-xl bg-neutral-950/80 px-3 py-2.5 text-sm text-neutral-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                >
+                  <option value="all">全て</option>
+                  {ACTIVE_TARGET_LANGUAGE_CODES.map((language) => (
+                    <option key={language} value={language}>
+                      {getLanguageLabel(language)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="flex flex-col gap-1 text-xs text-neutral-400">
               状況カテゴリ
               <select
@@ -304,7 +334,7 @@ export default function LibraryView() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-xs font-bold text-neutral-300">
-                        {p.direction === "zh-to-ja" ? "中→日" : "日→中"}
+                        {getLanguageLabel(p.sourceLanguage)}→{getLanguageLabel(p.targetLanguage)}
                       </span>
                       <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-xs text-neutral-300">
                         {category?.label ?? "未分類"}
@@ -316,10 +346,10 @@ export default function LibraryView() {
                       )}
                     </div>
                     <div className="mt-1.5 truncate text-base text-neutral-200">
-                      {p.japanese}
+                      {p.sourceText || p.japanese}
                     </div>
                     <div className="mt-0.5 truncate text-xl font-medium text-emerald-300">
-                      {p.chinese}
+                      {p.targetText || p.chinese}
                     </div>
                   </div>
                   {p.shouldDrill ? <StatusBadge status={status} /> : null}
@@ -328,20 +358,22 @@ export default function LibraryView() {
                   <div className="border-t border-neutral-800/70 px-4 pb-4 pt-4">
                     <div className="rounded-2xl bg-neutral-950/60 p-4">
                       <div className="text-xs font-bold uppercase tracking-wide text-neutral-400">
-                        日本語
+                        {getLanguageLabel(p.sourceLanguage)}
                       </div>
                       <div className="mt-1 text-xl font-semibold leading-relaxed text-neutral-100">
-                        {p.japanese}
+                        {p.sourceText || p.japanese}
                       </div>
                       <div className="mt-4 text-xs font-bold uppercase tracking-wide text-neutral-400">
-                        中国語
+                        {getLanguageLabel(p.targetLanguage)}
                       </div>
                       <div className="mt-1 break-words [overflow-wrap:anywhere] text-2xl font-bold leading-relaxed text-emerald-300">
-                        {p.chinese}
+                        {p.targetText || p.chinese}
                       </div>
-                      <div className="mt-2 text-base tracking-wide text-neutral-400">
-                        {p.pinyin}
-                      </div>
+                      {(p.reading || p.pinyin) && (
+                        <div className="mt-2 text-base tracking-wide text-neutral-400">
+                          {p.reading || p.pinyin}
+                        </div>
+                      )}
                     </div>
                     {p.explanation && (
                       <div className="mt-4 whitespace-pre-wrap rounded-2xl bg-neutral-950/40 p-4 text-sm leading-relaxed text-neutral-300">
@@ -350,7 +382,13 @@ export default function LibraryView() {
                     )}
                     <div className="mt-4 flex gap-2">
                       <SpeechPlayButton
-                        play={(options) => playChinese(p.chinese, options)}
+                        play={(options) =>
+                          playSpeechForLang(
+                            p.targetText || p.chinese,
+                            LANGUAGE_CONFIGS[p.targetLanguage].speechSynthesisCode,
+                            options,
+                          )
+                        }
                         className="rounded-full bg-neutral-950/80 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800"
                         playingClassName="text-emerald-300"
                       />

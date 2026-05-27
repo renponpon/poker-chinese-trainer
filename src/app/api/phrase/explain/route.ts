@@ -3,6 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import { createId } from "@/lib/id";
 import { updatePhraseFollowUp } from "@/lib/notion";
 import { getBearerToken, updateSupabasePhraseFollowUp } from "@/lib/supabase";
+import { isSupportedDirection, parseDirection } from "@/lib/languages";
 import { recordAiUsageEvent } from "@/lib/server/supabase-admin";
 import {
   identifyRequestActor,
@@ -25,6 +26,9 @@ type ExplainRequest = {
   japanese?: unknown;
   chinese?: unknown;
   pinyin?: unknown;
+  sourceText?: unknown;
+  targetText?: unknown;
+  reading?: unknown;
 };
 
 class ApiRouteError extends Error {
@@ -63,15 +67,30 @@ export async function POST(req: Request) {
 
     const phraseId = normalizeText(body.phraseId, "phraseId");
     direction = normalizeDirection(body.direction);
-    const japanese = normalizeText(body.japanese, "japanese");
-    const chinese = normalizeText(body.chinese, "chinese");
-    const pinyin = normalizeText(body.pinyin, "pinyin", true);
-    const needsPinyin = !pinyin;
+    const { sourceLanguage, targetLanguage } = parseDirection(direction);
+    const sourceText = normalizeOptionalText(body.sourceText);
+    const targetText = normalizeOptionalText(body.targetText);
+    const japanese =
+      normalizeOptionalText(body.japanese) ??
+      (sourceLanguage === "ja" ? sourceText : targetLanguage === "ja" ? targetText : "") ??
+      "";
+    const chinese =
+      normalizeOptionalText(body.chinese) ??
+      (sourceLanguage === "zh" ? sourceText : targetLanguage === "zh" ? targetText : "") ??
+      "";
+    if (!sourceText && !targetText && (!japanese || !chinese)) {
+      throw new RequestValidationError("フレーズ本文が空です");
+    }
+    const pinyin = normalizeText(body.pinyin ?? body.reading ?? "", "pinyin", true);
+    const needsPinyin = (sourceLanguage === "zh" || targetLanguage === "zh") && !pinyin;
     const payload = buildExplainRequestPrompt({
       direction,
       japanese,
       chinese,
       pinyin,
+      sourceText,
+      targetText,
+      reading: normalizeOptionalText(body.reading),
     });
     inputChars = payload.length;
 
@@ -207,8 +226,14 @@ function normalizeText(value: unknown, field: string, allowEmpty = false): strin
 }
 
 function normalizeDirection(value: unknown): PhraseDirection {
-  if (value === "ja-to-zh" || value === "zh-to-ja") return value;
+  if (isSupportedDirection(value)) return value;
   throw new RequestValidationError("翻訳方向が正しくありません");
+}
+
+function normalizeOptionalText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized ? normalized : undefined;
 }
 
 function sleep(ms: number): Promise<void> {

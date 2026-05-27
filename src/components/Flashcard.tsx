@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import SpeechPlayButton from "@/components/SpeechPlayButton";
-import { playChinese } from "@/lib/speech";
+import { LANGUAGE_CONFIGS } from "@/lib/languages";
+import { playSpeechForLang } from "@/lib/speech";
 import type { SpeechPlayOptions } from "@/lib/speech";
 import type { Phrase, Score } from "@/lib/types";
 
@@ -23,7 +24,10 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
   const revealTimeoutRef = useRef<number | null>(null);
   const fadeInFrameRef = useRef<number | null>(null);
   const isInitialPhraseRef = useRef(true);
-  const isChinesePrompt = phrase.direction === "zh-to-ja";
+  const promptText = phrase.sourceText || phrase.japanese;
+  const answerText = phrase.targetText || phrase.chinese;
+  const answerLanguage = phrase.targetLanguage ?? "zh";
+  const reading = phrase.reading || phrase.pinyin;
 
   const clearRevealTimeout = useCallback(() => {
     if (revealTimeoutRef.current) {
@@ -90,14 +94,16 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
       setIsFlipped(true);
       if (phrase.audioUrl) {
         const audio = new Audio(phrase.audioUrl);
-        audio.play().catch(() => playChinese(phrase.chinese));
+        audio.play().catch(() =>
+          playSpeechForLang(answerText, LANGUAGE_CONFIGS[answerLanguage].speechSynthesisCode),
+        );
       } else {
-        playChinese(phrase.chinese);
+        playSpeechForLang(answerText, LANGUAGE_CONFIGS[answerLanguage].speechSynthesisCode);
       }
     } else {
       setIsFlipped(false);
     }
-  }, [isAdvancing, isFlipped, phrase.audioUrl, phrase.chinese]);
+  }, [answerLanguage, answerText, isAdvancing, isFlipped, phrase.audioUrl]);
 
   const handleScore = useCallback(
     (score: Score) => {
@@ -153,17 +159,29 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
         };
         audio.onerror = () => {
           audioRef.current = null;
-          playChinese(phrase.chinese, options);
+          playSpeechForLang(
+            answerText,
+            LANGUAGE_CONFIGS[answerLanguage].speechSynthesisCode,
+            options,
+          );
         };
         audio.play().catch(() => {
           audioRef.current = null;
-          playChinese(phrase.chinese, options);
+          playSpeechForLang(
+            answerText,
+            LANGUAGE_CONFIGS[answerLanguage].speechSynthesisCode,
+            options,
+          );
         });
         return;
       }
-      playChinese(phrase.chinese, options);
+      playSpeechForLang(
+        answerText,
+        LANGUAGE_CONFIGS[answerLanguage].speechSynthesisCode,
+        options,
+      );
     },
-    [phrase.audioUrl, phrase.chinese],
+    [answerLanguage, answerText, phrase.audioUrl],
   );
 
   const stopAudio = useCallback(() => {
@@ -194,13 +212,13 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
           onClick={handleFlip}
         >
           <div className="absolute inset-0 flex touch-none flex-col items-center justify-center rounded-[28px] bg-neutral-900 p-5 backface-hidden sm:p-6">
-            {isChinesePrompt && (
+            {phrase.sourceLanguage === "zh" && reading && (
               <div className="mb-3 w-full text-lg tracking-wide [overflow-wrap:anywhere] text-neutral-400">
-                {phrase.pinyin}
+                {reading}
               </div>
             )}
             <div className="w-full px-1 text-center text-[32px] font-semibold leading-relaxed [overflow-wrap:anywhere] text-neutral-100 sm:text-4xl">
-              {isChinesePrompt ? phrase.chinese : phrase.japanese}
+              {promptText}
             </div>
             <div className="mt-6 flex items-center gap-2 text-base text-neutral-500">
               <span>タップして確認</span>
@@ -217,14 +235,14 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
             />
             <div className="w-full min-w-0 shrink-0 touch-none px-12 text-center">
               <div className="text-lg tracking-wide [overflow-wrap:anywhere] text-neutral-400 sm:text-xl">
-                {phrase.pinyin}
+                {reading}
               </div>
               <div className="mt-2 w-full px-1 text-center text-[34px] font-bold leading-snug [overflow-wrap:anywhere] text-white sm:text-4xl">
-                {isChinesePrompt ? phrase.japanese : phrase.chinese}
+                {answerText}
               </div>
-              {isChinesePrompt && (
+              {phrase.sourceLanguage === "zh" && (
                 <div className="mt-3 text-xl font-semibold [overflow-wrap:anywhere] text-emerald-200">
-                  {phrase.chinese}
+                  {phrase.sourceText}
                 </div>
               )}
             </div>

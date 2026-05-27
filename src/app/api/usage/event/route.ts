@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createId } from "@/lib/id";
 import { getBearerToken } from "@/lib/supabase";
+import { isSupportedDirection } from "@/lib/languages";
 import { recordAiUsageEvent } from "@/lib/server/supabase-admin";
 import { identifyRequestActor } from "@/lib/server/usage-limits";
 import { RequestValidationError } from "@/lib/server/validation";
@@ -84,7 +85,7 @@ function normalizeSourcePage(value: unknown): "add" | "conversation" | null {
 
 function normalizeDirection(value: unknown): PhraseDirection | null {
   if (value === undefined || value === null || value === "") return null;
-  if (value === "ja-to-zh" || value === "zh-to-ja") return value;
+  if (isSupportedDirection(value)) return value;
   throw new RequestValidationError("direction が正しくありません");
 }
 

@@ -1,11 +1,27 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Phrase, PhraseDirection, PhraseSource, Score, SrsItem, SrsStatus } from "./types";
+import type {
+  LanguageCode,
+  Phrase,
+  PhraseDirection,
+  PhraseSource,
+  ReadingType,
+  Score,
+  SrsItem,
+  SrsStatus,
+} from "./types";
+import { parseDirection } from "./languages";
 
 type PhraseRow = {
   id: string;
   japanese: string;
   chinese: string;
   pinyin: string;
+  source_language?: LanguageCode | null;
+  target_language?: LanguageCode | null;
+  source_text?: string | null;
+  target_text?: string | null;
+  reading?: string | null;
+  reading_type?: ReadingType | null;
   explanation: string;
   audio_url: string | null;
   direction: PhraseDirection;
@@ -93,6 +109,12 @@ export async function createSupabasePhrase(
     japanese: input.japanese,
     chinese: input.chinese,
     pinyin: input.pinyin,
+    source_language: input.sourceLanguage,
+    target_language: input.targetLanguage,
+    source_text: input.sourceText,
+    target_text: input.targetText,
+    reading: input.reading,
+    reading_type: input.readingType,
     explanation: input.explanation,
     audio_url: input.audioUrl,
     direction: input.direction,
@@ -197,11 +219,24 @@ export async function upsertSupabaseSrsItem(
 }
 
 function rowToPhrase(row: PhraseRow): Phrase {
+  const { sourceLanguage, targetLanguage } = parseDirection(row.direction);
   return {
     id: row.id,
     japanese: row.japanese,
     chinese: row.chinese,
     pinyin: row.pinyin,
+    sourceLanguage: row.source_language ?? sourceLanguage,
+    targetLanguage: row.target_language ?? targetLanguage,
+    sourceText:
+      row.source_text ??
+      (sourceLanguage === "ja" ? row.japanese : row.chinese),
+    targetText:
+      row.target_text ??
+      (targetLanguage === "ja" ? row.japanese : row.chinese),
+    reading: row.reading ?? row.pinyin,
+    readingType:
+      row.reading_type ??
+      (sourceLanguage === "zh" || targetLanguage === "zh" ? "pinyin" : "none"),
     explanation: row.explanation,
     audioUrl: row.audio_url,
     createdAt: row.created_at,

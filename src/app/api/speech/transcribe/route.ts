@@ -10,6 +10,7 @@ import {
   type RequestActor,
 } from "@/lib/server/usage-limits";
 import { RequestValidationError } from "@/lib/server/validation";
+import { LANGUAGE_CONFIGS, isLanguageCode } from "@/lib/languages";
 
 export const runtime = "nodejs";
 
@@ -73,7 +74,7 @@ export async function POST(req: Request) {
     openAiForm.set("model", model);
     openAiForm.set("response_format", "json");
     if (languageHint !== "auto") {
-      openAiForm.set("language", languageHint === "ja-JP" ? "ja" : "zh");
+      openAiForm.set("language", languageHint);
     }
 
     const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
@@ -154,8 +155,14 @@ function normalizeDuration(value: FormDataEntryValue | null): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function normalizeLanguageHint(value: FormDataEntryValue | null): "ja-JP" | "zh-CN" | "auto" {
-  return value === "ja-JP" || value === "zh-CN" ? value : "auto";
+function normalizeLanguageHint(value: FormDataEntryValue | null): string | "auto" {
+  if (typeof value !== "string" || !value) return "auto";
+  const language = Object.values(LANGUAGE_CONFIGS).find(
+    (config) => config.speechRecognitionCode === value,
+  );
+  if (language) return language.code;
+  const shortCode = value.split("-")[0];
+  return isLanguageCode(shortCode) ? shortCode : "auto";
 }
 
 function normalizeSourcePage(value: FormDataEntryValue | null): "add" | "conversation" | null {

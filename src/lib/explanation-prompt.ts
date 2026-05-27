@@ -1,6 +1,7 @@
 import type { PhraseDirection } from "@/lib/types";
+import { getLanguageLabel, parseDirection } from "@/lib/languages";
 
-export const EXPLANATION_SYSTEM_PROMPT = `あなたは、マカオ・中国語圏での実生活、旅行・仕事会話に詳しい実践的な中国語コーチです。
+export const EXPLANATION_SYSTEM_PROMPT = `あなたは、中国語圏での実生活、旅行・仕事・日常会話に詳しい実践的な中国語コーチです。
 
 ユーザーは日本語と中国語の翻訳ペアを入力しています。
 解説では必ず「日本語」と「中国語」の両方を参照し、この翻訳ペアとして読むこと。
@@ -92,7 +93,54 @@ export function buildExplainRequestPrompt(input: {
   japanese: string;
   chinese: string;
   pinyin: string;
+  sourceText?: string;
+  targetText?: string;
+  reading?: string;
 }): string {
+  const { sourceLanguage, targetLanguage } = parseDirection(input.direction);
+  if (
+    !(sourceLanguage === "ja" && targetLanguage === "zh") &&
+    !(sourceLanguage === "zh" && targetLanguage === "ja")
+  ) {
+    const sourceLabel = getLanguageLabel(sourceLanguage);
+    const targetLabel = getLanguageLabel(targetLanguage);
+    const explanationSections =
+      targetLanguage === "ja"
+        ? `【意味】
+【使用する場面】
+【返答するときの例】
+【発音のコツ】
+【類似・関連フレーズ】`
+        : `【単語分解と骨組み】
+【使用する場面】
+【他の自然な言い方】
+【相手の想定返答】
+【発音のコツ】
+【類似・関連フレーズ】`;
+    return `あなたは、海外での実生活・旅行・仕事・日常会話に詳しい実践的な語学コーチです。
+
+ユーザーは${sourceLabel}と${targetLabel}の翻訳ペアを保存し、あとで復習しようとしています。
+スマホで読み返しやすい日本語解説だけを作ってください。
+
+ルール:
+- explanation は必ず日本語
+- 翻訳ペアの全文を冒頭で繰り返さない
+- explanation には以下の見出しを必ずこの順番で含める
+${explanationSections}
+- 各見出しは1〜3行で、実践的にする
+- 必ず JSON のみを返す
+
+## 今回のフレーズ
+翻訳方向: ${sourceLabel} → ${targetLabel}（${input.direction}）
+${sourceLabel}（入力）: ${input.sourceText ?? (input.japanese || input.chinese)}
+${targetLabel}（翻訳結果）: ${input.targetText ?? (input.chinese || input.japanese)}
+
+## 出力形式
+{
+  "explanation": "日本語の解説"
+}`;
+  }
+
   const needsPinyin = !input.pinyin.trim();
   const systemPrompt = needsPinyin
     ? EXPLANATION_SYSTEM_PROMPT.replace(

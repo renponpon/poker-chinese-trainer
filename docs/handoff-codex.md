@@ -34,6 +34,14 @@ Cursor での開発から Codex + VSCode への引き継ぎ用ドキュメント
 - ルーティング: `src/app/api/phrase/add/route.ts` の `translateByMode()`
 - UI: `src/components/GenerationModeToggle.tsx`（1ボタンで 速度→通常→品質 を循環）
 
+### 多言語対応の準備（初回リリースは中国語のみ）
+
+- 言語定義: `src/lib/languages.ts`
+- DB/API/保存形式は `sourceLanguage` / `targetLanguage` / `sourceText` / `targetText` / `readingType` を持つ多言語前提に整理済み
+- 英語翻訳は API・保存・ドリル分離まで実装済みだが、初回リリースでは UI から非表示
+- 表に出す対象言語は `ACTIVE_TARGET_LANGUAGE_CODES` で制御。現在は `["zh"]`
+- 英語を出す場合は `ACTIVE_TARGET_LANGUAGE_CODES` に `"en"` を追加し、音声・ログイン同期を実機確認する
+
 ### 会話画面（`/conversation`）
 
 - 翻訳中は **ライブラリに保存しない**（`persist: false`）
@@ -104,6 +112,7 @@ Cursor での開発から Codex + VSCode への引き継ぎ用ドキュメント
 | `src/app/api/phrase/add/route.ts` | 翻訳 API（`persist` オプション） |
 | `src/app/api/phrase/explain/route.ts` | 解説+ピンイン生成 |
 | `src/app/api/phrase/save-pack/route.ts` | クラウド一括保存（ドリル追加時） |
+| `src/lib/languages.ts` | 言語定義、翻訳方向、多言語 UI 表示制御 |
 | `src/lib/generation-mode.ts` | 速度/通常/品質 定義 |
 | `src/lib/server/deepl-translator.ts` | DeepL |
 | `src/lib/server/azure-translator.ts` | Azure |
