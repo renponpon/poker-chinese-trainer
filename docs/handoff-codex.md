@@ -52,8 +52,14 @@ Cursor での開発から Codex + VSCode への引き継ぎ用ドキュメント
 
 ### 認証
 
-- Supabase Auth（PKCE）
-- `src/app/auth/callback/page.tsx`
+- Supabase Auth
+- UI は Google ログインのみ
+- ログイン UI は Google OAuth の同一タブリダイレクトで ID token を受け取り、`supabase.auth.signInWithIdToken()` に渡す方式
+- Google Cloud の Web Client ID を `NEXT_PUBLIC_GOOGLE_CLIENT_ID` に設定する
+- Google Cloud の承認済みリダイレクト URI に `/auth/google/callback`（本番・ローカル）を追加する
+- Supabase Dashboard 側でも Google provider の Client ID / Secret 設定が必要
+- `src/app/auth/google/callback/page.tsx`
+- `src/app/auth/callback/page.tsx`（旧Supabase OAuth callback。残置）
 - `src/components/AuthSessionKeeper.tsx`（layout に追加）
 - ゲスト利用可。ログインで Supabase 同期。
 

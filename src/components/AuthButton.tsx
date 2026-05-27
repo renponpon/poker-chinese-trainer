@@ -1,16 +1,19 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { getBrowserSupabase, getAuthCallbackUrl, isSupabaseConfigured } from "@/lib/supabase";
+import { getBrowserSupabase, isSupabaseConfigured } from "@/lib/supabase";
+
+const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+const googleAuthStorageKey = "phrabit_google_auth";
 
 export default function AuthButton() {
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
-  const [email, setEmail] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  const [loggingIn, setLoggingIn] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const configured = isSupabaseConfigured();
+  const configured = isSupabaseConfigured() && Boolean(googleClientId);
 
   useEffect(() => {
     const supabase = getBrowserSupabase();
@@ -18,12 +21,11 @@ export default function AuthButton() {
 
     void supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user ?? null);
-      setEmail(data.session?.user?.email ?? "");
     });
 
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
-      setEmail(session?.user?.email ?? "");
+      setLoggingIn(false);
     });
 
     return () => {
@@ -54,27 +56,43 @@ export default function AuthButton() {
     };
   }, [open]);
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const supabase = getBrowserSupabase();
-    if (!supabase) {
-      setStatus("Supabaseの環境変数が未設定です。");
+  const handleGoogleLogin = async () => {
+    if (!configured || !googleClientId) {
+      setStatus("ログイン設定がまだ完了していません。");
       return;
     }
-    const nextEmail = email.trim();
-    if (!nextEmail) return;
-    setStatus("ログインリンクを送信中...");
-    const { error } = await supabase.auth.signInWithOtp({
-      email: nextEmail,
-      options: {
-        emailRedirectTo: getAuthCallbackUrl(),
-      },
-    });
-    setStatus(
-      error
-        ? error.message
-        : "メールを確認してください。ログインリンクを送信しました。",
+
+    setStatus(null);
+    setLoggingIn(true);
+    const noncePair = await createNoncePair();
+    const state = createRandomValue();
+    if (!noncePair || !state) {
+      setLoggingIn(false);
+      setStatus("このブラウザではGoogleログインを開始できませんでした。");
+      return;
+    }
+
+    sessionStorage.setItem(
+      googleAuthStorageKey,
+      JSON.stringify({
+        nonce: noncePair.raw,
+        state,
+        createdAt: Date.now(),
+      }),
     );
+
+    const redirectUri = `${window.location.origin}/auth/google/callback`;
+    const params = new URLSearchParams({
+      client_id: googleClientId,
+      redirect_uri: redirectUri,
+      response_type: "id_token",
+      scope: "openid email profile",
+      nonce: noncePair.hashed,
+      state,
+      prompt: "select_account",
+    });
+
+    window.location.assign(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
   };
 
   const handleLogout = async () => {
@@ -118,44 +136,59 @@ export default function AuthButton() {
               </button>
             </div>
           ) : (
-            <form onSubmit={handleSubmit}>
+            <div>
               <div className="text-lg font-bold text-neutral-100">
                 ログイン
               </div>
               <p className="mt-2 text-sm leading-relaxed text-neutral-400">
-                メールに届くリンクからログインします。ログイン後はフレーズをクラウドに保存できます。
+                Googleアカウントでログインすると、保存したフレーズをクラウドに同期できます。
               </p>
               {!configured && (
                 <p className="mt-3 rounded-xl bg-yellow-900/20 px-3 py-2 text-sm text-yellow-100">
-                  Supabase未設定です。環境変数を入れると使えます。
+                  ログイン設定がまだ完了していません。
                 </p>
               )}
-              <label className="mt-4 block text-sm font-bold text-neutral-500">
-                メールアドレス
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@example.com"
-                className="mt-1 w-full rounded-xl bg-neutral-900 px-4 py-3 text-base text-neutral-100 placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-              />
               <button
-                type="submit"
-                className="mt-5 w-full rounded-xl bg-emerald-500 px-4 py-3 text-base font-bold text-neutral-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
-                disabled={!configured || !email.trim()}
+                type="button"
+                onClick={handleGoogleLogin}
+                disabled={!configured || loggingIn}
+                className="mt-5 w-full rounded-xl bg-neutral-100 px-4 py-3 text-base font-bold text-neutral-950 hover:bg-white disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
               >
-                ログインリンクを送る
+                {loggingIn ? "Googleへ移動中..." : "Googleでログイン"}
               </button>
               {status && (
                 <p className="mt-3 text-sm leading-relaxed text-neutral-400">
                   {status}
                 </p>
               )}
-            </form>
+            </div>
           )}
         </div>
       )}
     </div>
   );
+}
+
+async function createNoncePair(): Promise<{ raw: string; hashed: string } | null> {
+  const raw = createRandomValue();
+  if (!raw || !globalThis.crypto?.subtle) {
+    return null;
+  }
+
+  const encoded = new TextEncoder().encode(raw);
+  const hashBuffer = await globalThis.crypto.subtle.digest("SHA-256", encoded);
+  const hashed = Array.from(new Uint8Array(hashBuffer))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return { raw, hashed };
+}
+
+function createRandomValue(): string | null {
+  if (!globalThis.crypto?.getRandomValues) return null;
+  const random = new Uint8Array(32);
+  globalThis.crypto.getRandomValues(random);
+  return btoa(String.fromCharCode(...random))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
