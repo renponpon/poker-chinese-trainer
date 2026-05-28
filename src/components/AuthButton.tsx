@@ -72,14 +72,13 @@ export default function AuthButton() {
       return;
     }
 
-    sessionStorage.setItem(
-      googleAuthStorageKey,
-      JSON.stringify({
-        nonce: noncePair.raw,
-        state,
-        createdAt: Date.now(),
-      }),
-    );
+    const authState = JSON.stringify({
+      nonce: noncePair.raw,
+      state,
+      createdAt: Date.now(),
+    });
+    sessionStorage.setItem(googleAuthStorageKey, authState);
+    localStorage.setItem(googleAuthStorageKey, authState);
 
     const redirectUri = `${window.location.origin}/auth/google/callback`;
     const params = new URLSearchParams({

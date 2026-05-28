@@ -18,17 +18,27 @@ export default function GoogleAuthCallbackPage() {
   const [message, setMessage] = useState("ログイン処理中...");
 
   useEffect(() => {
+    const failAndReturnHome = (nextMessage: string) => {
+      setMessage(nextMessage);
+      window.setTimeout(() => {
+        router.replace("/");
+      }, 1800);
+    };
+
     const finishLogin = async () => {
+      const callbackHash = window.location.hash;
+      window.history.replaceState(null, "", "/auth/google/callback");
+
       const supabase = getBrowserSupabase();
       if (!supabase) {
-        setMessage("ログイン設定がまだ完了していません。");
+        failAndReturnHome("ログイン設定がまだ完了していません。");
         return;
       }
 
-      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const hash = new URLSearchParams(callbackHash.replace(/^#/, ""));
       const error = hash.get("error");
       if (error) {
-        setMessage("Googleログインがキャンセルされました。");
+        failAndReturnHome("Googleログインがキャンセルされました。");
         return;
       }
 
@@ -36,14 +46,15 @@ export default function GoogleAuthCallbackPage() {
       const state = hash.get("state");
       const stored = readStoredGoogleAuth();
       sessionStorage.removeItem(googleAuthStorageKey);
+      localStorage.removeItem(googleAuthStorageKey);
 
       if (!idToken || !state || !stored?.nonce || state !== stored.state) {
-        setMessage("Googleログイン情報を確認できませんでした。もう一度ログインしてください。");
+        failAndReturnHome("Googleログイン情報を確認できませんでした。ホームに戻ります。");
         return;
       }
 
       if (!stored.createdAt || Date.now() - stored.createdAt > maxAuthAgeMs) {
-        setMessage("ログインの有効期限が切れました。もう一度ログインしてください。");
+        failAndReturnHome("ログインの有効期限が切れました。ホームに戻ります。");
         return;
       }
 
@@ -55,11 +66,10 @@ export default function GoogleAuthCallbackPage() {
 
       if (signInError) {
         console.error("[auth/google/callback] signInWithIdToken failed", signInError);
-        setMessage("Googleログインに失敗しました。設定を確認してください。");
+        failAndReturnHome("Googleログインに失敗しました。ホームに戻ります。");
         return;
       }
 
-      window.history.replaceState(null, "", "/auth/google/callback");
       router.replace("/");
     };
 
@@ -67,15 +77,24 @@ export default function GoogleAuthCallbackPage() {
   }, [router]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-6">
-      <p className="text-base text-neutral-400">{message}</p>
+    <main className="flex min-h-screen flex-col items-center justify-center gap-5 px-6">
+      <p className="text-center text-base text-neutral-400">{message}</p>
+      <button
+        type="button"
+        onClick={() => router.replace("/")}
+        className="rounded-full bg-neutral-100 px-5 py-3 text-sm font-bold text-neutral-950"
+      >
+        ホームへ戻る
+      </button>
     </main>
   );
 }
 
 function readStoredGoogleAuth(): StoredGoogleAuth | null {
   try {
-    const raw = sessionStorage.getItem(googleAuthStorageKey);
+    const raw =
+      sessionStorage.getItem(googleAuthStorageKey) ??
+      localStorage.getItem(googleAuthStorageKey);
     return raw ? (JSON.parse(raw) as StoredGoogleAuth) : null;
   } catch {
     return null;
