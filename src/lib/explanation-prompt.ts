@@ -159,10 +159,43 @@ ${buildExplanationInputBlock(input)}`;
 }
 
 export function buildPackSingleExplanationPrompt(input: {
+  direction?: PhraseDirection;
   japanese: string;
   chinese: string;
   pinyin: string;
+  sourceText?: string;
+  targetText?: string;
 }): string {
+  if (input.direction && input.direction !== "ja-to-zh") {
+    const { sourceLanguage, targetLanguage } = parseDirection(input.direction);
+    const sourceLabel = getLanguageLabel(sourceLanguage);
+    const targetLabel = getLanguageLabel(targetLanguage);
+    return `あなたは、海外での実生活・旅行・仕事・日常会話に詳しい実践的な語学コーチです。
+
+次のフレーズについて、スマホで見返しやすい日本語解説を1件だけ作る。
+このフレーズは${sourceLabel} → ${targetLabel}（${input.direction}）として扱う。
+
+ルール:
+- explanation は必ず日本語
+- 翻訳ペアの全文を冒頭で繰り返さない
+- explanation には以下の見出しを必ずこの順番で含める
+【単語分解と骨組み】
+【使用する場面】
+【他の自然な言い方】
+【相手の想定返答】
+【発音のコツ】
+【類似・関連フレーズ】
+- 各見出しは1〜3行で、実践的にする
+- 必ず JSON のみを返す
+
+${sourceLabel}（入力）: ${input.sourceText ?? input.japanese}
+${targetLabel}（翻訳結果）: ${input.targetText ?? input.chinese}
+
+{
+  "explanation": "日本語解説"
+}`;
+  }
+
   return `${PACK_EXPLANATION_SYSTEM_PROMPT}
 
 次のフレーズについて、スマホで見返しやすい日本語解説を1件だけ作る。

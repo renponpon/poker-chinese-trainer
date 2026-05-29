@@ -1,5 +1,12 @@
+import { getAuthHeaders } from "@/lib/auth-headers";
+
 let voicesListenerAttached = false;
 let activeSession: SpeechPlayOptions | null = null;
+let activeUtterance: SpeechSynthesisUtterance | null = null;
+let speakTimer: number | null = null;
+let activeAudio: HTMLAudioElement | null = null;
+const remoteSpeechCache = new Map<string, string>();
+const remoteSpeechPending = new Map<string, Promise<string>>();
 
 export type SpeechPlayOptions = {
   rate?: number;
@@ -67,16 +74,31 @@ function getJaVoice(): SpeechSynthesisVoice | null {
 }
 
 function endActiveSession() {
+  if (speakTimer !== null && typeof window !== "undefined") {
+    window.clearTimeout(speakTimer);
+    speakTimer = null;
+  }
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio.src = "";
+    activeAudio = null;
+  }
+  activeUtterance = null;
   activeSession?.onEnd?.();
   activeSession = null;
 }
 
-function speakNow(utter: SpeechSynthesisUtterance): void {
+function speakNow(utter: SpeechSynthesisUtterance, opts: SpeechPlayOptions): void {
   const synth = window.speechSynthesis;
   synth.cancel();
-  synth.resume();
+  activeUtterance = utter;
   getVoices();
-  synth.speak(utter);
+  speakTimer = window.setTimeout(() => {
+    speakTimer = null;
+    if (activeSession !== opts || activeUtterance !== utter) return;
+    synth.resume();
+    synth.speak(utter);
+  }, 80);
 }
 
 function bindUtterance(
@@ -95,9 +117,15 @@ function bindUtterance(
     if (activeSession === opts) {
       activeSession = null;
     }
+    if (activeUtterance === utter) {
+      activeUtterance = null;
+    }
     opts.onEnd?.();
   };
   utter.onerror = (event) => {
+    if (activeUtterance === utter) {
+      activeUtterance = null;
+    }
     if (event.error === "canceled") return;
     onFail();
   };
@@ -160,7 +188,7 @@ export function playChinese(text: string, opts: SpeechPlayOptions = {}): void {
       }
     });
 
-    speakNow(utter);
+    speakNow(utter, opts);
   };
 
   attempt();
@@ -182,7 +210,7 @@ export function playJapanese(text: string, opts: SpeechPlayOptions = {}): void {
   utter.pitch = 1.0;
 
   bindUtterance(utter, opts, finish);
-  speakNow(utter);
+  speakNow(utter, opts);
 
   function finish() {
     if (activeSession === opts) {
@@ -205,6 +233,26 @@ export function playSpeechForLang(
     playJapanese(text, opts);
     return;
   }
+  if (shouldUseRemoteSpeech(langCode)) {
+    playRemoteSpeech(text, langCode, opts);
+    return;
+  }
+  playBrowserSpeechForLang(text, langCode, opts);
+}
+
+export function prefetchSpeechForLang(text: string, langCode: string): void {
+  if (typeof window === "undefined") return;
+  if (!text) return;
+  if (!shouldUseRemoteSpeech(langCode)) return;
+
+  void getRemoteSpeechSrc(text, langCode).catch(() => undefined);
+}
+
+function playBrowserSpeechForLang(
+  text: string,
+  langCode: string,
+  opts: SpeechPlayOptions = {},
+): void {
   if (typeof window === "undefined") return;
   if (!text) return;
   if (!("speechSynthesis" in window)) return;
@@ -220,7 +268,7 @@ export function playSpeechForLang(
   utter.pitch = 1.0;
 
   bindUtterance(utter, opts, finish);
-  speakNow(utter);
+  speakNow(utter, opts);
 
   function finish() {
     if (activeSession === opts) {
@@ -228,4 +276,88 @@ export function playSpeechForLang(
     }
     opts.onEnd?.();
   }
+}
+
+function shouldUseRemoteSpeech(langCode: string): boolean {
+  return langCode.toLowerCase().startsWith("en");
+}
+
+function playRemoteSpeech(
+  text: string,
+  langCode: string,
+  opts: SpeechPlayOptions,
+): void {
+  if (typeof window === "undefined") return;
+  if (!text) return;
+
+  endActiveSession();
+  activeSession = opts;
+
+  void (async () => {
+    try {
+      const src = await getRemoteSpeechSrc(text, langCode);
+      if (activeSession !== opts) return;
+      const audio = new Audio(src);
+      activeAudio = audio;
+      audio.onplay = () => opts.onStart?.();
+      audio.onended = () => {
+        if (activeAudio === audio) activeAudio = null;
+        if (activeSession === opts) activeSession = null;
+        opts.onEnd?.();
+      };
+      audio.onerror = () => {
+        if (activeAudio === audio) activeAudio = null;
+        if (activeSession === opts) {
+          activeSession = null;
+          playBrowserSpeechForLang(text, langCode, opts);
+        }
+      };
+      await audio.play();
+    } catch {
+      if (activeSession === opts) {
+        activeSession = null;
+        playBrowserSpeechForLang(text, langCode, opts);
+      }
+    }
+  })();
+}
+
+async function getRemoteSpeechSrc(text: string, langCode: string): Promise<string> {
+  const cacheKey = `${langCode}:${hashSpeechText(text)}`;
+  const cached = remoteSpeechCache.get(cacheKey);
+  if (cached) return cached;
+  const pending = remoteSpeechPending.get(cacheKey);
+  if (pending) return pending;
+
+  const request = (async () => {
+    const authHeaders = await getAuthHeaders();
+    const res = await fetch("/api/speech/synthesize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify({ text, langCode }),
+    });
+    if (!res.ok) {
+      throw new Error("speech synthesis failed");
+    }
+    const blob = await res.blob();
+    const src = URL.createObjectURL(blob);
+    remoteSpeechCache.set(cacheKey, src);
+    return src;
+  })();
+
+  remoteSpeechPending.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    remoteSpeechPending.delete(cacheKey);
+  }
+}
+
+function hashSpeechText(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = Math.imul(31, hash) + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return `${value.length}-${hash.toString(36)}`;
 }

@@ -13,6 +13,7 @@ type SpeechPlayButtonProps = {
   variant?: "label" | "icon";
   idleLabel?: string;
   disabled?: boolean;
+  prefetch?: () => void;
 };
 
 export default function SpeechPlayButton({
@@ -23,6 +24,7 @@ export default function SpeechPlayButton({
   variant = "label",
   idleLabel = "再生",
   disabled = false,
+  prefetch,
 }: SpeechPlayButtonProps) {
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(false);
@@ -70,6 +72,9 @@ export default function SpeechPlayButton({
       <button
         type="button"
         onClick={handleClick}
+        onFocus={prefetch}
+        onPointerEnter={prefetch}
+        onTouchStart={prefetch}
         disabled={disabled}
         aria-label={playing ? "停止" : idleLabel}
         aria-pressed={playing}
@@ -84,6 +89,9 @@ export default function SpeechPlayButton({
     <button
       type="button"
       onClick={handleClick}
+      onFocus={prefetch}
+      onPointerEnter={prefetch}
+      onTouchStart={prefetch}
       disabled={disabled}
       aria-label={playing ? "停止" : idleLabel}
       aria-pressed={playing}

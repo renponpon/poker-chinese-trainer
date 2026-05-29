@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getAuthHeaders } from "@/lib/auth-headers";
+import { getLanguageLabel } from "@/lib/languages";
 import { addLocalPhrase } from "@/lib/local-phrases";
 import { enqueuePackExplanationJob } from "@/lib/pending-pack-explanations";
 import {
@@ -16,12 +17,13 @@ import {
 } from "@/lib/personal-phrase-pack";
 import {
   detectDuplicateInList,
-  detectDuplicatePhrase,
-  getRecentChineseHints,
+  detectDuplicateTarget,
+  getRecentTargetHints,
   type PhraseDuplicateKind,
 } from "@/lib/phrase-dedupe";
 import type {
   GeneratedPhrasePackItem,
+  LanguageCode,
   Phrase,
   PhrasePackLevel,
   PhrasePackProfile,
@@ -35,11 +37,12 @@ type GeneratedPackItem = GeneratedPhrasePackItem & {
 
 type PreviewItem = GeneratedPackItem & {
   duplicateKind: PhraseDuplicateKind;
-  matchedChinese: string | null;
+  matchedTargetText: string | null;
 };
 
 type Props = {
   phrases: Phrase[];
+  targetLanguage: LanguageCode;
   buttonClassName?: string;
   onSaved: (phrases: Phrase[]) => void;
 };
@@ -55,6 +58,7 @@ const GENERATION_STEPS = [30, 65, 90, 98] as const;
 
 export default function PersonalPhrasePackFlow({
   phrases,
+  targetLanguage,
   buttonClassName,
   onSaved,
 }: Props) {
@@ -66,16 +70,22 @@ export default function PersonalPhrasePackFlow({
   const [loading, setLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [error, setError] = useState("");
+  const targetLanguageLabel = getLanguageLabel(targetLanguage);
+  const profileStorageKey = `${PHRASE_PACK_PROFILE_KEY}:${targetLanguage}`;
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(PHRASE_PACK_PROFILE_KEY);
+      const raw =
+        window.localStorage.getItem(profileStorageKey) ??
+        (targetLanguage === "zh"
+          ? window.localStorage.getItem(PHRASE_PACK_PROFILE_KEY)
+          : null);
       if (!raw) return;
       setProfile(sanitizePhrasePackProfile(JSON.parse(raw) as Partial<PhrasePackProfile>));
     } catch {
       // 壊れた保存値は無視して初期値を使う。
     }
-  }, []);
+  }, [profileStorageKey, targetLanguage]);
 
   const categoryHints = useMemo(
     () => profile.scenes.flatMap((scene) => getCategoryIdsForScene(scene)),
@@ -130,13 +140,13 @@ export default function PersonalPhrasePackFlow({
     setPackRequestId("");
 
     try {
-      window.localStorage.setItem(PHRASE_PACK_PROFILE_KEY, JSON.stringify(normalized));
-      const existingChinese = getRecentChineseHints(phrases, categoryHints, 50);
+      window.localStorage.setItem(profileStorageKey, JSON.stringify(normalized));
+      const existingTargets = getRecentTargetHints(phrases, targetLanguage, categoryHints, 50);
       const authHeaders = await getAuthHeaders();
       const res = await fetch("/api/phrase/generate-pack", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ profile: normalized, existingChinese }),
+        body: JSON.stringify({ profile: normalized, targetLanguage, existingTargets }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -144,7 +154,7 @@ export default function PersonalPhrasePackFlow({
       }
 
       const rawItems = Array.isArray(data.phrases) ? data.phrases : [];
-      const items = buildPreviewItems(rawItems as GeneratedPackItem[], phrases);
+      const items = buildPreviewItems(rawItems as GeneratedPackItem[], phrases, targetLanguage);
       if (!items.length) {
         throw new Error("生成結果が空でした。もう一度お試しください。");
       }
@@ -188,12 +198,18 @@ export default function PersonalPhrasePackFlow({
       addLocalPhrase({
         id: item.id,
         japanese: item.japanese,
-        chinese: item.chinese,
-        pinyin: item.pinyin,
+        chinese: item.targetText,
+        pinyin: item.readingType === "pinyin" ? item.reading : "",
+        sourceLanguage: item.sourceLanguage,
+        targetLanguage: item.targetLanguage,
+        sourceText: item.sourceText,
+        targetText: item.targetText,
+        reading: item.reading,
+        readingType: item.readingType,
         explanation: "",
         audioUrl: null,
         createdAt,
-        direction: "ja-to-zh",
+        direction: item.direction,
         categoryId: item.categoryId,
         shouldDrill: true,
         source: "prototype",
@@ -273,7 +289,7 @@ export default function PersonalPhrasePackFlow({
                   </div>
                 </QuestionBlock>
 
-                <QuestionBlock title="中国語のレベルはどれに近いですか？">
+                <QuestionBlock title={`${targetLanguageLabel}のレベルはどれに近いですか？`}>
                   <OptionList
                     options={PHRASE_PACK_LEVEL_OPTIONS}
                     value={profile.level}
@@ -356,14 +372,16 @@ export default function PersonalPhrasePackFlow({
                               )}
                             </div>
                             <div className="mt-2 text-xl font-bold text-white">
-                              {item.chinese}
+                              {item.targetText}
                             </div>
-                            <div className="mt-1 text-sm text-neutral-400">
-                              {item.pinyin}
-                            </div>
-                            {item.matchedChinese && (
+                            {item.reading && (
+                              <div className="mt-1 text-sm text-neutral-400">
+                                {item.reading}
+                              </div>
+                            )}
+                            {item.matchedTargetText && (
                               <div className="mt-2 text-xs text-yellow-200/80">
-                                近い既存フレーズ: {item.matchedChinese}
+                                近い既存フレーズ: {item.matchedTargetText}
                               </div>
                             )}
                           </div>
@@ -485,18 +503,22 @@ function OptionList<T extends PhrasePackLevel | PhrasePackTone>({
   );
 }
 
-function buildPreviewItems(items: GeneratedPackItem[], phrases: Phrase[]): PreviewItem[] {
-  const previousChinese: string[] = [];
+function buildPreviewItems(
+  items: GeneratedPackItem[],
+  phrases: Phrase[],
+  targetLanguage: LanguageCode,
+): PreviewItem[] {
+  const previousTargets: string[] = [];
   return items.map((item) => {
-    const existingDuplicate = detectDuplicatePhrase(item.chinese, phrases);
-    const packDuplicate = detectDuplicateInList(item.chinese, previousChinese);
-    previousChinese.push(item.chinese);
+    const existingDuplicate = detectDuplicateTarget(item.targetText, phrases, targetLanguage);
+    const packDuplicate = detectDuplicateInList(item.targetText, previousTargets);
+    previousTargets.push(item.targetText);
     const duplicateKind = existingDuplicate.kind ?? packDuplicate;
     return {
       ...item,
       explanation: "",
       duplicateKind,
-      matchedChinese: existingDuplicate.matchedChinese,
+      matchedTargetText: existingDuplicate.matchedChinese,
     };
   });
 }

@@ -121,6 +121,13 @@ async function runJob(job: PendingPackJob) {
           japanese: phrase.japanese,
           chinese: phrase.chinese,
           pinyin: phrase.pinyin,
+          direction: phrase.direction,
+          sourceLanguage: phrase.sourceLanguage,
+          targetLanguage: phrase.targetLanguage,
+          sourceText: phrase.sourceText,
+          targetText: phrase.targetText,
+          reading: phrase.reading,
+          readingType: phrase.readingType,
         })),
       }),
     });

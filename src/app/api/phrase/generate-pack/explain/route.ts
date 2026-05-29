@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { createId } from "@/lib/id";
+import { isLanguageCode, isSupportedDirection, parseDirection } from "@/lib/languages";
 import { generatePackExplanations } from "@/lib/pack-explanation";
 import {
   assertValidPhrasePackRequest,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/server/usage-limits";
 import { RequestValidationError } from "@/lib/server/validation";
 import { getBearerToken } from "@/lib/supabase";
+import type { LanguageCode, PhraseDirection, ReadingType } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -22,9 +24,16 @@ type ExplainPackPhraseRequest = {
 
 type NormalizedPhrase = {
   id: string;
+  direction: PhraseDirection;
   japanese: string;
   chinese: string;
   pinyin: string;
+  sourceLanguage: LanguageCode;
+  targetLanguage: LanguageCode;
+  sourceText: string;
+  targetText: string;
+  reading: string;
+  readingType: ReadingType;
 };
 
 class ApiRouteError extends Error {
@@ -103,19 +112,60 @@ function normalizePhrases(value: unknown): NormalizedPhrase[] {
       throw new RequestValidationError(`フレーズ${index + 1}の形式が正しくありません`);
     }
     const phrase = item as Record<string, unknown>;
+    const direction = normalizeDirection(phrase.direction);
+    const parsedDirection = parseDirection(direction);
+    const sourceLanguage = normalizeLanguage(phrase.sourceLanguage, parsedDirection.sourceLanguage);
+    const targetLanguage = normalizeLanguage(phrase.targetLanguage, parsedDirection.targetLanguage);
+    const japanese = normalizeText(phrase.japanese, "japanese", 120);
+    const chinese = normalizeText(phrase.chinese, "chinese", 160);
+    const pinyin = normalizeOptionalText(phrase.pinyin, 120) ?? "";
+    const sourceText = normalizeOptionalText(phrase.sourceText, 160) ??
+      (sourceLanguage === "ja" ? japanese : chinese);
+    const targetText = normalizeOptionalText(phrase.targetText, 160) ??
+      (targetLanguage === "ja" ? japanese : chinese);
+    const readingType = normalizeReadingType(
+      phrase.readingType,
+      sourceLanguage === "zh" || targetLanguage === "zh" ? "pinyin" : "none",
+    );
+    const reading = normalizeOptionalText(phrase.reading, 160) ??
+      (readingType === "pinyin" ? pinyin : "");
     return {
       id: normalizeText(phrase.id, "id", 80),
-      japanese: normalizeText(phrase.japanese, "japanese", 120),
-      chinese: normalizeText(phrase.chinese, "chinese", 80),
-      pinyin: normalizeText(phrase.pinyin, "pinyin", 120),
+      direction,
+      japanese,
+      chinese,
+      pinyin,
+      sourceLanguage,
+      targetLanguage,
+      sourceText,
+      targetText,
+      reading,
+      readingType,
     };
   });
+}
+
+function normalizeDirection(value: unknown): PhraseDirection {
+  return isSupportedDirection(value) ? value : "ja-to-zh";
+}
+
+function normalizeLanguage(value: unknown, fallback: LanguageCode): LanguageCode {
+  return isLanguageCode(value) ? value : fallback;
+}
+
+function normalizeReadingType(value: unknown, fallback: ReadingType): ReadingType {
+  return value === "pinyin" || value === "none" ? value : fallback;
 }
 
 function normalizeText(value: unknown, field: string, maxChars: number): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new RequestValidationError(`${field} が空です`);
   }
+  return value.trim().slice(0, maxChars);
+}
+
+function normalizeOptionalText(value: unknown, maxChars: number): string | undefined {
+  if (typeof value !== "string") return undefined;
   return value.trim().slice(0, maxChars);
 }
 

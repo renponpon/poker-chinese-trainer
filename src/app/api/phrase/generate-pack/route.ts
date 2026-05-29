@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { createId } from "@/lib/id";
 import {
+  buildDirection,
+  getLanguageLabel,
+  isLanguageCode,
+  LANGUAGE_CONFIGS,
+} from "@/lib/languages";
+import {
   getCategoryIdForScene,
   getPhrasePackLevelLabel,
   getPhrasePackSceneLabel,
@@ -23,8 +29,11 @@ import { RequestValidationError } from "@/lib/server/validation";
 import { getBearerToken } from "@/lib/supabase";
 import type {
   GeneratedPhrasePackItem,
+  LanguageCode,
   PhrasePackProfile,
   PhrasePackScene,
+  PhraseDirection,
+  ReadingType,
 } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -49,6 +58,8 @@ const CATEGORY_IDS = new Set([
 
 type GeneratePackRequest = {
   profile?: unknown;
+  targetLanguage?: unknown;
+  existingTargets?: unknown;
   existingChinese?: unknown;
 };
 
@@ -57,16 +68,16 @@ type GeneratedPackResponse = {
 };
 
 type PhraseCore = {
-  direction: "ja-to-zh";
+  direction: PhraseDirection;
   japanese: string;
   chinese: string;
   pinyin: string;
   sourceLanguage: "ja";
-  targetLanguage: "zh";
+  targetLanguage: LanguageCode;
   sourceText: string;
   targetText: string;
   reading: string;
-  readingType: "pinyin";
+  readingType: ReadingType;
   categoryId: string;
 };
 
@@ -92,16 +103,17 @@ export async function POST(req: Request) {
     actor = await identifyRequestActor(req, accessToken);
     const body = await parseRequest(req);
     const profile = parseProfile(body.profile);
-    const existingChinese = parseExistingChinese(body.existingChinese);
-    const payload = { profile, existingChinese };
+    const targetLanguage = parseTargetLanguage(body.targetLanguage);
+    const existingTargets = parseExistingTargets(body.existingTargets ?? body.existingChinese);
+    const payload = { profile, targetLanguage, existingTargets };
     inputChars = JSON.stringify(payload).length;
 
     await assertWithinPhrasePackDailyLimit(actor);
 
-    const generated = await generatePhrasesOnly(profile, existingChinese);
+    const generated = await generatePhrasesOnly(profile, existingTargets, targetLanguage);
     outputChars = generated.reduce(
       (sum, phrase) =>
-        sum + phrase.japanese.length + phrase.chinese.length + phrase.pinyin.length,
+        sum + phrase.japanese.length + phrase.targetText.length + phrase.reading.length,
       0,
     );
 
@@ -110,6 +122,7 @@ export async function POST(req: Request) {
       actor,
       inputChars,
       outputChars,
+      direction: buildDirection("ja", targetLanguage),
       success: true,
       errorCode: null,
     });
@@ -138,6 +151,7 @@ export async function POST(req: Request) {
         actor,
         inputChars,
         outputChars,
+        direction: null,
         success: false,
         errorCode: normalized.code,
       });
@@ -174,7 +188,15 @@ function parseProfile(value: unknown): PhrasePackProfile {
   return profile;
 }
 
-function parseExistingChinese(value: unknown): string[] {
+function parseTargetLanguage(value: unknown): LanguageCode {
+  if (typeof value === "undefined" || value === null) return "zh";
+  if (!isLanguageCode(value) || value === "ja") {
+    throw new RequestValidationError("対象言語が正しくありません");
+  }
+  return value;
+}
+
+function parseExistingTargets(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter((item): item is string => typeof item === "string")
@@ -185,7 +207,8 @@ function parseExistingChinese(value: unknown): string[] {
 
 async function generatePhrasesOnly(
   profile: PhrasePackProfile,
-  existingChinese: string[],
+  existingTargets: string[],
+  targetLanguage: LanguageCode,
 ): Promise<PhraseCore[]> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -195,7 +218,7 @@ async function generatePhrasesOnly(
   const ai = new GoogleGenAI({ apiKey });
   let lastError: ApiRouteError | null = null;
   let collected: PhraseCore[] = [];
-  const seenChinese = [...existingChinese];
+  const seenTargets = [...existingTargets];
 
   for (let attempt = 1; attempt <= MAX_PHRASE_ATTEMPTS; attempt += 1) {
     try {
@@ -203,10 +226,14 @@ async function generatePhrasesOnly(
       const targetCount = attempt === 1 ? GENERATE_TARGET : Math.max(missingCount + 2, 4);
       const text = await callGemini(
         ai,
-        buildPhrasesPrompt(profile, seenChinese, attempt, targetCount),
+        buildPhrasesPrompt(profile, seenTargets, targetLanguage, attempt, targetCount),
         PHRASE_MAX_OUTPUT_TOKENS,
       );
-      collected = mergePhraseResults(collected, parsePhrasesOnly(text, profile, seenChinese), seenChinese);
+      collected = mergePhraseResults(
+        collected,
+        parsePhrasesOnly(text, profile, seenTargets, targetLanguage),
+        seenTargets,
+      );
       if (collected.length >= PACK_SIZE) {
         return collected.slice(0, PACK_SIZE);
       }
@@ -260,14 +287,14 @@ async function callGemini(
 function mergePhraseResults(
   current: PhraseCore[],
   incoming: PhraseCore[],
-  seenChinese: string[],
+  seenTargets: string[],
 ): PhraseCore[] {
   const merged = [...current];
   for (const phrase of incoming) {
     if (merged.length >= PACK_SIZE) break;
-    if (detectDuplicateInList(phrase.chinese, seenChinese)) continue;
-    if (merged.some((item) => detectDuplicateInList(phrase.chinese, [item.chinese]))) continue;
-    seenChinese.push(phrase.chinese);
+    if (detectDuplicateInList(phrase.targetText, seenTargets)) continue;
+    if (merged.some((item) => detectDuplicateInList(phrase.targetText, [item.targetText]))) continue;
+    seenTargets.push(phrase.targetText);
     merged.push(phrase);
   }
   return merged;
@@ -284,7 +311,8 @@ function wrapParseError(error: unknown): ApiRouteError {
 
 function buildPhrasesPrompt(
   profile: PhrasePackProfile,
-  seenChinese: string[],
+  seenTargets: string[],
+  targetLanguage: LanguageCode,
   attempt: number,
   targetCount: number,
 ): string {
@@ -298,33 +326,45 @@ function buildPhrasesPrompt(
     attempt > 1
       ? `\n重要: 前回は件数不足でした。不足分を含めて必ず phrases 配列に${targetCount}件入れてください。`
       : "";
+  const targetLabel = getLanguageLabel(targetLanguage);
+  const direction = buildDirection("ja", targetLanguage);
+  const isChineseTarget = targetLanguage === "zh";
+  const readingRule = isChineseTarget
+    ? "- 中国語は簡体字、pinyin は声調記号付き"
+    : `- ${targetLabel}は自然で実際に口に出せる表現にする。pinyin は空文字 "" にする`;
+  const outputFields = isChineseTarget
+    ? `"chinese": "中国語（簡体字）",
+      "pinyin": "ピンイン（声調記号付き）",`
+    : `"targetText": "${targetLabel}の翻訳結果",
+      "chinese": "${targetLabel}の翻訳結果（互換用に同じ値）",
+      "pinyin": "",`;
 
-  return `あなたは、中国語圏の実生活・旅行・仕事・ライブポーカーの現場で使う表現に詳しい実践的な中国語コーチです。
+  return `あなたは、海外の実生活・旅行・仕事・ライブポーカーの現場で使う表現に詳しい実践的な語学コーチです。
 
 目的:
-日本人ユーザーが近い将来そのまま口に出せる、中国語フレーズ${targetCount}件を作る。
+日本人ユーザーが近い将来そのまま口に出せる、${targetLabel}フレーズ${targetCount}件を作る。
 一般教材ではなく、ユーザー回答に合う具体的なパックにする。
 explanation はこの段階では不要。フレーズ本体だけ返す。
 ${retryNote}
 
 ユーザー回答:
 - 使う場面: ${sceneLabels.join("、")}
-- 中国語レベル: ${getPhrasePackLevelLabel(profile.level)}（${levelGuide}）
+- ${targetLabel}レベル: ${getPhrasePackLevelLabel(profile.level)}（${levelGuide}）
 - 言い方の希望: ${getPhrasePackToneLabel(profile.tone)}
 - 具体状況: ${profile.details || "未入力"}
 
 カテゴリ対応:
 - ${categoryHints}
 
-既にユーザーが持つ中国語表現（重複して出さない）:
-${seenChinese.length ? seenChinese.map((item) => `- ${item}`).join("\n") : "- なし"}
+既にユーザーが持つ${targetLabel}表現（重複して出さない）:
+${seenTargets.length ? seenTargets.map((item) => `- ${item}`).join("\n") : "- なし"}
 
 生成ルール:
 - 必ず${targetCount}件作る
-- direction は全件 "ja-to-zh"
-- 中国語は簡体字、ピンインは声調記号付き
+- direction は全件 "${direction}"
+${readingRule}
 - 日本語は自然な日本語で、ユーザーが言いたい内容にする
-- 中国語はユーザーのレベルに合わせる。初心者向けなら短く、仕事/生活レベルなら必要に応じて少し詳しくする
+- ${targetLabel}はユーザーのレベルに合わせる。初心者向けなら覚えやすく、仕事/生活レベルなら必要に応じて少し詳しくする
 - 言い方の希望を優先する。短く通じる/自然/丁寧/詳しく説明/おまかせを反映する
 - ${targetCount}件の意味を被らせない。言い換えだけで数を増やさない
 - 場面が複数ある場合は、選ばれた場面にバランスよく配分する
@@ -336,10 +376,9 @@ ${seenChinese.length ? seenChinese.map((item) => `- ${item}`).join("\n") : "- �
 {
   "phrases": [
     {
-      "direction": "ja-to-zh",
+      "direction": "${direction}",
       "japanese": "日本語",
-      "chinese": "中国語（簡体字）",
-      "pinyin": "ピンイン（声調記号付き）",
+      ${outputFields}
       "categoryId": "restaurant"
     }
   ]
@@ -349,7 +388,8 @@ ${seenChinese.length ? seenChinese.map((item) => `- ${item}`).join("\n") : "- �
 function parsePhrasesOnly(
   text: string,
   profile: PhrasePackProfile,
-  seenChinese: string[],
+  seenTargets: string[],
+  targetLanguage: LanguageCode,
 ): PhraseCore[] {
   const parsed = extractJson(text) as GeneratedPackResponse;
   if (!Array.isArray(parsed.phrases)) {
@@ -358,16 +398,20 @@ function parsePhrasesOnly(
 
   const fallbackCategory = getFallbackCategory(profile);
   const output: PhraseCore[] = [];
-  const previousChinese = [...seenChinese];
+  const previousTargets = [...seenTargets];
 
   for (const raw of parsed.phrases) {
     if (output.length >= PACK_SIZE) break;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
     try {
-      const phrase = normalizePhraseCore(raw as Partial<GeneratedPhrasePackItem>, fallbackCategory);
-      const duplicate = detectDuplicateInList(phrase.chinese, previousChinese);
+      const phrase = normalizePhraseCore(
+        raw as Partial<GeneratedPhrasePackItem>,
+        fallbackCategory,
+        targetLanguage,
+      );
+      const duplicate = detectDuplicateInList(phrase.targetText, previousTargets);
       if (duplicate) continue;
-      previousChinese.push(phrase.chinese);
+      previousTargets.push(phrase.targetText);
       output.push(phrase);
     } catch {
       continue;
@@ -386,26 +430,36 @@ function getFallbackCategory(profile: PhrasePackProfile): string {
 function normalizePhraseCore(
   item: Partial<GeneratedPhrasePackItem>,
   fallbackCategory: string,
+  targetLanguage: LanguageCode,
 ): PhraseCore {
-  const japanese = normalizeText(item.japanese, "japanese", 120);
-  const chinese = normalizeText(item.chinese, "chinese", 80);
-  const pinyin = normalizeText(item.pinyin, "pinyin", 120);
+  const japanese = normalizeText(item.japanese || item.sourceText, "japanese", 120);
+  const targetText = normalizeText(
+    item.targetText || item.chinese,
+    "targetText",
+    targetLanguage === "zh" ? 80 : 160,
+  );
+  const readingType = LANGUAGE_CONFIGS[targetLanguage].readingType;
+  const reading =
+    readingType === "pinyin"
+      ? normalizeText(item.reading || item.pinyin, "pinyin", 120)
+      : "";
   const categoryId =
     typeof item.categoryId === "string" && CATEGORY_IDS.has(item.categoryId)
       ? item.categoryId
       : fallbackCategory;
+  const direction = buildDirection("ja", targetLanguage);
 
   return {
-    direction: "ja-to-zh",
+    direction,
     japanese,
-    chinese,
-    pinyin,
+    chinese: targetText,
+    pinyin: readingType === "pinyin" ? reading : "",
     sourceLanguage: "ja",
-    targetLanguage: "zh",
+    targetLanguage,
     sourceText: japanese,
-    targetText: chinese,
-    reading: pinyin,
-    readingType: "pinyin",
+    targetText,
+    reading,
+    readingType,
     categoryId,
   };
 }
@@ -413,15 +467,15 @@ function normalizePhraseCore(
 function getLevelGuide(level: PhrasePackProfile["level"]): string {
   switch (level) {
     case "entry":
-      return "単語や短い定型句中心。中国語は5〜8字程度";
+      return "単語や定型句中心";
     case "basic":
-      return "日常場面の短い文。中国語は8〜12字程度";
+      return "日常場面の基本的な文";
     case "intermediate":
-      return "自然な会話文。中国語は12〜18字程度";
+      return "自然な会話文";
     case "advanced":
       return "仕事や複雑な確認も想定。必要なら少し長め";
     default:
-      return "日常場面の短い文";
+      return "日常場面の基本的な文";
   }
 }
 
@@ -481,6 +535,7 @@ async function recordUsage(input: {
   actor: RequestActor;
   inputChars: number;
   outputChars: number;
+  direction: PhraseDirection | null;
   success: boolean;
   errorCode: string | null;
 }) {
@@ -494,7 +549,7 @@ async function recordUsage(input: {
     provider: "gemini",
     mode: "phrase_pack",
     sourcePage: "drill",
-    direction: "ja-to-zh",
+    direction: input.direction,
     inputChars: input.inputChars,
     outputChars: input.outputChars,
     audioDurationMs: null,

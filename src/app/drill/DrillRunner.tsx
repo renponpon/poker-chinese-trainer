@@ -162,7 +162,11 @@ export default function DrillRunner() {
           翻訳すると、保存したフレーズをあとで練習できます。
         </div>
         <div className="flex flex-wrap justify-center gap-2">
-          <PersonalPhrasePackFlow phrases={phrases} onSaved={handlePackSaved} />
+          <PersonalPhrasePackFlow
+            phrases={phrases}
+            targetLanguage={targetLanguage}
+            onSaved={handlePackSaved}
+          />
           <Link
             href="/"
             className="rounded-xl bg-neutral-950/80 px-5 py-3 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
@@ -191,9 +195,11 @@ export default function DrillRunner() {
           ライブラリから覚えたいフレーズを「ドリルに追加」できます。
         </div>
         <div className="flex flex-wrap justify-center gap-2">
-          {targetLanguage === "zh" && (
-            <PersonalPhrasePackFlow phrases={phrases} onSaved={handlePackSaved} />
-          )}
+          <PersonalPhrasePackFlow
+            phrases={phrases}
+            targetLanguage={targetLanguage}
+            onSaved={handlePackSaved}
+          />
           <Link
             href="/library"
             className="rounded-xl bg-neutral-950/80 px-5 py-3 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
@@ -223,13 +229,12 @@ export default function DrillRunner() {
           {completed} 件をレビューしました。お疲れさま。
         </div>
         <div className="mt-2 flex gap-2">
-          {targetLanguage === "zh" && (
-            <PersonalPhrasePackFlow
-              phrases={phrases}
-              onSaved={handlePackSaved}
-              buttonClassName="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-neutral-950 hover:bg-emerald-400"
-            />
-          )}
+          <PersonalPhrasePackFlow
+            phrases={phrases}
+            targetLanguage={targetLanguage}
+            onSaved={handlePackSaved}
+            buttonClassName="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-neutral-950 hover:bg-emerald-400"
+          />
           <Link
             href="/"
             className="rounded-xl bg-neutral-950/80 px-5 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-800"
@@ -244,19 +249,20 @@ export default function DrillRunner() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden overscroll-none pb-[180px] sm:pb-0">
       <div className="shrink-0 touch-none">
-        <div className="flex items-end justify-between gap-3">
-          <h1 className="text-2xl font-extrabold text-neutral-100">
+        <div className="flex h-12 items-center justify-between gap-3">
+          <h1 className="min-w-0 text-2xl font-extrabold leading-none text-neutral-100">
             {getLanguageLabel(targetLanguage)}ドリル
           </h1>
-          <div className="flex items-center gap-3">
-            {targetLanguage === "zh" && (
+          <div className="flex h-10 items-center gap-3">
+            <div className="flex w-[60px] justify-end">
               <PersonalPhrasePackFlow
                 phrases={phrases}
+                targetLanguage={targetLanguage}
                 onSaved={handlePackSaved}
                 buttonClassName="rounded-xl bg-neutral-900 px-3 py-2 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
               />
-            )}
-            <div className="whitespace-nowrap text-right text-sm text-neutral-500">
+            </div>
+            <div className="w-[84px] whitespace-nowrap text-right text-sm leading-none text-neutral-500">
               {completed}/{total} · {total > 0 ? Math.round((completed / total) * 100) : 0}%
             </div>
           </div>

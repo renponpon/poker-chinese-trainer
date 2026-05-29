@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import SpeechPlayButton from "@/components/SpeechPlayButton";
 import { LANGUAGE_CONFIGS } from "@/lib/languages";
-import { playSpeechForLang } from "@/lib/speech";
+import { playSpeechForLang, prefetchSpeechForLang } from "@/lib/speech";
 import type { SpeechPlayOptions } from "@/lib/speech";
 import type { Phrase, Score } from "@/lib/types";
 
@@ -27,6 +27,7 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
   const promptText = phrase.sourceText || phrase.japanese;
   const answerText = phrase.targetText || phrase.chinese;
   const answerLanguage = phrase.targetLanguage ?? "zh";
+  const answerSpeechCode = LANGUAGE_CONFIGS[answerLanguage].speechSynthesisCode;
   const reading = phrase.reading || phrase.pinyin;
 
   const clearRevealTimeout = useCallback(() => {
@@ -88,6 +89,11 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
     };
   }, [clearRevealTimeout, clearFadeInFrame]);
 
+  useEffect(() => {
+    if (phrase.audioUrl) return;
+    prefetchSpeechForLang(answerText, answerSpeechCode);
+  }, [answerSpeechCode, answerText, phrase.audioUrl]);
+
   const handleFlip = useCallback(() => {
     if (isAdvancing) return;
     if (!isFlipped) {
@@ -95,15 +101,15 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
       if (phrase.audioUrl) {
         const audio = new Audio(phrase.audioUrl);
         audio.play().catch(() =>
-          playSpeechForLang(answerText, LANGUAGE_CONFIGS[answerLanguage].speechSynthesisCode),
+          playSpeechForLang(answerText, answerSpeechCode),
         );
       } else {
-        playSpeechForLang(answerText, LANGUAGE_CONFIGS[answerLanguage].speechSynthesisCode);
+        playSpeechForLang(answerText, answerSpeechCode);
       }
     } else {
       setIsFlipped(false);
     }
-  }, [answerLanguage, answerText, isAdvancing, isFlipped, phrase.audioUrl]);
+  }, [answerSpeechCode, answerText, isAdvancing, isFlipped, phrase.audioUrl]);
 
   const handleScore = useCallback(
     (score: Score) => {
@@ -161,7 +167,7 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
           audioRef.current = null;
           playSpeechForLang(
             answerText,
-            LANGUAGE_CONFIGS[answerLanguage].speechSynthesisCode,
+            answerSpeechCode,
             options,
           );
         };
@@ -169,7 +175,7 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
           audioRef.current = null;
           playSpeechForLang(
             answerText,
-            LANGUAGE_CONFIGS[answerLanguage].speechSynthesisCode,
+            answerSpeechCode,
             options,
           );
         });
@@ -177,12 +183,17 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
       }
       playSpeechForLang(
         answerText,
-        LANGUAGE_CONFIGS[answerLanguage].speechSynthesisCode,
+        answerSpeechCode,
         options,
       );
     },
-    [answerLanguage, answerText, phrase.audioUrl],
+    [answerSpeechCode, answerText, phrase.audioUrl],
   );
+
+  const prefetchSpeech = useCallback(() => {
+    if (phrase.audioUrl) return;
+    prefetchSpeechForLang(answerText, answerSpeechCode);
+  }, [answerSpeechCode, answerText, phrase.audioUrl]);
 
   const stopAudio = useCallback(() => {
     if (!audioRef.current) return;
@@ -229,14 +240,17 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
             <SpeechPlayButton
               play={playSpeech}
               onStop={stopAudio}
+              prefetch={prefetchSpeech}
               variant="icon"
               className="absolute right-4 top-4 z-10 flex h-10 w-10 touch-none items-center justify-center text-neutral-300 hover:text-emerald-300"
               playingClassName="text-emerald-300"
             />
             <div className="w-full min-w-0 shrink-0 touch-none px-12 text-center">
-              <div className="text-lg tracking-wide [overflow-wrap:anywhere] text-neutral-400 sm:text-xl">
-                {reading}
-              </div>
+              {reading && (
+                <div className="text-lg tracking-wide [overflow-wrap:anywhere] text-neutral-400 sm:text-xl">
+                  {reading}
+                </div>
+              )}
               <div className="mt-2 w-full px-1 text-center text-[34px] font-bold leading-snug [overflow-wrap:anywhere] text-white sm:text-4xl">
                 {answerText}
               </div>

@@ -115,7 +115,7 @@ export const LANGUAGE_CONFIGS: Record<LanguageCode, LanguageConfig> = {
 };
 
 export const SUPPORTED_LANGUAGE_CODES = Object.keys(LANGUAGE_CONFIGS) as LanguageCode[];
-export const ACTIVE_TARGET_LANGUAGE_CODES: readonly LanguageCode[] = ["zh"];
+export const ACTIVE_TARGET_LANGUAGE_CODES: readonly LanguageCode[] = ["zh", "en"];
 
 export function isLanguageCode(value: unknown): value is LanguageCode {
   return typeof value === "string" && value in LANGUAGE_CONFIGS;

@@ -1,4 +1,4 @@
-import type { Phrase } from "./types";
+import type { LanguageCode, Phrase } from "./types";
 
 export type PhraseDuplicateKind = "exact" | "near" | null;
 
@@ -12,19 +12,21 @@ export type PhraseDuplicateResult = {
 export function normalizeChineseForDedupe(value: string): string {
   return value
     .normalize("NFKC")
+    .toLowerCase()
     .replace(/[\s。！？!?，,、；;：:“”"'‘’（）()\[\]【】《》〈〉·…\-—_]/g, "")
     .trim();
 }
 
-export function getRecentChineseHints(
+export function getRecentTargetHints(
   phrases: Phrase[],
+  targetLanguage: LanguageCode,
   categoryIds: Array<string | null>,
   limit: number,
 ): string[] {
   const categorySet = new Set(categoryIds.filter(Boolean));
-  const sorted = [...phrases].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  );
+  const sorted = [...phrases]
+    .filter((phrase) => phrase.targetLanguage === targetLanguage)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const sameCategory = sorted.filter((phrase) =>
     phrase.categoryId ? categorySet.has(phrase.categoryId) : false,
   );
@@ -33,14 +35,34 @@ export function getRecentChineseHints(
   const hints: string[] = [];
 
   for (const phrase of selected) {
-    const normalized = normalizeChineseForDedupe(phrase.chinese);
+    const targetText = phrase.targetText || phrase.chinese;
+    const normalized = normalizeChineseForDedupe(targetText);
     if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
-    hints.push(phrase.chinese);
+    hints.push(targetText);
     if (hints.length >= limit) break;
   }
 
   return hints;
+}
+
+export function getRecentChineseHints(
+  phrases: Phrase[],
+  categoryIds: Array<string | null>,
+  limit: number,
+): string[] {
+  return getRecentTargetHints(phrases, "zh", categoryIds, limit);
+}
+
+export function detectDuplicateTarget(
+  targetText: string,
+  existingPhrases: Phrase[],
+  targetLanguage: LanguageCode,
+): PhraseDuplicateResult {
+  return detectDuplicatePhrase(
+    targetText,
+    existingPhrases.filter((phrase) => phrase.targetLanguage === targetLanguage),
+  );
 }
 
 export function detectDuplicatePhrase(
@@ -148,4 +170,3 @@ function emptyResult(score = 0): PhraseDuplicateResult {
     score,
   };
 }
-

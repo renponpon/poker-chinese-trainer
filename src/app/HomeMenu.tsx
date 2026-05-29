@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import DataHandlingNotice from "@/components/DataHandlingNotice";
 import { SRS_STATUS_GUIDE } from "@/lib/srs";
+import { ADD_TUTORIAL_EVENT, ADD_TUTORIAL_QUERY } from "@/lib/tutorial";
 
 export default function HomeMenu() {
   const [open, setOpen] = useState(false);
@@ -32,6 +33,15 @@ export default function HomeMenu() {
     };
   }, [open]);
 
+  const handleTutorialClick = () => {
+    setOpen(false);
+    if (window.location.pathname === "/" || window.location.pathname === "/add") {
+      window.dispatchEvent(new Event(ADD_TUTORIAL_EVENT));
+      return;
+    }
+    window.location.assign(`/?${ADD_TUTORIAL_QUERY}=1`);
+  };
+
   return (
     <div ref={containerRef} className="relative">
       <button
@@ -44,6 +54,14 @@ export default function HomeMenu() {
       </button>
       {open && (
         <div className="absolute right-0 top-14 z-[80] max-h-[calc(100vh-96px)] w-[min(88vw,380px)] overflow-y-auto overscroll-contain rounded-2xl bg-neutral-950 p-3 text-left shadow-2xl shadow-black/50">
+          <button
+            type="button"
+            onClick={handleTutorialClick}
+            className="mb-2 w-full rounded-xl bg-neutral-900 px-4 py-4 text-left text-base font-bold text-neutral-200 hover:bg-neutral-800"
+          >
+            使い方を見る
+          </button>
+
           <details className="rounded-xl bg-neutral-900">
             <summary className="cursor-pointer list-none px-4 py-4 text-base font-bold text-neutral-200">
               音声入力のコツ

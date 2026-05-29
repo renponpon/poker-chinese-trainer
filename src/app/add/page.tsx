@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import AddTutorial from "@/components/AddTutorial";
 import AppHeader from "@/components/AppHeader";
 import BottomNav from "@/components/BottomNav";
 import { getAuthHeaders } from "@/lib/auth-headers";
@@ -14,9 +15,9 @@ import {
   updateLocalPhrase,
 } from "@/lib/local-phrases";
 import SpeechPlayButton from "@/components/SpeechPlayButton";
-import { playSpeechForLang, primeSpeech } from "@/lib/speech";
+import TargetLanguageSelect from "@/components/TargetLanguageSelect";
+import { playSpeechForLang, prefetchSpeechForLang, primeSpeech } from "@/lib/speech";
 import {
-  ACTIVE_TARGET_LANGUAGE_CODES,
   buildDirection,
   getLanguageLabel,
   LANGUAGE_CONFIGS,
@@ -108,6 +109,19 @@ export default function AddPage() {
   const lastSubmittedPhraseIdRef = useRef<string | null>(null);
   const activePhraseIdRef = useRef<string | null>(null);
   const highAccuracySpeech = useHighAccuracySpeech();
+
+  const handleTargetLanguageChange = (language: LanguageCode) => {
+    setTargetLanguage(language);
+    setDirection((currentDirection) => {
+      const current = parseDirection(currentDirection);
+      const next =
+        current.sourceLanguage === "ja"
+          ? buildDirection("ja", language)
+          : buildDirection(language, "ja");
+      setShouldDrill(parseDirection(next).targetLanguage !== "ja");
+      return next;
+    });
+  };
 
   useEffect(() => {
     return () => {
@@ -436,8 +450,14 @@ export default function AddPage() {
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
         <AppHeader />
 
-        <section className="overflow-hidden rounded-[28px] bg-neutral-900/70">
-          <div className="grid grid-cols-[1fr_auto_1fr] items-center bg-neutral-950/70 px-4 py-3 text-base font-bold">
+        <section
+          data-tutorial="input-card"
+          className="overflow-hidden rounded-[28px] bg-neutral-900/70"
+        >
+          <div
+            data-tutorial="language-switch"
+            className="grid grid-cols-[1fr_auto_1fr] items-center bg-neutral-950/70 px-4 py-3 text-base font-bold"
+          >
             <button
               type="button"
               onClick={() => {
@@ -470,20 +490,11 @@ export default function AddPage() {
             >
               ⇄
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setDirection(buildDirection(targetLanguage, "ja"));
-                setShouldDrill(false);
-              }}
-              className={`rounded-xl px-3 py-2 transition ${
-                parseDirection(direction).sourceLanguage === targetLanguage
-                  ? "bg-emerald-500 text-neutral-950 shadow-sm shadow-emerald-500/30"
-                  : "text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
-              }`}
-            >
-              {getLanguageLabel(targetLanguage)}
-            </button>
+            <TargetLanguageSelect
+              value={targetLanguage}
+              onChange={handleTargetLanguageChange}
+              active={parseDirection(direction).sourceLanguage === targetLanguage}
+            />
           </div>
 
           <div className="px-5 pt-5">
@@ -514,6 +525,7 @@ export default function AddPage() {
           <div className="mt-3 grid grid-cols-3 bg-neutral-950/30 text-emerald-300">
             <Link
               href="/conversation"
+              data-tutorial="conversation"
               aria-label="会話モードを開く"
               className="flex min-h-20 flex-col items-center justify-center gap-1 text-emerald-300 transition hover:bg-neutral-950/50 active:bg-neutral-950/70"
             >
@@ -582,50 +594,23 @@ export default function AddPage() {
 
         <div className="-mt-1 mb-0">
           <div className="flex flex-col gap-2 rounded-2xl bg-neutral-950/50 px-3 py-2">
-            {ACTIVE_TARGET_LANGUAGE_CODES.length > 1 && (
-              <div className="grid grid-cols-2 gap-2">
-                {ACTIVE_TARGET_LANGUAGE_CODES.map((language) => (
-                  <button
-                    key={language}
-                    type="button"
-                    onClick={() => {
-                      setTargetLanguage(language);
-                      setDirection((currentDirection) => {
-                        const current = parseDirection(currentDirection);
-                        const next =
-                          current.sourceLanguage === "ja"
-                            ? buildDirection("ja", language)
-                            : buildDirection(language, "ja");
-                        setShouldDrill(parseDirection(next).targetLanguage !== "ja");
-                        return next;
-                      });
-                    }}
-                    className={`rounded-xl px-3 py-2 text-sm font-bold transition ${
-                      targetLanguage === language
-                        ? "bg-emerald-500 text-neutral-950"
-                        : "bg-neutral-900 text-neutral-300 hover:bg-neutral-800"
-                    }`}
-                  >
-                    {getLanguageLabel(language)}
-                  </button>
-                ))}
-              </div>
-            )}
             <div className="flex items-center justify-between gap-3">
-            <label className="flex min-w-0 flex-1 items-center gap-3 text-sm text-neutral-300">
-              <input
-                type="checkbox"
-                checked={shouldDrill}
-                onChange={(e) => setShouldDrill(e.target.checked)}
-                className="h-4 w-4 shrink-0"
-              />
-              <span>フレーズをドリルに追加</span>
-            </label>
-            <GenerationModeToggle
-              value={generationMode}
-              onChange={setGenerationMode}
-              readingLabel={targetLanguage === "zh" ? "ピンイン" : ""}
-            />
+              <label className="flex min-w-0 flex-1 items-center gap-3 text-sm text-neutral-300">
+                <input
+                  type="checkbox"
+                  checked={shouldDrill}
+                  onChange={(e) => setShouldDrill(e.target.checked)}
+                  className="h-4 w-4 shrink-0"
+                />
+                <span>フレーズをドリルに追加</span>
+              </label>
+              <span data-tutorial="mode-controls" className="shrink-0">
+                <GenerationModeToggle
+                  value={generationMode}
+                  onChange={setGenerationMode}
+                  readingLabel={targetLanguage === "zh" ? "ピンイン" : ""}
+                />
+              </span>
             </div>
           </div>
         </div>
@@ -654,6 +639,12 @@ export default function AddPage() {
                       result.targetText,
                       LANGUAGE_CONFIGS[result.targetLanguage].speechSynthesisCode,
                       options,
+                    )
+                  }
+                  prefetch={() =>
+                    prefetchSpeechForLang(
+                      result.targetText,
+                      LANGUAGE_CONFIGS[result.targetLanguage].speechSynthesisCode,
                     )
                   }
                   className="shrink-0 rounded-full bg-neutral-950/80 px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-800"
@@ -728,6 +719,7 @@ export default function AddPage() {
         )}
       </div>
       <BottomNav />
+      <AddTutorial />
     </main>
   );
 }

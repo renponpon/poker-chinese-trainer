@@ -4,18 +4,18 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import BottomNav from "@/components/BottomNav";
 import GenerationModeToggle from "@/components/GenerationModeToggle";
+import TargetLanguageSelect from "@/components/TargetLanguageSelect";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import type { GenerationMode } from "@/lib/generation-mode";
 import { createId } from "@/lib/id";
 import {
-  ACTIVE_TARGET_LANGUAGE_CODES,
   buildDirection,
   getLanguageLabel,
   LANGUAGE_CONFIGS,
 } from "@/lib/languages";
 import { addLocalPhrase, loadLocalPhrases, loadNickname, loadOwnerKey, updateLocalPhrase } from "@/lib/local-phrases";
 import { ensureSrsItems, loadSrsData } from "@/lib/srs";
-import { playSpeechForLang, primeSpeech, stopSpeech } from "@/lib/speech";
+import { playSpeechForLang, prefetchSpeechForLang, primeSpeech, stopSpeech } from "@/lib/speech";
 import type { SpeechPlayOptions } from "@/lib/speech";
 import {
   getSpeechRecognitionErrorMessage,
@@ -98,6 +98,11 @@ export default function ConversationPage() {
   const suppressSpeechErrorRef = useRef(false);
   const speechTimeoutRef = useRef<number | null>(null);
   const highAccuracySpeech = useHighAccuracySpeech();
+
+  const handleTargetLanguageChange = (language: LanguageCode) => {
+    setTargetLanguage(language);
+    setSpeaker("ja");
+  };
 
   useEffect(() => {
     primeSpeech();
@@ -241,7 +246,8 @@ export default function ConversationPage() {
     let pinyin = message.pinyin;
     let reading = message.reading;
     let explanation = message.explanation;
-    const needsEnrich = !pinyin.trim() || !explanation.trim();
+    const needsReading = message.readingType === "pinyin" && !pinyin.trim();
+    const needsEnrich = needsReading || !explanation.trim();
 
     if (needsEnrich) {
       const res = await fetch("/api/phrase/explain", {
@@ -615,17 +621,11 @@ export default function ConversationPage() {
             >
               ⇄
             </button>
-            <button
-              type="button"
-              onClick={() => setSpeaker("target")}
-              className={`rounded-xl px-3 py-2 transition ${
-                speaker === "target"
-                  ? "bg-emerald-500 text-neutral-950 shadow-sm shadow-emerald-500/30"
-                  : "text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
-              }`}
-            >
-              {getLanguageLabel(targetLanguage)}
-            </button>
+            <TargetLanguageSelect
+              value={targetLanguage}
+              onChange={handleTargetLanguageChange}
+              active={speaker === "target"}
+            />
           </div>
           <div className="px-5 pt-5">
             <div className="mb-3 flex items-center justify-between text-base font-bold text-neutral-300">
@@ -691,33 +691,12 @@ export default function ConversationPage() {
 
         <div className="-mt-1">
           <div className="flex flex-col gap-2 rounded-2xl bg-neutral-950/50 px-3 py-2">
-            {ACTIVE_TARGET_LANGUAGE_CODES.length > 1 && (
-              <div className="grid grid-cols-2 gap-2">
-                {ACTIVE_TARGET_LANGUAGE_CODES.map((language) => (
-                  <button
-                    key={language}
-                    type="button"
-                    onClick={() => {
-                      setTargetLanguage(language);
-                      setSpeaker("ja");
-                    }}
-                    className={`rounded-xl px-3 py-2 text-sm font-bold transition ${
-                      targetLanguage === language
-                        ? "bg-emerald-500 text-neutral-950"
-                        : "bg-neutral-900 text-neutral-300 hover:bg-neutral-800"
-                    }`}
-                  >
-                    {getLanguageLabel(language)}
-                  </button>
-                ))}
-              </div>
-            )}
             <div className="flex items-center justify-end">
-            <GenerationModeToggle
-              value={generationMode}
-              onChange={setGenerationMode}
-              readingLabel={targetLanguage === "zh" ? "ピンイン" : ""}
-            />
+              <GenerationModeToggle
+                value={generationMode}
+                onChange={setGenerationMode}
+                readingLabel={targetLanguage === "zh" ? "ピンイン" : ""}
+              />
             </div>
           </div>
         </div>
@@ -754,6 +733,13 @@ function ConversationBubble({
     },
     [message.targetLanguage, message.targetText],
   );
+
+  const prefetchSpeech = useCallback(() => {
+    prefetchSpeechForLang(
+      message.targetText,
+      LANGUAGE_CONFIGS[message.targetLanguage].speechSynthesisCode,
+    );
+  }, [message.targetLanguage, message.targetText]);
 
   useEffect(() => {
     return () => {
@@ -799,6 +785,9 @@ function ConversationBubble({
       <button
         type="button"
         onClick={handleCardClick}
+        onFocus={prefetchSpeech}
+        onPointerEnter={prefetchSpeech}
+        onTouchStart={prefetchSpeech}
         disabled={selectingForDrill && Boolean(message.inDrill)}
         aria-label={
           selectable

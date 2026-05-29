@@ -3,6 +3,7 @@ import {
   buildPackBatchExplanationPrompt,
   buildPackSingleExplanationPrompt,
 } from "@/lib/explanation-prompt";
+import type { LanguageCode, PhraseDirection, ReadingType } from "@/lib/types";
 
 export const PACK_EXPLANATION_GEMINI_MODEL = "gemini-3.1-flash-lite";
 export const PACK_EXPLANATION_BATCH_SIZE = 4;
@@ -19,9 +20,16 @@ const REQUIRED_HEADINGS = [
 ];
 
 export type PackExplanationInput = {
+  direction?: PhraseDirection;
   japanese: string;
   chinese: string;
   pinyin: string;
+  sourceLanguage?: LanguageCode;
+  targetLanguage?: LanguageCode;
+  sourceText?: string;
+  targetText?: string;
+  reading?: string;
+  readingType?: ReadingType;
 };
 
 export async function generatePackExplanations(
@@ -45,6 +53,10 @@ async function generatePackExplanationBatch(
   ai: GoogleGenAI,
   phrases: PackExplanationInput[],
 ): Promise<string[]> {
+  if (phrases.some((phrase) => !isChinesePackPhrase(phrase))) {
+    return Promise.all(phrases.map((phrase) => generatePackExplanation(ai, phrase)));
+  }
+
   if (phrases.length === 1) {
     return [await generatePackExplanation(ai, phrases[0])];
   }
@@ -161,6 +173,10 @@ function ensureExplanationHeadings(
 function normalizeOptionalText(value: unknown, maxChars: number): string {
   if (typeof value !== "string") return "";
   return value.trim().slice(0, maxChars);
+}
+
+function isChinesePackPhrase(phrase: PackExplanationInput): boolean {
+  return phrase.targetLanguage === "zh" || phrase.direction === "ja-to-zh" || Boolean(phrase.pinyin);
 }
 
 function extractJson(text: string): unknown {

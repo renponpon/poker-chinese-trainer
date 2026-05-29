@@ -20,7 +20,7 @@ import {
   statusLabel,
 } from "@/lib/srs";
 import SpeechPlayButton from "@/components/SpeechPlayButton";
-import { playSpeechForLang, primeSpeech } from "@/lib/speech";
+import { playSpeechForLang, prefetchSpeechForLang, primeSpeech } from "@/lib/speech";
 import { cn } from "@/lib/utils";
 import type { LanguageCode, Phrase, PhraseCategory, SrsItem, SrsStatus } from "@/lib/types";
 
@@ -387,6 +387,12 @@ export default function LibraryView() {
                             p.targetText || p.chinese,
                             LANGUAGE_CONFIGS[p.targetLanguage].speechSynthesisCode,
                             options,
+                          )
+                        }
+                        prefetch={() =>
+                          prefetchSpeechForLang(
+                            p.targetText || p.chinese,
+                            LANGUAGE_CONFIGS[p.targetLanguage].speechSynthesisCode,
                           )
                         }
                         className="rounded-full bg-neutral-950/80 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800"

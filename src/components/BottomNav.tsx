@@ -5,9 +5,9 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 const items = [
-  { href: "/", label: "翻訳", icon: TranslateIcon, match: ["/", "/add"] },
-  { href: "/drill", label: "ドリル", icon: CardsIcon, match: ["/drill"] },
-  { href: "/library", label: "保存", icon: LibraryIcon, match: ["/library"] },
+  { href: "/", label: "翻訳", icon: TranslateIcon, match: ["/", "/add"], tutorial: "nav-translate" },
+  { href: "/drill", label: "ドリル", icon: CardsIcon, match: ["/drill"], tutorial: "nav-drill" },
+  { href: "/library", label: "保存", icon: LibraryIcon, match: ["/library"], tutorial: "nav-library" },
 ];
 
 export default function BottomNav() {
@@ -56,6 +56,7 @@ export default function BottomNav() {
             <Link
               key={item.href}
               href={item.href}
+              data-tutorial={item.tutorial}
               className={`flex flex-col items-center gap-1 rounded-2xl px-4 py-2.5 text-xs font-bold transition ${
                 active
                   ? "bg-emerald-500 text-neutral-950"
