@@ -11,6 +11,7 @@ import { recordAiUsageEvent } from "@/lib/server/supabase-admin";
 import {
   assertWithinDailyAiLimit,
   identifyRequestActor,
+  incrementDailyAiUsageCache,
   UsageLimitError,
   UsageTrackingError,
   type RequestActor,
@@ -31,6 +32,17 @@ const AZURE_TRANSLATOR_MODEL = "azure-translator-text-v3";
 import type { GenerationMode } from "@/lib/generation-mode";
 import { parseGenerationMode } from "@/lib/generation-mode";
 type TranslationProvider = "azure" | "deepl" | "gemini";
+type UsageRecordInput = {
+  requestId: string;
+  actor: RequestActor;
+  validated: ValidatedPhraseAddRequest | null;
+  generationMode: GenerationMode | null;
+  provider: TranslationProvider | null;
+  outputChars: number;
+  success: boolean;
+  errorCode: string | null;
+};
+type RouteTiming = Record<string, number | string | null>;
 
 const SYSTEM_PROMPT = `あなたは、中国語圏での実生活・旅行・仕事・日常会話に詳しい実践的な中国語コーチです。
 
@@ -164,27 +176,52 @@ export async function POST(req: Request) {
   const requestId = createId();
   let actor: RequestActor | null = null;
   let validated: ValidatedPhraseAddRequest | null = null;
+  let generationMode: GenerationMode | null = null;
   let outputChars = 0;
+  const timingEnabled = isTimingEnabled(req);
+  const timingStartedAt = Date.now();
+  const timing: RouteTiming = {};
+  const measure = async <T>(name: string, task: () => Promise<T>): Promise<T> => {
+    const startedAt = Date.now();
+    try {
+      return await task();
+    } finally {
+      if (timingEnabled) timing[`${name}Ms`] = Date.now() - startedAt;
+    }
+  };
+  const measureSync = <T>(name: string, task: () => T): T => {
+    const startedAt = Date.now();
+    try {
+      return task();
+    } finally {
+      if (timingEnabled) timing[`${name}Ms`] = Date.now() - startedAt;
+    }
+  };
 
   try {
     const accessToken = getBearerToken(req);
-    actor = await identifyRequestActor(req, accessToken);
+    actor = await measure("identifyActor", () => identifyRequestActor(req, accessToken));
 
     let rawBody: unknown;
     try {
-      rawBody = await req.json();
+      rawBody = await measure("parseBody", () => req.json());
     } catch {
       throw new RequestValidationError("JSON形式のリクエストを送ってください");
     }
 
-    validated = validatePhraseAddRequest(parseJsonObject(rawBody));
-    const generationMode = parseGenerationMode(
-      (rawBody as { generationMode?: unknown }).generationMode,
+    validated = measureSync("validate", () => validatePhraseAddRequest(parseJsonObject(rawBody)));
+    generationMode = measureSync("parseMode", () =>
+      parseGenerationMode((rawBody as { generationMode?: unknown }).generationMode),
     );
-    const persist = (rawBody as { persist?: unknown }).persist !== false;
-    await assertWithinDailyAiLimit(actor);
+    const persist = measureSync(
+      "parsePersist",
+      () => (rawBody as { persist?: unknown }).persist !== false,
+    );
+    await measure("quotaCheck", () => assertWithinDailyAiLimit(actor!));
 
-    const { generated, provider } = await translateByMode(generationMode, validated);
+    const { generated, provider } = await measure("translate", () =>
+      translateByMode(generationMode!, validated!, timingEnabled ? timing : null),
+    );
     outputChars =
       generated.japanese.length +
       generated.chinese.length +
@@ -199,7 +236,7 @@ export async function POST(req: Request) {
     }
     const request = validated;
 
-    await recordUsage({
+    queueUsageRecord({
       requestId,
       actor,
       validated: request,
@@ -208,7 +245,7 @@ export async function POST(req: Request) {
       outputChars,
       success: true,
       errorCode: null,
-    });
+    }, timingEnabled);
 
     if (persist) {
       after(async () => {
@@ -260,6 +297,15 @@ export async function POST(req: Request) {
       });
     }
 
+    const finalTiming = finishTiming(timingEnabled, timingStartedAt, timing, {
+      mode: generationMode,
+      provider,
+      persist: persist ? "true" : "false",
+    });
+    if (finalTiming) {
+      console.log("[/api/phrase/add] timing", { requestId, ...finalTiming });
+    }
+
     return NextResponse.json({
       id: request.phraseId,
       requestId,
@@ -267,45 +313,68 @@ export async function POST(req: Request) {
       model: providerModel(provider),
       ...generated,
       audioUrl: null,
+      ...(finalTiming ? { timing: finalTiming } : {}),
     });
   } catch (error) {
     const normalized = normalizeRouteError(error);
+    const finalTiming = finishTiming(timingEnabled, timingStartedAt, timing, {
+      mode: generationMode,
+      provider: null,
+      persist: null,
+      errorCode: normalized.code,
+    });
     console.error("[/api/phrase/add] error", {
       requestId,
       code: normalized.code,
+      timing: finalTiming,
       error,
     });
 
     if (actor) {
-      await recordUsage({
+      queueUsageRecord({
         requestId,
         actor,
         validated,
-        generationMode: null,
+        generationMode,
         provider: null,
         outputChars,
         success: false,
         errorCode: normalized.code,
-      });
+      }, timingEnabled);
     }
 
     return NextResponse.json(
-      { error: normalized.message, requestId },
+      { error: normalized.message, requestId, ...(finalTiming ? { timing: finalTiming } : {}) },
       { status: normalized.status },
     );
   }
 }
 
-async function recordUsage(input: {
-  requestId: string;
-  actor: RequestActor;
-  validated: ValidatedPhraseAddRequest | null;
-  generationMode: GenerationMode | null;
-  provider: TranslationProvider | null;
-  outputChars: number;
-  success: boolean;
-  errorCode: string | null;
-}) {
+function queueUsageRecord(input: UsageRecordInput, timingEnabled: boolean): void {
+  const queuedAt = Date.now();
+  incrementDailyAiUsageCache(input.actor);
+  after(async () => {
+    const startedAt = Date.now();
+    try {
+      await recordUsage(input);
+    } catch (error) {
+      console.error("[/api/phrase/add] usage record error", {
+        requestId: input.requestId,
+        error,
+      });
+    } finally {
+      if (timingEnabled) {
+        console.log("[/api/phrase/add] after timing", {
+          requestId: input.requestId,
+          usageLogDelayMs: startedAt - queuedAt,
+          usageLogMs: Date.now() - startedAt,
+        });
+      }
+    }
+  });
+}
+
+async function recordUsage(input: UsageRecordInput) {
   await recordAiUsageEvent({
     requestId: input.requestId,
     userId: input.actor.userId,
@@ -326,57 +395,108 @@ async function recordUsage(input: {
   });
 }
 
+function isTimingEnabled(req: Request): boolean {
+  if (process.env.DEBUG_TRANSLATION_TIMING === "1") return true;
+  return process.env.NODE_ENV !== "production" && req.headers.get("x-debug-timing") === "1";
+}
+
+function finishTiming(
+  enabled: boolean,
+  startedAt: number,
+  timing: RouteTiming,
+  extra: Record<string, string | null>,
+): RouteTiming | null {
+  if (!enabled) return null;
+  return {
+    totalMs: Date.now() - startedAt,
+    ...extra,
+    ...timing,
+  };
+}
+
 async function translateByMode(
   mode: GenerationMode,
   validated: ValidatedPhraseAddRequest,
+  timing: RouteTiming | null,
 ): Promise<{
   generated: GeneratedPhrase;
   provider: TranslationProvider;
 }> {
   switch (mode) {
-    case "speed":
+    case "speed": {
+      const startedAt = Date.now();
+      const generated = await translateWithAzure({
+        direction: validated.direction,
+        text: validated.inputText,
+        skipPinyin: true,
+      });
+      if (timing) timing.azureMs = Date.now() - startedAt;
       return {
-        generated: await translateWithAzure({
-          direction: validated.direction,
-          text: validated.inputText,
-          skipPinyin: true,
-        }),
+        generated,
         provider: "azure",
       };
+    }
     case "normal":
-      return translateNormal(validated);
-    case "quality":
+      return translateNormal(validated, timing);
+    case "quality": {
+      const startedAt = Date.now();
+      const generated = await generateWithGemini(validated);
+      if (timing) timing.geminiMs = Date.now() - startedAt;
       return {
-        generated: await generateWithGemini(validated),
+        generated,
         provider: "gemini",
       };
+    }
   }
 }
 
-async function translateNormal(validated: ValidatedPhraseAddRequest): Promise<{
+async function translateNormal(
+  validated: ValidatedPhraseAddRequest,
+  timing: RouteTiming | null,
+): Promise<{
   generated: GeneratedPhrase;
   provider: Extract<TranslationProvider, "deepl" | "azure">;
 }> {
   if (process.env.DEEPL_API_KEY) {
+    const deeplStartedAt = Date.now();
     try {
       const generated = await translateWithDeepL({
         direction: validated.direction,
         text: validated.inputText,
       });
+      if (timing) {
+        timing.deeplMs = Date.now() - deeplStartedAt;
+        timing.normalPrimary = "deepl";
+      }
       return { generated, provider: "deepl" };
     } catch (error) {
+      if (timing) {
+        timing.deeplMs = Date.now() - deeplStartedAt;
+        timing.deeplStatus = "failed";
+        timing.deeplError = getTimingErrorMessage(error);
+      }
       console.warn("[/api/phrase/add] DeepL failed, falling back to Azure", {
         error: error instanceof Error ? error.message : error,
       });
     }
   }
 
+  const azureStartedAt = Date.now();
   const generated = await translateWithAzure({
     direction: validated.direction,
     text: validated.inputText,
     skipPinyin: true,
   });
+  if (timing) {
+    timing.azureMs = Date.now() - azureStartedAt;
+    timing.normalFallback = "azure";
+  }
   return { generated, provider: "azure" };
+}
+
+function getTimingErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.slice(0, 180);
 }
 
 async function generateWithGemini(

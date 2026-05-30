@@ -28,7 +28,7 @@ export async function translateWithDeepL(input: {
     throw new DeepLError("DEEPL_API_KEY が設定されていません");
   }
 
-  const endpoint = resolveDeepLEndpoint();
+  const endpoint = resolveDeepLEndpoint(key);
   const { sourceLanguage, targetLanguage } = parseDirection(input.direction);
   const sourceLang = LANGUAGE_CONFIGS[sourceLanguage].deeplSourceCode;
   const targetLang = LANGUAGE_CONFIGS[targetLanguage].deeplTargetCode;
@@ -82,10 +82,11 @@ export async function translateWithDeepL(input: {
   }
 }
 
-function resolveDeepLEndpoint(): string {
+function resolveDeepLEndpoint(key: string): string {
   const custom = process.env.DEEPL_API_ENDPOINT?.replace(/\/+$/, "");
   if (custom) return custom;
-  return process.env.DEEPL_API_PLAN?.toLowerCase() === "pro"
-    ? DEEPL_PRO_ENDPOINT
-    : DEEPL_FREE_ENDPOINT;
+  const plan = process.env.DEEPL_API_PLAN?.toLowerCase();
+  if (plan === "pro") return DEEPL_PRO_ENDPOINT;
+  if (plan === "free") return DEEPL_FREE_ENDPOINT;
+  return key.endsWith(":fx") ? DEEPL_FREE_ENDPOINT : DEEPL_PRO_ENDPOINT;
 }

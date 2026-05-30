@@ -63,6 +63,16 @@ const DEFAULT_GUEST_DAILY_LIMIT = 100;
 const DEFAULT_USER_DAILY_LIMIT = 200;
 const DEFAULT_GUEST_PHRASE_PACK_DAILY_LIMIT = 2;
 const DEFAULT_USER_PHRASE_PACK_DAILY_LIMIT = 4;
+const AI_USAGE_COUNT_CACHE_TTL_MS = 30_000;
+const AI_USAGE_COUNT_CACHE_MAX_ENTRIES = 500;
+
+type AiUsageCountCacheEntry = {
+  dayKey: string;
+  count: number;
+  expiresAt: number;
+};
+
+const aiUsageCountCache = new Map<string, AiUsageCountCacheEntry>();
 
 export async function identifyRequestActor(
   req: Request,
@@ -89,6 +99,14 @@ export async function identifyRequestActor(
 }
 
 export async function assertWithinDailyAiLimit(actor: RequestActor): Promise<number> {
+  const cachedCount = getCachedDailyAiUsageCount(actor);
+  if (cachedCount !== null) {
+    if (cachedCount >= actor.dailyLimit) {
+      throw new UsageLimitError();
+    }
+    return cachedCount;
+  }
+
   const currentCount = await countAiUsageToday({
     actorType: actor.type,
     userId: actor.userId,
@@ -107,7 +125,24 @@ export async function assertWithinDailyAiLimit(actor: RequestActor): Promise<num
     throw new UsageLimitError();
   }
 
+  setDailyAiUsageCountCache(actor, currentCount);
   return currentCount;
+}
+
+export function incrementDailyAiUsageCache(actor: RequestActor): void {
+  const cacheKey = getAiUsageCountCacheKey(actor);
+  if (!cacheKey) return;
+
+  const now = Date.now();
+  const dayKey = getUtcDayKey(new Date());
+  const cached = aiUsageCountCache.get(cacheKey);
+  if (!cached || cached.dayKey !== dayKey || cached.expiresAt <= now) return;
+
+  aiUsageCountCache.set(cacheKey, {
+    dayKey,
+    count: cached.count + 1,
+    expiresAt: now + AI_USAGE_COUNT_CACHE_TTL_MS,
+  });
 }
 
 export function getPhrasePackDailyLimit(actor: RequestActor): number {
@@ -177,4 +212,53 @@ function hashClientIp(ip: string): string {
 function getPositiveIntEnv(name: string, fallback: number): number {
   const value = Number.parseInt(process.env[name] ?? "", 10);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function getCachedDailyAiUsageCount(actor: RequestActor): number | null {
+  const cacheKey = getAiUsageCountCacheKey(actor);
+  if (!cacheKey) return null;
+
+  const now = Date.now();
+  const cached = aiUsageCountCache.get(cacheKey);
+  if (!cached) return null;
+  if (cached.dayKey !== getUtcDayKey(new Date()) || cached.expiresAt <= now) {
+    aiUsageCountCache.delete(cacheKey);
+    return null;
+  }
+  return cached.count;
+}
+
+function setDailyAiUsageCountCache(actor: RequestActor, count: number): void {
+  const cacheKey = getAiUsageCountCacheKey(actor);
+  if (!cacheKey) return;
+
+  pruneAiUsageCountCacheIfNeeded();
+  aiUsageCountCache.set(cacheKey, {
+    dayKey: getUtcDayKey(new Date()),
+    count,
+    expiresAt: Date.now() + AI_USAGE_COUNT_CACHE_TTL_MS,
+  });
+}
+
+function getAiUsageCountCacheKey(actor: RequestActor): string | null {
+  if (actor.userId) return `${actor.type}:user:${actor.userId}`;
+  if (actor.ipHash) return `${actor.type}:ip:${actor.ipHash}`;
+  return null;
+}
+
+function getUtcDayKey(now: Date): string {
+  return now.toISOString().slice(0, 10);
+}
+
+function pruneAiUsageCountCacheIfNeeded(): void {
+  if (aiUsageCountCache.size < AI_USAGE_COUNT_CACHE_MAX_ENTRIES) return;
+
+  const now = Date.now();
+  for (const [key, cached] of aiUsageCountCache) {
+    if (cached.expiresAt <= now) aiUsageCountCache.delete(key);
+  }
+  if (aiUsageCountCache.size < AI_USAGE_COUNT_CACHE_MAX_ENTRIES) return;
+
+  const firstKey = aiUsageCountCache.keys().next().value;
+  if (firstKey) aiUsageCountCache.delete(firstKey);
 }
