@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import SpeechPlayButton from "@/components/SpeechPlayButton";
+import { formatExplanationForReading } from "@/lib/explanation-format";
 import { LANGUAGE_CONFIGS } from "@/lib/languages";
 import { playSpeechForLang, prefetchSpeechForLang } from "@/lib/speech";
 import type { SpeechPlayOptions } from "@/lib/speech";
@@ -263,7 +264,7 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
 
             {phrase.explanation ? (
               <div className="mt-4 min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain whitespace-pre-wrap px-1 pb-2 text-left text-base leading-relaxed text-neutral-200">
-                {phrase.explanation}
+                {formatExplanationForReading(phrase.explanation)}
               </div>
             ) : explanationPending ? (
               <div className="mt-4 px-1 text-sm text-neutral-500">

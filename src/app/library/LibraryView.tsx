@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { formatExplanationForReading } from "@/lib/explanation-format";
 import {
   deleteLocalPhrase,
   loadPhraseCategories,
@@ -377,7 +378,7 @@ export default function LibraryView() {
                     </div>
                     {p.explanation && (
                       <div className="mt-4 whitespace-pre-wrap rounded-2xl bg-neutral-950/40 p-4 text-sm leading-relaxed text-neutral-300">
-                        {p.explanation}
+                        {formatExplanationForReading(p.explanation)}
                       </div>
                     )}
                     <div className="mt-4 flex gap-2">

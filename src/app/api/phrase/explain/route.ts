@@ -3,6 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import { createId } from "@/lib/id";
 import { updatePhraseFollowUp } from "@/lib/notion";
 import { getBearerToken, updateSupabasePhraseFollowUp } from "@/lib/supabase";
+import { formatExplanationForReading } from "@/lib/explanation-format";
 import { isSupportedDirection, parseDirection } from "@/lib/languages";
 import { recordAiUsageEvent } from "@/lib/server/supabase-admin";
 import {
@@ -203,7 +204,7 @@ function extractExplainResponse(
   if (typeof parsed.explanation !== "string" || !parsed.explanation.trim()) {
     throw new ApiRouteError("解説の生成結果が空です", 502, "empty_explanation");
   }
-  const explanation = parsed.explanation.trim();
+  const explanation = formatExplanationForReading(parsed.explanation);
   const pinyin =
     typeof parsed.pinyin === "string" && parsed.pinyin.trim()
       ? parsed.pinyin.trim()

@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { formatExplanationForReading } from "@/lib/explanation-format";
 import {
   buildPackBatchExplanationPrompt,
   buildPackSingleExplanationPrompt,
@@ -167,7 +168,7 @@ function ensureExplanationHeadings(
     }
   }
 
-  return result.slice(0, 4000);
+  return formatExplanationForReading(result).slice(0, 4000);
 }
 
 function normalizeOptionalText(value: unknown, maxChars: number): string {

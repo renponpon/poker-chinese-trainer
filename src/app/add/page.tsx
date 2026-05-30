@@ -6,6 +6,7 @@ import AddTutorial from "@/components/AddTutorial";
 import AppHeader from "@/components/AppHeader";
 import BottomNav from "@/components/BottomNav";
 import { getAuthHeaders } from "@/lib/auth-headers";
+import { formatExplanationForReading } from "@/lib/explanation-format";
 import { createId } from "@/lib/id";
 import {
   addLocalPhrase,
@@ -696,7 +697,9 @@ export default function AddPage() {
                   }`}
                 >
                   {explanationError ??
-                    result.explanation ??
+                    (result.explanation
+                      ? formatExplanationForReading(result.explanation)
+                      : null) ??
                     "解説を生成中..."}
                 </div>
               </div>
