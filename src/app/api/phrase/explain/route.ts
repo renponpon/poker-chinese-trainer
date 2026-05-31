@@ -7,6 +7,8 @@ import { formatExplanationForReading } from "@/lib/explanation-format";
 import { isSupportedDirection, parseDirection } from "@/lib/languages";
 import { recordAiUsageEvent } from "@/lib/server/supabase-admin";
 import {
+  AiBurstLimitError,
+  assertWithinAiBurstLimit,
   identifyRequestActor,
   UsageLimitError,
   UsageTrackingError,
@@ -53,6 +55,7 @@ export async function POST(req: Request) {
   try {
     const accessToken = getBearerToken(req);
     actor = await identifyRequestActor(req, accessToken);
+    assertWithinAiBurstLimit(actor);
 
     let body: ExplainRequest;
     try {
@@ -167,6 +170,26 @@ export async function POST(req: Request) {
       code: normalized.code,
       error,
     });
+    if (error instanceof AiBurstLimitError && !error.alert.alreadyBlocked) {
+      const alert = error.alert;
+      after(async () => {
+        const { sendAiBurstLimitAlertEmail } = await import("@/lib/server/security-alerts");
+        await sendAiBurstLimitAlertEmail({
+          requestId,
+          endpoint: ENDPOINT,
+          mode: "explain",
+          source: null,
+          direction,
+          actorType: alert.actorType,
+          userId: alert.userId,
+          ipHash: alert.ipHash,
+          count: alert.count,
+          burstLimit: alert.burstLimit,
+          windowSeconds: alert.windowSeconds,
+          blockSeconds: alert.blockSeconds,
+        });
+      });
+    }
 
     if (actor) {
       await recordUsage({
