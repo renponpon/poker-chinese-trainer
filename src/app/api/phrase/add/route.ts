@@ -1,17 +1,17 @@
 import { after, NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
 import { createId } from "@/lib/id";
 import { formatExplanationForReading } from "@/lib/explanation-format";
-import { buildGeneratedPhrase, getLanguageLabel, parseDirection } from "@/lib/languages";
-import { createPhrase } from "@/lib/notion";
-import { createSupabasePhrase, getBearerToken } from "@/lib/supabase";
-import { translateWithAzure } from "@/lib/server/azure-translator";
-import { DEEPL_MODEL, translateWithDeepL } from "@/lib/server/deepl-translator";
-import { recordAiUsageEvent } from "@/lib/server/supabase-admin";
 import {
-  assertWithinDailyAiLimit,
+  buildDirection,
+  buildGeneratedPhrase,
+  getLanguageLabel,
+  isLanguageCode,
+  parseDirection,
+} from "@/lib/languages";
+import {
+  AiBurstLimitError,
+  assertWithinAiBurstLimit,
   identifyRequestActor,
-  incrementDailyAiUsageCache,
   UsageLimitError,
   UsageTrackingError,
   type RequestActor,
@@ -22,15 +22,16 @@ import {
   validatePhraseAddRequest,
   type ValidatedPhraseAddRequest,
 } from "@/lib/server/validation";
-import type { GeneratedPhrase } from "@/lib/types";
+import { parseGenerationMode, type GenerationMode } from "@/lib/generation-mode";
+import type { GeneratedPhrase, LanguageCode, PhraseDirection } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 const ENDPOINT = "/api/phrase/add";
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
 const AZURE_TRANSLATOR_MODEL = "azure-translator-text-v3";
-import type { GenerationMode } from "@/lib/generation-mode";
-import { parseGenerationMode } from "@/lib/generation-mode";
+const DEEPL_TRANSLATOR_MODEL = "deepl-translate-v2";
+const WARMUP_TEXT = "あ";
 type TranslationProvider = "azure" | "deepl" | "gemini";
 type UsageRecordInput = {
   requestId: string;
@@ -43,6 +44,12 @@ type UsageRecordInput = {
   errorCode: string | null;
 };
 type RouteTiming = Record<string, number | string | null>;
+type WarmupProviderResult = {
+  provider: Extract<TranslationProvider, "azure" | "deepl">;
+  ok: boolean;
+  skipped?: boolean;
+  error?: string;
+};
 
 const SYSTEM_PROMPT = `あなたは、中国語圏での実生活・旅行・仕事・日常会話に詳しい実践的な中国語コーチです。
 
@@ -209,7 +216,32 @@ export async function POST(req: Request) {
       throw new RequestValidationError("JSON形式のリクエストを送ってください");
     }
 
-    validated = measureSync("validate", () => validatePhraseAddRequest(parseJsonObject(rawBody)));
+    const rawRequest = measureSync("parseRequest", () => parseJsonObject(rawBody));
+    measureSync("abuseCheck", () => assertWithinAiBurstLimit(actor!));
+
+    if ((rawRequest as { warmup?: unknown }).warmup === true) {
+      const targetLanguage = measureSync("parseWarmupTarget", () =>
+        parseWarmupTargetLanguage(rawRequest as { targetLanguage?: unknown }),
+      );
+      const direction = buildDirection("ja", targetLanguage);
+      const results = await measure("warmup", () =>
+        warmupTranslationProviders(direction, timingEnabled ? timing : null),
+      );
+      const finalTiming = finishTiming(timingEnabled, timingStartedAt, timing, {
+        mode: "warmup",
+        provider: null,
+        persist: "false",
+      });
+
+      return NextResponse.json({
+        ok: results.some((result) => result.ok || result.skipped),
+        requestId,
+        results,
+        ...(finalTiming ? { timing: finalTiming } : {}),
+      });
+    }
+
+    validated = measureSync("validate", () => validatePhraseAddRequest(rawRequest));
     generationMode = measureSync("parseMode", () =>
       parseGenerationMode((rawBody as { generationMode?: unknown }).generationMode),
     );
@@ -217,8 +249,6 @@ export async function POST(req: Request) {
       "parsePersist",
       () => (rawBody as { persist?: unknown }).persist !== false,
     );
-    await measure("quotaCheck", () => assertWithinDailyAiLimit(actor!));
-
     const { generated, provider } = await measure("translate", () =>
       translateByMode(generationMode!, validated!, timingEnabled ? timing : null),
     );
@@ -270,8 +300,10 @@ export async function POST(req: Request) {
             usedAt: request.source === "conversation" ? new Date().toISOString() : null,
           };
           if (accessToken) {
+            const { createSupabasePhrase } = await import("@/lib/supabase");
             await createSupabasePhrase(accessToken, phrase);
           }
+          const { createPhrase } = await import("@/lib/notion");
           await createPhrase({
             phraseId: request.phraseId,
             japanese: generated.japanese,
@@ -329,6 +361,26 @@ export async function POST(req: Request) {
       timing: finalTiming,
       error,
     });
+    if (error instanceof AiBurstLimitError && !error.alert.alreadyBlocked) {
+      const alert = error.alert;
+      after(async () => {
+        const { sendAiBurstLimitAlertEmail } = await import("@/lib/server/security-alerts");
+        await sendAiBurstLimitAlertEmail({
+          requestId,
+          endpoint: ENDPOINT,
+          mode: generationMode,
+          source: validated?.source ?? null,
+          direction: validated?.direction ?? null,
+          actorType: alert.actorType,
+          userId: alert.userId,
+          ipHash: alert.ipHash,
+          count: alert.count,
+          burstLimit: alert.burstLimit,
+          windowSeconds: alert.windowSeconds,
+          blockSeconds: alert.blockSeconds,
+        });
+      });
+    }
 
     if (actor) {
       queueUsageRecord({
@@ -352,7 +404,6 @@ export async function POST(req: Request) {
 
 function queueUsageRecord(input: UsageRecordInput, timingEnabled: boolean): void {
   const queuedAt = Date.now();
-  incrementDailyAiUsageCache(input.actor);
   after(async () => {
     const startedAt = Date.now();
     try {
@@ -375,6 +426,7 @@ function queueUsageRecord(input: UsageRecordInput, timingEnabled: boolean): void
 }
 
 async function recordUsage(input: UsageRecordInput) {
+  const { recordAiUsageEvent } = await import("@/lib/server/supabase-admin");
   await recordAiUsageEvent({
     requestId: input.requestId,
     userId: input.actor.userId,
@@ -400,6 +452,12 @@ function isTimingEnabled(req: Request): boolean {
   return process.env.NODE_ENV !== "production" && req.headers.get("x-debug-timing") === "1";
 }
 
+function getBearerToken(req: Request): string {
+  const header = req.headers.get("authorization") ?? "";
+  if (!header.toLowerCase().startsWith("bearer ")) return "";
+  return header.slice(7).trim();
+}
+
 function finishTiming(
   enabled: boolean,
   startedAt: number,
@@ -414,6 +472,66 @@ function finishTiming(
   };
 }
 
+function parseWarmupTargetLanguage(
+  raw: { targetLanguage?: unknown },
+): Exclude<LanguageCode, "ja"> {
+  const targetLanguage = raw.targetLanguage;
+  if (isLanguageCode(targetLanguage) && targetLanguage !== "ja") {
+    return targetLanguage;
+  }
+  return "zh";
+}
+
+async function warmupTranslationProviders(
+  direction: PhraseDirection,
+  timing: RouteTiming | null,
+): Promise<WarmupProviderResult[]> {
+  return Promise.all([
+    warmupAzure(direction, timing),
+    warmupDeepL(direction, timing),
+  ]);
+}
+
+async function warmupAzure(
+  direction: PhraseDirection,
+  timing: RouteTiming | null,
+): Promise<WarmupProviderResult> {
+  if (!process.env.AZURE_TRANSLATOR_KEY) {
+    return { provider: "azure", ok: false, skipped: true };
+  }
+
+  const startedAt = Date.now();
+  try {
+    const { translateWithAzure } = await import("@/lib/server/azure-translator");
+    await translateWithAzure({ direction, text: WARMUP_TEXT, skipPinyin: true });
+    return { provider: "azure", ok: true };
+  } catch (error) {
+    return { provider: "azure", ok: false, error: getTimingErrorMessage(error) };
+  } finally {
+    if (timing) timing.warmupAzureMs = Date.now() - startedAt;
+  }
+}
+
+async function warmupDeepL(
+  direction: PhraseDirection,
+  timing: RouteTiming | null,
+): Promise<WarmupProviderResult> {
+  if (!process.env.DEEPL_API_KEY) {
+    return { provider: "deepl", ok: false, skipped: true };
+  }
+
+  const startedAt = Date.now();
+  try {
+    const { translateWithDeepL } = await import("@/lib/server/deepl-translator");
+    await translateWithDeepL({ direction, text: WARMUP_TEXT });
+    return { provider: "deepl", ok: true };
+  } catch (error) {
+    return { provider: "deepl", ok: false, error: getTimingErrorMessage(error) };
+  } finally {
+    if (timing) timing.warmupDeepLMs = Date.now() - startedAt;
+  }
+}
+
 async function translateByMode(
   mode: GenerationMode,
   validated: ValidatedPhraseAddRequest,
@@ -425,6 +543,7 @@ async function translateByMode(
   switch (mode) {
     case "speed": {
       const startedAt = Date.now();
+      const { translateWithAzure } = await import("@/lib/server/azure-translator");
       const generated = await translateWithAzure({
         direction: validated.direction,
         text: validated.inputText,
@@ -460,6 +579,7 @@ async function translateNormal(
   if (process.env.DEEPL_API_KEY) {
     const deeplStartedAt = Date.now();
     try {
+      const { translateWithDeepL } = await import("@/lib/server/deepl-translator");
       const generated = await translateWithDeepL({
         direction: validated.direction,
         text: validated.inputText,
@@ -482,6 +602,7 @@ async function translateNormal(
   }
 
   const azureStartedAt = Date.now();
+  const { translateWithAzure } = await import("@/lib/server/azure-translator");
   const generated = await translateWithAzure({
     direction: validated.direction,
     text: validated.inputText,
@@ -507,6 +628,7 @@ async function generateWithGemini(
     throw new ApiRouteError("GEMINI_API_KEY が設定されていません", 500, "missing_gemini_api_key");
   }
 
+  const { GoogleGenAI } = await import("@google/genai");
   const ai = new GoogleGenAI({ apiKey });
   const prompt = buildQualityPrompt(validated);
 
@@ -581,7 +703,7 @@ ${explanationSections}
 function providerModel(provider: TranslationProvider): string {
   switch (provider) {
     case "deepl":
-      return DEEPL_MODEL;
+      return DEEPL_TRANSLATOR_MODEL;
     case "azure":
       return AZURE_TRANSLATOR_MODEL;
     case "gemini":

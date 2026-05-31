@@ -33,6 +33,10 @@ import {
 } from "@/lib/speech-recognition";
 import { useHighAccuracySpeech } from "@/lib/use-high-accuracy-speech";
 import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
+import {
+  TRANSLATION_WARMUP_DELAY_MS,
+  triggerTranslationWarmup,
+} from "@/lib/translation-warmup";
 import type { LanguageCode, PhraseDirection } from "@/lib/types";
 import { getTranslationProviderLabel } from "@/lib/translation-provider-label";
 
@@ -132,6 +136,14 @@ export default function AddPage() {
       recognitionRef.current?.stop();
     };
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => triggerTranslationWarmup(targetLanguage),
+      TRANSLATION_WARMUP_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [targetLanguage]);
 
   const handleGenerate = async () => {
     const trimmed = inputText.trim();
@@ -282,6 +294,7 @@ export default function AddPage() {
   };
 
   const handleHighAccuracyVoiceInput = () => {
+    triggerTranslationWarmup(targetLanguage);
     setSpeechError(null);
     if (listening) {
       suppressSpeechErrorRef.current = true;
@@ -296,6 +309,7 @@ export default function AddPage() {
   };
 
   const handleVoiceInput = () => {
+    triggerTranslationWarmup(targetLanguage);
     setSpeechError(null);
 
     if (shouldUseHighAccuracySpeechFirst()) {
@@ -512,7 +526,10 @@ export default function AddPage() {
             <textarea
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              onFocus={() => setInputFocused(true)}
+              onFocus={() => {
+                setInputFocused(true);
+                triggerTranslationWarmup(targetLanguage);
+              }}
               onBlur={() => setInputFocused(false)}
               placeholder={
                 parseDirection(direction).sourceLanguage === "ja"

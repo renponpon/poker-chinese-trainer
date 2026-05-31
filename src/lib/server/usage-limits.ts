@@ -1,12 +1,6 @@
 import { createHash } from "crypto";
-import {
-  countAiUsageToday,
-  countPhrasePackUsageToday,
-  getUserIdFromAccessToken,
-  isUsageTrackingConfigured,
-  isValidPhrasePackRequest,
-  type AiUsageActorType,
-} from "@/lib/server/supabase-admin";
+
+export type AiUsageActorType = "guest" | "user";
 
 export type RequestActor = {
   type: AiUsageActorType;
@@ -22,6 +16,26 @@ export class UsageLimitError extends Error {
   constructor(message = "本日の利用上限に達しました。ログインするか、明日また試してください。") {
     super(message);
     this.name = "UsageLimitError";
+  }
+}
+
+export type AiBurstLimitAlert = {
+  actorType: AiUsageActorType;
+  userId: string | null;
+  ipHash: string | null;
+  count: number;
+  burstLimit: number;
+  windowSeconds: number;
+  blockSeconds: number;
+  alreadyBlocked: boolean;
+};
+
+export class AiBurstLimitError extends UsageLimitError {
+  code = "burst_rate_limited";
+
+  constructor(public readonly alert: AiBurstLimitAlert) {
+    super("短時間に利用が集中しています。1時間後にもう一度試してください。");
+    this.name = "AiBurstLimitError";
   }
 }
 
@@ -63,22 +77,25 @@ const DEFAULT_GUEST_DAILY_LIMIT = 100;
 const DEFAULT_USER_DAILY_LIMIT = 200;
 const DEFAULT_GUEST_PHRASE_PACK_DAILY_LIMIT = 2;
 const DEFAULT_USER_PHRASE_PACK_DAILY_LIMIT = 4;
-const AI_USAGE_COUNT_CACHE_TTL_MS = 30_000;
-const AI_USAGE_COUNT_CACHE_MAX_ENTRIES = 500;
+const DEFAULT_GUEST_BURST_LIMIT_PER_MINUTE = 30;
+const DEFAULT_USER_BURST_LIMIT_PER_MINUTE = 60;
+const DEFAULT_BURST_WINDOW_SECONDS = 60;
+const DEFAULT_BURST_BLOCK_SECONDS = 3_600;
+const AI_BURST_CACHE_MAX_ENTRIES = 1_000;
 
-type AiUsageCountCacheEntry = {
-  dayKey: string;
+type AiBurstEntry = {
+  windowStartedAt: number;
   count: number;
-  expiresAt: number;
+  blockedUntil: number;
 };
 
-const aiUsageCountCache = new Map<string, AiUsageCountCacheEntry>();
+const aiBurstCache = new Map<string, AiBurstEntry>();
 
 export async function identifyRequestActor(
   req: Request,
   accessToken: string,
 ): Promise<RequestActor> {
-  const userId = await getUserIdFromAccessToken(accessToken);
+  const userId = accessToken ? await getUserIdFromAccessToken(accessToken) : null;
   const ipHash = hashClientIp(getClientIp(req));
 
   if (userId) {
@@ -99,14 +116,9 @@ export async function identifyRequestActor(
 }
 
 export async function assertWithinDailyAiLimit(actor: RequestActor): Promise<number> {
-  const cachedCount = getCachedDailyAiUsageCount(actor);
-  if (cachedCount !== null) {
-    if (cachedCount >= actor.dailyLimit) {
-      throw new UsageLimitError();
-    }
-    return cachedCount;
-  }
-
+  const { countAiUsageToday, isUsageTrackingConfigured } = await import(
+    "@/lib/server/supabase-admin"
+  );
   const currentCount = await countAiUsageToday({
     actorType: actor.type,
     userId: actor.userId,
@@ -125,24 +137,61 @@ export async function assertWithinDailyAiLimit(actor: RequestActor): Promise<num
     throw new UsageLimitError();
   }
 
-  setDailyAiUsageCountCache(actor, currentCount);
   return currentCount;
 }
 
-export function incrementDailyAiUsageCache(actor: RequestActor): void {
-  const cacheKey = getAiUsageCountCacheKey(actor);
-  if (!cacheKey) return;
+export function assertWithinAiBurstLimit(actor: RequestActor): number {
+  const cacheKey = getActorCacheKey(actor);
+  if (!cacheKey) return 0;
 
   const now = Date.now();
-  const dayKey = getUtcDayKey(new Date());
-  const cached = aiUsageCountCache.get(cacheKey);
-  if (!cached || cached.dayKey !== dayKey || cached.expiresAt <= now) return;
+  const windowSeconds = getPositiveIntEnv(
+    "AI_BURST_WINDOW_SECONDS",
+    DEFAULT_BURST_WINDOW_SECONDS,
+  );
+  const blockSeconds = getPositiveIntEnv(
+    "AI_BURST_BLOCK_SECONDS",
+    DEFAULT_BURST_BLOCK_SECONDS,
+  );
+  const windowMs = windowSeconds * 1_000;
+  const blockMs = blockSeconds * 1_000;
+  const burstLimit = getAiBurstLimit(actor);
+  const cached = aiBurstCache.get(cacheKey);
 
-  aiUsageCountCache.set(cacheKey, {
-    dayKey,
-    count: cached.count + 1,
-    expiresAt: now + AI_USAGE_COUNT_CACHE_TTL_MS,
+  if (cached?.blockedUntil && cached.blockedUntil > now) {
+    throw new AiBurstLimitError(
+      buildAiBurstLimitAlert(actor, cached.count, burstLimit, windowSeconds, blockSeconds, true),
+    );
+  }
+
+  if (!cached || now - cached.windowStartedAt >= windowMs) {
+    pruneAiBurstCacheIfNeeded();
+    aiBurstCache.set(cacheKey, {
+      windowStartedAt: now,
+      count: 1,
+      blockedUntil: 0,
+    });
+    return 1;
+  }
+
+  const nextCount = cached.count + 1;
+  if (nextCount > burstLimit) {
+    aiBurstCache.set(cacheKey, {
+      windowStartedAt: cached.windowStartedAt,
+      count: nextCount,
+      blockedUntil: now + blockMs,
+    });
+    throw new AiBurstLimitError(
+      buildAiBurstLimitAlert(actor, nextCount, burstLimit, windowSeconds, blockSeconds, false),
+    );
+  }
+
+  aiBurstCache.set(cacheKey, {
+    windowStartedAt: cached.windowStartedAt,
+    count: nextCount,
+    blockedUntil: 0,
   });
+  return nextCount;
 }
 
 export function getPhrasePackDailyLimit(actor: RequestActor): number {
@@ -153,6 +202,9 @@ export function getPhrasePackDailyLimit(actor: RequestActor): number {
 
 export async function assertWithinPhrasePackDailyLimit(actor: RequestActor): Promise<number> {
   const dailyLimit = getPhrasePackDailyLimit(actor);
+  const { countPhrasePackUsageToday, isUsageTrackingConfigured } = await import(
+    "@/lib/server/supabase-admin"
+  );
   const currentCount = await countPhrasePackUsageToday({
     actorType: actor.type,
     userId: actor.userId,
@@ -178,6 +230,7 @@ export async function assertValidPhrasePackRequest(
   actor: RequestActor,
   packRequestId: string,
 ): Promise<void> {
+  const { isValidPhrasePackRequest } = await import("@/lib/server/supabase-admin");
   const valid = await isValidPhrasePackRequest({
     packRequestId,
     actorType: actor.type,
@@ -209,56 +262,62 @@ function hashClientIp(ip: string): string {
   return createHash("sha256").update(`${salt}:${ip}`).digest("hex");
 }
 
+async function getUserIdFromAccessToken(accessToken: string): Promise<string | null> {
+  const { getUserIdFromAccessToken: getUserId } = await import("@/lib/server/supabase-admin");
+  return getUserId(accessToken);
+}
+
 function getPositiveIntEnv(name: string, fallback: number): number {
   const value = Number.parseInt(process.env[name] ?? "", 10);
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-function getCachedDailyAiUsageCount(actor: RequestActor): number | null {
-  const cacheKey = getAiUsageCountCacheKey(actor);
-  if (!cacheKey) return null;
-
-  const now = Date.now();
-  const cached = aiUsageCountCache.get(cacheKey);
-  if (!cached) return null;
-  if (cached.dayKey !== getUtcDayKey(new Date()) || cached.expiresAt <= now) {
-    aiUsageCountCache.delete(cacheKey);
-    return null;
-  }
-  return cached.count;
-}
-
-function setDailyAiUsageCountCache(actor: RequestActor, count: number): void {
-  const cacheKey = getAiUsageCountCacheKey(actor);
-  if (!cacheKey) return;
-
-  pruneAiUsageCountCacheIfNeeded();
-  aiUsageCountCache.set(cacheKey, {
-    dayKey: getUtcDayKey(new Date()),
-    count,
-    expiresAt: Date.now() + AI_USAGE_COUNT_CACHE_TTL_MS,
-  });
-}
-
-function getAiUsageCountCacheKey(actor: RequestActor): string | null {
+function getActorCacheKey(actor: RequestActor): string | null {
   if (actor.userId) return `${actor.type}:user:${actor.userId}`;
   if (actor.ipHash) return `${actor.type}:ip:${actor.ipHash}`;
   return null;
 }
 
-function getUtcDayKey(now: Date): string {
-  return now.toISOString().slice(0, 10);
+function getAiBurstLimit(actor: RequestActor): number {
+  return actor.type === "user"
+    ? getPositiveIntEnv("AI_USER_BURST_LIMIT_PER_MINUTE", DEFAULT_USER_BURST_LIMIT_PER_MINUTE)
+    : getPositiveIntEnv("AI_GUEST_BURST_LIMIT_PER_MINUTE", DEFAULT_GUEST_BURST_LIMIT_PER_MINUTE);
 }
 
-function pruneAiUsageCountCacheIfNeeded(): void {
-  if (aiUsageCountCache.size < AI_USAGE_COUNT_CACHE_MAX_ENTRIES) return;
+function buildAiBurstLimitAlert(
+  actor: RequestActor,
+  count: number,
+  burstLimit: number,
+  windowSeconds: number,
+  blockSeconds: number,
+  alreadyBlocked: boolean,
+): AiBurstLimitAlert {
+  return {
+    actorType: actor.type,
+    userId: actor.userId,
+    ipHash: actor.ipHash,
+    count,
+    burstLimit,
+    windowSeconds,
+    blockSeconds,
+    alreadyBlocked,
+  };
+}
+
+function pruneAiBurstCacheIfNeeded(): void {
+  if (aiBurstCache.size < AI_BURST_CACHE_MAX_ENTRIES) return;
 
   const now = Date.now();
-  for (const [key, cached] of aiUsageCountCache) {
-    if (cached.expiresAt <= now) aiUsageCountCache.delete(key);
+  for (const [key, cached] of aiBurstCache) {
+    if (
+      (cached.blockedUntil && cached.blockedUntil <= now) ||
+      now - cached.windowStartedAt >= DEFAULT_BURST_WINDOW_SECONDS * 1_000
+    ) {
+      aiBurstCache.delete(key);
+    }
   }
-  if (aiUsageCountCache.size < AI_USAGE_COUNT_CACHE_MAX_ENTRIES) return;
+  if (aiBurstCache.size < AI_BURST_CACHE_MAX_ENTRIES) return;
 
-  const firstKey = aiUsageCountCache.keys().next().value;
-  if (firstKey) aiUsageCountCache.delete(firstKey);
+  const firstKey = aiBurstCache.keys().next().value;
+  if (firstKey) aiBurstCache.delete(firstKey);
 }

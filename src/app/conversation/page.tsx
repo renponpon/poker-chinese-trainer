@@ -26,6 +26,10 @@ import {
 } from "@/lib/speech-recognition";
 import { useHighAccuracySpeech } from "@/lib/use-high-accuracy-speech";
 import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
+import {
+  TRANSLATION_WARMUP_DELAY_MS,
+  triggerTranslationWarmup,
+} from "@/lib/translation-warmup";
 import type { LanguageCode, PhraseDirection, Phrase } from "@/lib/types";
 
 type Speaker = "ja" | "target";
@@ -109,6 +113,14 @@ export default function ConversationPage() {
   }, []);
 
   useEffect(() => {
+    const timer = window.setTimeout(
+      () => triggerTranslationWarmup(targetLanguage),
+      TRANSLATION_WARMUP_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [targetLanguage]);
+
+  useEffect(() => {
     return () => {
       if (speechTimeoutRef.current) {
         window.clearTimeout(speechTimeoutRef.current);
@@ -125,6 +137,7 @@ export default function ConversationPage() {
   };
 
   const handleHighAccuracyVoiceInput = (source: Speaker) => {
+    triggerTranslationWarmup(targetLanguage);
     setError(null);
     if (listening) {
       suppressSpeechErrorRef.current = true;
@@ -373,6 +386,7 @@ export default function ConversationPage() {
   };
 
   const handleVoiceInput = (source: Speaker) => {
+    triggerTranslationWarmup(targetLanguage);
     setError(null);
     const direction: PhraseDirection =
       source === "ja" ? buildDirection("ja", targetLanguage) : buildDirection(targetLanguage, "ja");
@@ -641,7 +655,10 @@ export default function ConversationPage() {
             <textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              onFocus={() => setInputFocused(true)}
+              onFocus={() => {
+                setInputFocused(true);
+                triggerTranslationWarmup(targetLanguage);
+              }}
               onBlur={() => setInputFocused(false)}
               placeholder={speaker === "target" ? `${getLanguageLabel(targetLanguage)}を入力` : "日本語を入力"}
               rows={2}
