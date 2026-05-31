@@ -77,8 +77,6 @@ export default function AddTutorial() {
         `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}`,
       );
       timer = window.setTimeout(startTutorial, 300);
-    } else if (!window.localStorage.getItem(ADD_TUTORIAL_SEEN_KEY)) {
-      timer = window.setTimeout(startTutorial, 700);
     }
 
     window.addEventListener(ADD_TUTORIAL_EVENT, handleStart);
