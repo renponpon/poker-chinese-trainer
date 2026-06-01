@@ -44,6 +44,7 @@ const PACK_SIZE = 10;
 const GENERATE_TARGET = 12;
 const MAX_PHRASE_ATTEMPTS = 2;
 const PHRASE_MAX_OUTPUT_TOKENS = 4096;
+const EXISTING_TARGET_LIMIT = 80;
 const CATEGORY_IDS = new Set([
   "poker-table",
   "floor",
@@ -202,7 +203,7 @@ function parseExistingTargets(value: unknown): string[] {
     .filter((item): item is string => typeof item === "string")
     .map((item) => item.trim())
     .filter(Boolean)
-    .slice(0, 50);
+    .slice(0, EXISTING_TARGET_LIMIT);
 }
 
 async function generatePhrasesOnly(

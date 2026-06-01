@@ -19,6 +19,7 @@ import {
   detectDuplicateInList,
   detectDuplicateTarget,
   getRecentTargetHints,
+  normalizeChineseForDedupe,
   type PhraseDuplicateKind,
 } from "@/lib/phrase-dedupe";
 import type {
@@ -55,6 +56,16 @@ const defaultProfile: PhrasePackProfile = {
 };
 
 const GENERATION_STEPS = [30, 65, 90, 98] as const;
+const RECENT_GENERATED_TARGETS_KEY = "phrabit-recent-generated-pack-targets-v1";
+const RECENT_GENERATED_TARGETS_LIMIT = 200;
+const EXISTING_TARGET_HINT_LIMIT = 80;
+
+type RecentGeneratedTarget = {
+  targetLanguage: LanguageCode;
+  targetText: string;
+  categoryId: string | null;
+  createdAt: string;
+};
 
 export default function PersonalPhrasePackFlow({
   phrases,
@@ -141,7 +152,16 @@ export default function PersonalPhrasePackFlow({
 
     try {
       window.localStorage.setItem(profileStorageKey, JSON.stringify(normalized));
-      const existingTargets = getRecentTargetHints(phrases, targetLanguage, categoryHints, 50);
+      const savedTargets = getRecentTargetHints(phrases, targetLanguage, categoryHints, 50);
+      const generatedTargets = getRecentGeneratedTargetHints(
+        targetLanguage,
+        categoryHints,
+        EXISTING_TARGET_HINT_LIMIT,
+      );
+      const existingTargets = mergeTargetHints(
+        [...savedTargets, ...generatedTargets],
+        EXISTING_TARGET_HINT_LIMIT,
+      );
       const authHeaders = await getAuthHeaders();
       const res = await fetch("/api/phrase/generate-pack", {
         method: "POST",
@@ -158,6 +178,7 @@ export default function PersonalPhrasePackFlow({
       if (!items.length) {
         throw new Error("生成結果が空でした。もう一度お試しください。");
       }
+      rememberGeneratedTargets(items, targetLanguage);
 
       const requestId = typeof data.requestId === "string" ? data.requestId : "";
       if (!requestId) {
@@ -523,6 +544,102 @@ function buildPreviewItems(
       matchedTargetText: existingDuplicate.matchedChinese,
     };
   });
+}
+
+function getRecentGeneratedTargetHints(
+  targetLanguage: LanguageCode,
+  categoryIds: Array<string | null>,
+  limit: number,
+): string[] {
+  const entries = readRecentGeneratedTargets()
+    .filter((entry) => entry.targetLanguage === targetLanguage)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const categorySet = new Set(categoryIds.filter(Boolean));
+  const sameCategory = entries.filter((entry) =>
+    entry.categoryId ? categorySet.has(entry.categoryId) : false,
+  );
+  return mergeTargetHints([...sameCategory, ...entries].map((entry) => entry.targetText), limit);
+}
+
+function rememberGeneratedTargets(items: GeneratedPackItem[], targetLanguage: LanguageCode) {
+  const now = new Date().toISOString();
+  const nextEntries = items
+    .map((item): RecentGeneratedTarget | null => {
+      const targetText = item.targetText?.trim();
+      if (!targetText) return null;
+      return {
+        targetLanguage,
+        targetText,
+        categoryId: item.categoryId,
+        createdAt: now,
+      };
+    })
+    .filter((entry): entry is RecentGeneratedTarget => Boolean(entry));
+  if (!nextEntries.length) return;
+
+  const merged = [...nextEntries, ...readRecentGeneratedTargets()];
+  const seen = new Set<string>();
+  const deduped: RecentGeneratedTarget[] = [];
+
+  for (const entry of merged) {
+    const normalized = normalizeChineseForDedupe(entry.targetText);
+    if (!normalized) continue;
+    const key = `${entry.targetLanguage}:${normalized}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(entry);
+    if (deduped.length >= RECENT_GENERATED_TARGETS_LIMIT) break;
+  }
+
+  try {
+    window.localStorage.setItem(RECENT_GENERATED_TARGETS_KEY, JSON.stringify(deduped));
+  } catch {
+    // localStorage が使えない環境では、重複回避の一時記録だけ諦める。
+  }
+}
+
+function readRecentGeneratedTargets(): RecentGeneratedTarget[] {
+  try {
+    const raw = window.localStorage.getItem(RECENT_GENERATED_TARGETS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item): RecentGeneratedTarget | null => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+        const targetLanguage = (item as Partial<RecentGeneratedTarget>).targetLanguage;
+        const targetText = (item as Partial<RecentGeneratedTarget>).targetText;
+        if (!targetLanguage || typeof targetText !== "string" || !targetText.trim()) return null;
+        return {
+          targetLanguage,
+          targetText: targetText.trim(),
+          categoryId:
+            typeof (item as Partial<RecentGeneratedTarget>).categoryId === "string"
+              ? (item as Partial<RecentGeneratedTarget>).categoryId ?? null
+              : null,
+          createdAt:
+            typeof (item as Partial<RecentGeneratedTarget>).createdAt === "string"
+              ? (item as Partial<RecentGeneratedTarget>).createdAt ?? ""
+              : "",
+        };
+      })
+      .filter((entry): entry is RecentGeneratedTarget => Boolean(entry));
+  } catch {
+    return [];
+  }
+}
+
+function mergeTargetHints(targets: string[], limit: number): string[] {
+  const seen = new Set<string>();
+  const hints: string[] = [];
+  for (const target of targets) {
+    const normalized = normalizeChineseForDedupe(target);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    hints.push(target);
+    if (hints.length >= limit) break;
+  }
+  return hints;
 }
 
 function toggleSelection(
