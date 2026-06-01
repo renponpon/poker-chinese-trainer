@@ -314,7 +314,9 @@ export default function PersonalPhrasePackFlow({
                         details: event.target.value.slice(0, PHRASE_PACK_DETAILS_MAX_CHARS),
                       }))
                     }
-                    placeholder={"例: レストランで辛さやおすすめを聞きたい\n例: 上海出張で納期を確認したい"}
+                    placeholder={
+                      "例: ポーカールームで、空いている席があるか聞きたい\n例: レストランで、辛くないおすすめを聞きたい\n例: タクシーで、ホテル名を見せながらここに行きたい"
+                    }
                     className="min-h-[96px] w-full rounded-2xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-base text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-emerald-500"
                   />
                   <div className="mt-1 text-right text-xs text-neutral-500">

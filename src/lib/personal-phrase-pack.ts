@@ -41,12 +41,12 @@ export const PHRASE_PACK_LEVEL_OPTIONS: Array<PhrasePackOption<PhrasePackLevel>>
   {
     id: "intermediate",
     label: "中級",
-    description: "ある程度自然に話せる",
+    description: "自然な言い回しや熟語も練習",
   },
   {
     id: "advanced",
     label: "上級",
-    description: "仕事や複雑な内容も扱える",
+    description: "自然さや丁寧さを高める",
   },
 ];
 
