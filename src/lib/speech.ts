@@ -279,7 +279,7 @@ function playBrowserSpeechForLang(
 }
 
 function shouldUseRemoteSpeech(langCode: string): boolean {
-  return langCode.toLowerCase().startsWith("en");
+  return false;
 }
 
 function playRemoteSpeech(
