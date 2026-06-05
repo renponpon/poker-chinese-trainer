@@ -14,7 +14,7 @@ Cursor での開発から Codex + VSCode への引き継ぎ用ドキュメント
 - **ドリル**（SRS による瞬間作文）
 - **保存**（ライブラリ）
 
-**本番 URL:** https://poker-chinese-trainer.vercel.app  
+**本番 URL:** https://phrabit.com  
 **GitHub:** https://github.com/renponpon/poker-chinese-trainer  
 **最新の主要コミット:** `aa4d741` — Add three-mode translation, conversation drill flow, and auth persistence.
 

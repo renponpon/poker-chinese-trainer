@@ -10,7 +10,7 @@
 - **名前:** Phrabit（フレービット）
 - **種別:** Next.js 16 App Router + TypeScript + Tailwind v4
 - **目的:** 中国語圏ポーカー向け。現場の一言を翻訳→必要なものだけドリル化
-- **本番:** https://poker-chinese-trainer.vercel.app
+- **本番:** https://phrabit.com
 - **開発ポート:** `3010`（`npm run dev`）
 
 ---
