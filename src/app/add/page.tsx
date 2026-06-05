@@ -33,6 +33,7 @@ import {
 } from "@/lib/speech-recognition";
 import { useHighAccuracySpeech } from "@/lib/use-high-accuracy-speech";
 import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
+import { toStudyPhraseFields } from "@/lib/study-phrase";
 import {
   TRANSLATION_WARMUP_DELAY_MS,
   triggerTranslationWarmup,
@@ -123,7 +124,7 @@ export default function AddPage() {
         current.sourceLanguage === "ja"
           ? buildDirection("ja", language)
           : buildDirection(language, "ja");
-      setShouldDrill(parseDirection(next).targetLanguage !== "ja");
+      setShouldDrill(true);
       return next;
     });
   };
@@ -185,7 +186,7 @@ export default function AddPage() {
       if (!res.ok) {
         throw new Error(data.error ?? "生成に失敗しました");
       }
-      const localPhrase = addLocalPhrase({
+      const studyPhrase = toStudyPhraseFields({
         id: phraseId,
         direction,
         japanese: data.japanese,
@@ -198,6 +199,9 @@ export default function AddPage() {
         reading: data.reading,
         readingType: data.readingType,
         explanation: data.explanation,
+      });
+      const localPhrase = addLocalPhrase({
+        ...studyPhrase,
         audioUrl: null,
         categoryId,
         shouldDrill,
@@ -205,13 +209,14 @@ export default function AddPage() {
         usedAt: null,
       });
       const nextResult = { ...(data as Result), id: localPhrase.id };
+      const studyResult = { ...studyPhrase, id: localPhrase.id };
       lastSubmittedDraftKeyRef.current = draftKey;
       lastSubmittedPhraseIdRef.current = localPhrase.id;
       setResult(nextResult);
       setLoading(false);
-      if (!data.explanation?.trim()) {
+      if (!studyPhrase.explanation?.trim()) {
         setExplanationError(null);
-        void generateExplanation(nextResult, authHeaders);
+        void generateExplanation(studyResult, authHeaders);
       } else {
         setExplanationError(null);
       }
@@ -496,7 +501,7 @@ export default function AddPage() {
                     current.sourceLanguage === "ja"
                       ? buildDirection(targetLanguage, "ja")
                       : buildDirection("ja", targetLanguage);
-                  setShouldDrill(parseDirection(next).targetLanguage !== "ja");
+                  setShouldDrill(true);
                   return next;
                 })
               }

@@ -23,6 +23,7 @@ import {
   type ValidatedPhraseAddRequest,
 } from "@/lib/server/validation";
 import { parseGenerationMode, type GenerationMode } from "@/lib/generation-mode";
+import { toStudyPhraseFields } from "@/lib/study-phrase";
 import type { GeneratedPhrase, LanguageCode, PhraseDirection } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -280,7 +281,7 @@ export async function POST(req: Request) {
     if (persist) {
       after(async () => {
         try {
-          const phrase = {
+          const phrase = toStudyPhraseFields({
             id: request.phraseId,
             japanese: generated.japanese,
             chinese: generated.chinese,
@@ -298,7 +299,7 @@ export async function POST(req: Request) {
             shouldDrill: request.shouldDrill,
             source: request.source,
             usedAt: request.source === "conversation" ? new Date().toISOString() : null,
-          };
+          });
           if (accessToken) {
             const { createSupabasePhrase } = await import("@/lib/supabase");
             await createSupabasePhrase(accessToken, phrase);

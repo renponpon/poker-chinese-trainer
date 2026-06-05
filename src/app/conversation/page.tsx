@@ -26,6 +26,7 @@ import {
 } from "@/lib/speech-recognition";
 import { useHighAccuracySpeech } from "@/lib/use-high-accuracy-speech";
 import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
+import { toStudyPhraseFields } from "@/lib/study-phrase";
 import {
   TRANSLATION_WARMUP_DELAY_MS,
   triggerTranslationWarmup,
@@ -256,10 +257,11 @@ export default function ConversationPage() {
     message: Message,
     authHeaders: Record<string, string>,
   ): Promise<Phrase> => {
-    let pinyin = message.pinyin;
-    let reading = message.reading;
-    let explanation = message.explanation;
-    const needsReading = message.readingType === "pinyin" && !pinyin.trim();
+    const studyPhrase = toStudyPhraseFields(message);
+    let pinyin = studyPhrase.pinyin;
+    let reading = studyPhrase.reading;
+    let explanation = studyPhrase.explanation;
+    const needsReading = studyPhrase.readingType === "pinyin" && !pinyin.trim();
     const needsEnrich = needsReading || !explanation.trim();
 
     if (needsEnrich) {
@@ -267,14 +269,14 @@ export default function ConversationPage() {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
-          phraseId: message.id,
-          direction: message.direction,
-          japanese: message.japanese,
-          chinese: message.chinese,
-          pinyin: message.pinyin,
-          sourceText: message.sourceText,
-          targetText: message.targetText,
-          reading: message.reading,
+          phraseId: studyPhrase.id,
+          direction: studyPhrase.direction,
+          japanese: studyPhrase.japanese,
+          chinese: studyPhrase.chinese,
+          pinyin: studyPhrase.pinyin,
+          sourceText: studyPhrase.sourceText,
+          targetText: studyPhrase.targetText,
+          reading: studyPhrase.reading,
         }),
       });
       const data = await res.json();
@@ -291,6 +293,14 @@ export default function ConversationPage() {
     const existing = loadLocalPhrases().some((phrase) => phrase.id === message.id);
     if (existing) {
       updateLocalPhrase(message.id, {
+        direction: studyPhrase.direction,
+        japanese: studyPhrase.japanese,
+        chinese: studyPhrase.chinese,
+        sourceLanguage: studyPhrase.sourceLanguage,
+        targetLanguage: studyPhrase.targetLanguage,
+        sourceText: studyPhrase.sourceText,
+        targetText: studyPhrase.targetText,
+        readingType: studyPhrase.readingType,
         shouldDrill: true,
         pinyin,
         reading,
@@ -300,17 +310,17 @@ export default function ConversationPage() {
     }
 
     return addLocalPhrase({
-      id: message.id,
-      direction: message.direction,
-      japanese: message.japanese,
-      chinese: message.chinese,
+      id: studyPhrase.id,
+      direction: studyPhrase.direction,
+      japanese: studyPhrase.japanese,
+      chinese: studyPhrase.chinese,
       pinyin,
-      sourceLanguage: message.sourceLanguage,
-      targetLanguage: message.targetLanguage,
-      sourceText: message.sourceText,
-      targetText: message.targetText,
+      sourceLanguage: studyPhrase.sourceLanguage,
+      targetLanguage: studyPhrase.targetLanguage,
+      sourceText: studyPhrase.sourceText,
+      targetText: studyPhrase.targetText,
       reading,
-      readingType: message.readingType,
+      readingType: studyPhrase.readingType,
       explanation,
       audioUrl: null,
       categoryId: null,
