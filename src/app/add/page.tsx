@@ -27,6 +27,7 @@ import {
 import {
   getSpeechRecognitionErrorMessage,
   getSpeechRecognitionSupportError,
+  isMicrophoneAccessError,
   rememberHighAccuracySpeechPreference,
   shouldSwitchToHighAccuracySpeech,
   shouldUseHighAccuracySpeechFirst,
@@ -105,6 +106,7 @@ export default function AddPage() {
   const [result, setResult] = useState<Result | null>(null);
   const [listening, setListening] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const [needsMicrophonePermission, setNeedsMicrophonePermission] = useState(false);
   const [ownerKey] = useState(() => loadOwnerKey());
   const [nickname] = useState(() => loadNickname());
   const [inputFocused, setInputFocused] = useState(false);
@@ -284,6 +286,7 @@ export default function AddPage() {
     setResult(null);
     setError(null);
     setSpeechError(null);
+    setNeedsMicrophonePermission(false);
     setExplanationLoading(false);
     setExplanationError(null);
     lastSubmittedDraftKeyRef.current = null;
@@ -301,6 +304,7 @@ export default function AddPage() {
   const handleHighAccuracyVoiceInput = () => {
     triggerTranslationWarmup(targetLanguage);
     setSpeechError(null);
+    setNeedsMicrophonePermission(false);
     if (listening) {
       suppressSpeechErrorRef.current = true;
       recognitionRef.current?.stop();
@@ -316,6 +320,7 @@ export default function AddPage() {
   const handleVoiceInput = () => {
     triggerTranslationWarmup(targetLanguage);
     setSpeechError(null);
+    setNeedsMicrophonePermission(false);
 
     if (shouldUseHighAccuracySpeechFirst()) {
       handleHighAccuracyVoiceInput();
@@ -409,6 +414,7 @@ export default function AddPage() {
         handleHighAccuracyVoiceInput();
         return;
       }
+      setNeedsMicrophonePermission(isMicrophoneAccessError(event.error));
       setSpeechError(getSpeechRecognitionErrorMessage(event.error));
       setListening(false);
       recognitionRef.current = null;
@@ -460,6 +466,9 @@ export default function AddPage() {
       handleHighAccuracyVoiceInput();
     }
   };
+
+  const showMicrophonePermissionHint =
+    needsMicrophonePermission || highAccuracySpeech.errorKind === "microphone";
 
   return (
     <main
@@ -598,14 +607,20 @@ export default function AddPage() {
               <div>
                 {highAccuracySpeech.error || speechError}
               </div>
-              <button
-                type="button"
-                onClick={handleHighAccuracyVoiceInput}
-                disabled={loading || highAccuracySpeech.transcribing}
-                className="mt-3 rounded-full bg-yellow-100 px-3 py-1.5 text-xs font-bold text-neutral-950 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {highAccuracySpeech.recording ? "録音を停止" : "高精度音声入力で試す"}
-              </button>
+              {showMicrophonePermissionHint ? (
+                <div className="mt-3 rounded-2xl bg-yellow-100 px-3 py-2 text-xs font-bold leading-relaxed text-neutral-950">
+                  マイク許可を確認してください。端末設定とブラウザのサイト設定でマイクを許可してから、もう一度「音声」を押してください。
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleHighAccuracyVoiceInput}
+                  disabled={loading || highAccuracySpeech.transcribing}
+                  className="mt-3 rounded-full bg-yellow-100 px-3 py-1.5 text-xs font-bold text-neutral-950 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {highAccuracySpeech.recording ? "録音を停止" : "高精度音声入力で試す"}
+                </button>
+              )}
             </div>
           )}
           {(highAccuracySpeech.recording || highAccuracySpeech.transcribing) && (

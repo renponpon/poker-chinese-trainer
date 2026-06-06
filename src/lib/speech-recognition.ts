@@ -41,6 +41,10 @@ export function shouldSwitchToHighAccuracySpeech(error: string): boolean {
   return error === "network" || error === "service-not-allowed";
 }
 
+export function isMicrophoneAccessError(error: string): boolean {
+  return error === "audio-capture" || error === "not-allowed";
+}
+
 export function rememberHighAccuracySpeechPreference() {
   if (typeof window === "undefined") return;
   window.sessionStorage.setItem(

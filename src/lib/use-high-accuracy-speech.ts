@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getAuthHeaders } from "./auth-headers";
 
 type LanguageHint = string;
+type ErrorKind = "unsupported" | "microphone" | "recording" | "transcription";
 
 type StartOptions = {
   languageHint: LanguageHint;
@@ -17,6 +18,7 @@ export function useHighAccuracySpeech() {
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<ErrorKind | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -50,11 +52,13 @@ export function useHighAccuracySpeech() {
 
     if (!options || chunks.length === 0) {
       setError("音声を録音できませんでした。もう一度試すか、手入力で進めてください。");
+      setErrorKind("recording");
       return;
     }
 
     setTranscribing(true);
     setError(null);
+    setErrorKind(null);
     try {
       const audio = new Blob(chunks, { type: chunks[0]?.type || "audio/webm" });
       const form = new FormData();
@@ -80,6 +84,7 @@ export function useHighAccuracySpeech() {
       options.onTranscript(transcript);
     } catch (err) {
       setError(err instanceof Error ? err.message : "音声の文字起こしに失敗しました");
+      setErrorKind("transcription");
     } finally {
       setTranscribing(false);
     }
@@ -87,6 +92,7 @@ export function useHighAccuracySpeech() {
 
   const startRecording = useCallback(async (options: StartOptions) => {
     setError(null);
+    setErrorKind(null);
     optionsRef.current = options;
 
     if (recording) {
@@ -96,6 +102,7 @@ export function useHighAccuracySpeech() {
 
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setError("このブラウザでは高精度音声入力に対応していません。手入力で試してください。");
+      setErrorKind("unsupported");
       return;
     }
 
@@ -117,6 +124,7 @@ export function useHighAccuracySpeech() {
 
       recorder.onerror = () => {
         setError("録音中にエラーが発生しました。手入力で試してください。");
+        setErrorKind("recording");
         setRecording(false);
         cleanup();
       };
@@ -132,6 +140,7 @@ export function useHighAccuracySpeech() {
       }, MAX_RECORDING_MS);
     } catch {
       setError("マイクを使えませんでした。ブラウザのマイク許可を確認するか、手入力で試してください。");
+      setErrorKind("microphone");
       setRecording(false);
       cleanup();
     }
@@ -147,6 +156,7 @@ export function useHighAccuracySpeech() {
     recording,
     transcribing,
     error,
+    errorKind,
     startRecording,
     stopRecording,
   };

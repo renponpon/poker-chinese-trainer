@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Flashcard from "@/components/Flashcard";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { ACTIVE_TARGET_LANGUAGE_CODES, getLanguageLabel } from "@/lib/languages";
@@ -32,7 +32,9 @@ export default function DrillRunner() {
   const [hydrated, setHydrated] = useState(false);
   const [queue, setQueue] = useState<Phrase[]>([]);
   const [completed, setCompleted] = useState(0);
+  const [sessionTotal, setSessionTotal] = useState(0);
   const [pendingExplanationIds, setPendingExplanationIds] = useState<Set<string>>(new Set());
+  const skipNextQueueResetRef = useRef(false);
 
   useEffect(() => {
     primeSpeech();
@@ -44,6 +46,7 @@ export default function DrillRunner() {
     const due = getDuePhrases(filterPhrasesByTarget(localPhrases, "zh"), stored);
     const shuffled = [...due].sort(() => Math.random() - 0.5);
     setQueue(shuffled);
+    setSessionTotal(shuffled.length);
     setPendingExplanationIds(new Set(getPendingExplanationIds()));
     resumePendingPackJobs();
     setHydrated(true);
@@ -51,9 +54,14 @@ export default function DrillRunner() {
 
   useEffect(() => {
     if (!hydrated) return;
+    if (skipNextQueueResetRef.current) {
+      skipNextQueueResetRef.current = false;
+      return;
+    }
     const due = getDuePhrases(filterPhrasesByTarget(phrases, targetLanguage), items);
     const shuffled = [...due].sort(() => Math.random() - 0.5);
     setQueue(shuffled);
+    setSessionTotal(shuffled.length);
     setCompleted(0);
   }, [hydrated, items, phrases, targetLanguage]);
 
@@ -77,7 +85,7 @@ export default function DrillRunner() {
     };
   }, []);
 
-  const total = useMemo(() => queue.length + completed, [queue.length, completed]);
+  const total = sessionTotal;
   const current = queue[0] ?? null;
   const drillPhraseCount = useMemo(
     () =>
@@ -85,13 +93,6 @@ export default function DrillRunner() {
         (phrase) => phrase.shouldDrill && phrase.targetLanguage === targetLanguage,
       ).length,
     [phrases, targetLanguage],
-  );
-  const drillCountsByLanguage = useMemo(
-    () => ({
-      zh: phrases.filter((phrase) => phrase.shouldDrill && phrase.targetLanguage === "zh").length,
-      en: phrases.filter((phrase) => phrase.shouldDrill && phrase.targetLanguage === "en").length,
-    }),
-    [phrases],
   );
   const showLanguageTabs = ACTIVE_TARGET_LANGUAGE_CODES.length > 1;
 
@@ -105,6 +106,7 @@ export default function DrillRunner() {
       nextItems = [...items];
       nextItems[idx] = updated;
       updatedItem = updated;
+      skipNextQueueResetRef.current = true;
     }
     setItems(nextItems);
     saveSrsData(nextItems);
@@ -129,7 +131,9 @@ export default function DrillRunner() {
       // Score=1 のときは末尾に戻して同セッション中に再出題
       return score === 1 ? [...rest, current] : rest;
     });
-    setCompleted((c) => c + 1);
+    if (score !== 1) {
+      setCompleted((c) => c + 1);
+    }
   };
 
   const handlePackSaved = (newPhrases: Phrase[]) => {
@@ -184,7 +188,6 @@ export default function DrillRunner() {
         {showLanguageTabs && (
           <LanguageTabs
             value={targetLanguage}
-            counts={drillCountsByLanguage}
             onChange={setTargetLanguage}
           />
         )}
@@ -217,7 +220,6 @@ export default function DrillRunner() {
         {showLanguageTabs && (
           <LanguageTabs
             value={targetLanguage}
-            counts={drillCountsByLanguage}
             onChange={setTargetLanguage}
           />
         )}
@@ -278,7 +280,6 @@ export default function DrillRunner() {
       {showLanguageTabs && (
         <LanguageTabs
           value={targetLanguage}
-          counts={drillCountsByLanguage}
           onChange={setTargetLanguage}
         />
       )}
@@ -302,11 +303,9 @@ function filterPhrasesByTarget(phrases: Phrase[], targetLanguage: LanguageCode):
 
 function LanguageTabs({
   value,
-  counts,
   onChange,
 }: {
   value: LanguageCode;
-  counts: { zh: number; en: number };
   onChange: (value: LanguageCode) => void;
 }) {
   return (
@@ -323,9 +322,6 @@ function LanguageTabs({
           }`}
         >
           {getLanguageLabel(language)}
-          <span className="ml-1 text-xs opacity-70">
-            {language === "zh" ? counts.zh : counts.en}
-          </span>
         </button>
       ))}
     </div>
