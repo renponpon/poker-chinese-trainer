@@ -676,7 +676,7 @@ async function translateByMode(
       });
       if (timing) timing.azureMs = Date.now() - startedAt;
       return {
-        generated,
+        generated: ensureMandarinReading(generated),
         provider: "azure",
       };
     }
@@ -713,7 +713,7 @@ async function translateNormal(
         timing.deeplMs = Date.now() - deeplStartedAt;
         timing.normalPrimary = "deepl";
       }
-      return { generated, provider: "deepl" };
+      return { generated: ensureMandarinReading(generated), provider: "deepl" };
     } catch (error) {
       if (timing) {
         timing.deeplMs = Date.now() - deeplStartedAt;
@@ -737,7 +737,27 @@ async function translateNormal(
     timing.azureMs = Date.now() - azureStartedAt;
     timing.normalFallback = "azure";
   }
-  return { generated, provider: "azure" };
+  return { generated: ensureMandarinReading(generated), provider: "azure" };
+}
+
+function ensureMandarinReading(generated: GeneratedPhrase): GeneratedPhrase {
+  if (generated.readingType !== "pinyin") return generated;
+  if (generated.reading.trim() && generated.pinyin.trim()) return generated;
+
+  const chineseText =
+    generated.targetLanguage === "zh"
+      ? generated.targetText
+      : generated.sourceLanguage === "zh"
+        ? generated.sourceText
+        : generated.chinese;
+  const reading = toMandarinPinyin(chineseText);
+  if (!reading) return generated;
+
+  return {
+    ...generated,
+    pinyin: generated.pinyin.trim() || reading,
+    reading: generated.reading.trim() || reading,
+  };
 }
 
 function getTimingErrorMessage(error: unknown): string {
