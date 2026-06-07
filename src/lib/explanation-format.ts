@@ -403,6 +403,7 @@ function splitReadableLine(line: string): string[] {
   const prefix = bulletMatch?.[1] ?? "";
   const body = bulletMatch?.[2] ?? line;
 
+  if (body.includes("「") && body.includes("」")) return [line];
   if (body.length <= MAX_LINE_CHARS) return [line];
 
   const sentences = body
