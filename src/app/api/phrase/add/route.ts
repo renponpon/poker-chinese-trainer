@@ -705,7 +705,7 @@ async function generateWithGemini(
     throw new ApiRouteError("Gemini から空の応答が返りました", 502, "empty_gemini_response");
   }
   const generated = extractJson(text, validated.direction, validated.inputText);
-  if (!hasSuspiciousPinyinDuplication(generated)) return generated;
+  if (!hasSuspiciousPinyin(generated)) return generated;
 
   const retryResponse = await ai.models.generateContent({
     model: GEMINI_MODEL,
@@ -727,10 +727,10 @@ async function generateWithGemini(
   if (!retryText) return generated;
 
   const retryGenerated = extractJson(retryText, validated.direction, validated.inputText);
-  return hasSuspiciousPinyinDuplication(retryGenerated) ? generated : retryGenerated;
+  return hasSuspiciousPinyin(retryGenerated) ? generated : retryGenerated;
 }
 
-function hasSuspiciousPinyinDuplication(generated: GeneratedPhrase): boolean {
+function hasSuspiciousPinyin(generated: GeneratedPhrase): boolean {
   if (generated.readingType !== "pinyin" || !generated.reading.trim()) return false;
   const chineseText =
     generated.targetLanguage === "zh"
@@ -740,9 +740,22 @@ function hasSuspiciousPinyinDuplication(generated: GeneratedPhrase): boolean {
         : generated.chinese;
   if (!/[\u3400-\u9fff]/.test(chineseText)) return false;
 
+  if (hasTooManyPinyinSyllables(generated.reading, chineseText)) return true;
   return generated.reading
     .split(/\s+/)
     .some((token) => hasRepeatedPinyinSuffix(token, chineseText));
+}
+
+function hasTooManyPinyinSyllables(reading: string, chineseText: string): boolean {
+  if (/[A-Za-z0-9]/.test(chineseText)) return false;
+
+  const cjkCount = Array.from(chineseText).filter((char) => /[\u3400-\u9fff]/.test(char)).length;
+  const syllableCount = reading
+    .split(/\s+/)
+    .map((token) => token.replace(/[^A-Za-zÀ-ỹüÜǖǘǚǜńňḿ]/g, ""))
+    .filter(Boolean).length;
+
+  return syllableCount > cjkCount;
 }
 
 function hasRepeatedPinyinSuffix(token: string, chineseText: string): boolean {
