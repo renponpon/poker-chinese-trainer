@@ -1,3 +1,9 @@
+import {
+  addMandarinPinyinToMarkedChineseTerms,
+  hasChineseText,
+  toMandarinPinyin,
+} from "@/lib/chinese-pinyin";
+
 const MAX_LINE_CHARS = 58;
 const EXAMPLE_HEADING_LABELS = new Set([
   "他の自然な言い方",
@@ -71,13 +77,14 @@ export function formatExplanationForReading(value: string): string {
       continue;
     }
 
-    const translationPairLines = splitTranslationPairLine(line);
+    const lineWithPinyin = addMandarinPinyinToMarkedChineseTerms(line);
+    const translationPairLines = splitTranslationPairLine(lineWithPinyin);
     if (translationPairLines) {
       output.push(...translationPairLines);
       continue;
     }
 
-    for (const readableLine of splitReadableLine(line)) {
+    for (const readableLine of splitReadableLine(lineWithPinyin)) {
       output.push(readableLine);
     }
   }
@@ -137,10 +144,18 @@ function formatExamplePairs(examples: ExamplePair[]): string[] {
   for (const example of examples) {
     if (output.length > 0) output.push("");
     output.push(example.phrase);
-    if (example.reading) output.push(example.reading);
+    const reading = getExampleReading(example);
+    if (reading) output.push(reading);
     output.push(example.translation);
   }
   return output;
+}
+
+function getExampleReading(example: ExamplePair): string | undefined {
+  if (hasChineseText(example.phrase)) {
+    return toMandarinPinyin(example.phrase) || undefined;
+  }
+  return example.reading?.trim() || undefined;
 }
 
 function extractExamplePairs(lines: string[]): ExamplePair[] {
@@ -374,9 +389,9 @@ function readTextField(record: Record<string, unknown>, keys: string[]): string 
 }
 
 function cleanBulletText(value: string): string {
-  return stripLeadingSeparator(value.trim())
+  return addMandarinPinyinToMarkedChineseTerms(stripLeadingSeparator(value.trim())
     .replace(/^[-・]\s*/, "")
-    .trim();
+    .trim());
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

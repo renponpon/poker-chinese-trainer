@@ -1,6 +1,7 @@
 import { pinyin } from "pinyin-pro";
 
 const CHINESE_CHARACTER_RE = /[\u3400-\u9fff]/;
+const PINYIN_LIKE_RE = /^[A-Za-zÀ-ỹüÜǖǘǚǜńňḿ\s,.;:?!'-]+$/;
 
 export function hasChineseText(value: string): boolean {
   return CHINESE_CHARACTER_RE.test(value);
@@ -16,6 +17,15 @@ export function toMandarinPinyin(value: string): string {
   });
 
   return normalizePinyinText(converted);
+}
+
+export function addMandarinPinyinToMarkedChineseTerms(value: string): string {
+  return normalizeExistingInlinePinyin(value).replace(/{{\s*([^{}]+?)\s*}}/g, (_match, term) => {
+    const text = term.trim();
+    if (!hasChineseText(text)) return text;
+    const reading = toMandarinPinyin(text);
+    return reading ? `${text}(${reading})` : text;
+  });
 }
 
 export function overwriteStructuredSectionPinyin(value: unknown): unknown {
@@ -56,6 +66,15 @@ function normalizePinyinText(value: string): string {
     .replace(/([,.;:?!])(?=\S)/g, "$1 ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeExistingInlinePinyin(value: string): string {
+  return value.replace(/([\u3400-\u9fff]+)\s*[（(]([^（）()]+)[）)]/g, (match, text, inner) => {
+    const trimmedInner = inner.trim();
+    if (!PINYIN_LIKE_RE.test(trimmedInner)) return match;
+    const reading = toMandarinPinyin(text);
+    return reading ? `${text}(${reading})` : text;
+  });
 }
 
 function readTextField(record: Record<string, unknown>, keys: string[]): string {
