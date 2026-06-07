@@ -22,6 +22,26 @@ const JAPANESE_EXPLANATION_PREFIXES = [
   "介詞",
   "数詞",
 ];
+const JAPANESE_EXPLANATION_TERMS = new Set([
+  "意味",
+  "表現",
+  "語句",
+  "単語",
+  "文脈",
+  "場面",
+  "場合",
+  "場所",
+  "位置",
+  "方向",
+  "対象",
+  "範囲",
+  "動作",
+  "相手",
+  "返答",
+  "部分",
+  "荷物",
+  "書類",
+]);
 
 export function hasChineseText(value: string): boolean {
   return CHINESE_CHARACTER_RE.test(value);
@@ -89,9 +109,11 @@ function normalizePinyinText(value: string): string {
 
 function normalizeExistingInlinePinyin(value: string): string {
   return value.replace(INLINE_CHINESE_TERM_RE, (match, text, inner) => {
+    const trimmedText = text.trim();
     const trimmedInner = inner.trim();
     if (!PINYIN_LIKE_RE.test(trimmedInner)) return match;
-    return addPinyinToInlineChineseTerm(text);
+    if (JAPANESE_EXPLANATION_TERMS.has(trimmedText)) return trimmedText;
+    return addPinyinToInlineChineseTerm(trimmedText);
   });
 }
 
