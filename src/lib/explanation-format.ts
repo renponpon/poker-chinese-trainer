@@ -14,6 +14,11 @@ type ExamplePair = {
   translation: string;
 };
 
+type StructuredExampleSection = {
+  heading: string;
+  examples: ExamplePair[];
+};
+
 export function formatExplanationForReading(value: string): string {
   const normalized = value
     .replace(/\r\n/g, "\n")
@@ -74,6 +79,16 @@ export function formatExplanationForReading(value: string): string {
   return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+export function formatExplanationWithStructuredExamples(
+  value: string,
+  structuredSections: unknown,
+): string {
+  const formatted = formatExplanationForReading(value);
+  const sections = parseStructuredExampleSections(structuredSections);
+  if (sections.length === 0) return formatted;
+  return replaceStructuredExampleSections(formatted, sections);
+}
+
 function isHeading(line: string): boolean {
   return /^【[^】]+】$/.test(line) || /^#{2,3}\s+\S/.test(line);
 }
@@ -95,7 +110,10 @@ function normalizeHeadingLabel(line: string): string {
 }
 
 function formatExampleSectionLines(lines: string[]): string[] {
-  const examples = extractExamplePairs(lines).slice(0, 2);
+  return formatExamplePairs(extractExamplePairs(lines).slice(0, 2));
+}
+
+function formatExamplePairs(examples: ExamplePair[]): string[] {
   const output: string[] = [];
   for (const example of examples) {
     if (output.length > 0) output.push("");
@@ -107,7 +125,9 @@ function formatExampleSectionLines(lines: string[]): string[] {
 }
 
 function extractExamplePairs(lines: string[]): ExamplePair[] {
-  const contentLines = lines.map((line) => stripLeadingSeparator(line.trim())).filter(Boolean);
+  const contentLines = lines
+    .map((line) => stripLeadingSeparator(line.trim()))
+    .filter((line) => line && !isCorruptExampleLine(line));
   const pairs: ExamplePair[] = [];
 
   for (let index = 0; index < contentLines.length && pairs.length < 2; ) {
@@ -167,11 +187,105 @@ function splitTrailingParenthetical(value: string): { phrase: string; inner: str
 }
 
 function isReadingForPhrase(phrase: string, value: string): boolean {
-  return hasCjk(phrase) && !hasCjk(value) && /[A-Za-zÀ-ỹ]/.test(value);
+  const letters = value.replace(/[^A-Za-zÀ-ỹ]/g, "");
+  return hasCjk(phrase) && !hasCjk(value) && letters.length >= 2;
 }
 
 function hasCjk(value: string): boolean {
   return /[\u3400-\u9fff]/.test(value);
+}
+
+function isCorruptExampleLine(value: string): boolean {
+  const normalized = value.trim();
+  if (/^[A-Za-zÀ-ỹ]{1,3}\s*[\u3400-\u9fff]/.test(normalized)) return true;
+  return /^[A-Za-zÀ-ỹ]$/.test(normalized);
+}
+
+function parseStructuredExampleSections(value: unknown): StructuredExampleSection[] {
+  if (!Array.isArray(value)) return [];
+
+  const sections: StructuredExampleSection[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+
+    const heading = normalizeHeadingLabel(readTextField(item, ["heading", "title", "section"]));
+    if (!heading || !EXAMPLE_HEADING_LABELS.has(heading)) continue;
+
+    const examples = parseStructuredExamples(item.examples).slice(0, 2);
+    if (examples.length === 0) continue;
+
+    sections.push({ heading, examples });
+  }
+
+  return sections;
+}
+
+function parseStructuredExamples(value: unknown): ExamplePair[] {
+  if (!Array.isArray(value)) return [];
+
+  const examples: ExamplePair[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+
+    const phrase = cleanExamplePhrase(
+      readTextField(item, ["phrase", "text", "targetText", "chinese", "sourceText"]),
+    );
+    const rawReading = cleanExampleTranslation(readTextField(item, ["reading", "pinyin"]));
+    const translation = cleanExampleTranslation(
+      readTextField(item, ["translation", "meaning", "japanese", "ja"]),
+    );
+
+    if (!phrase || !translation) continue;
+    if (isCorruptExampleLine(phrase) || isCorruptExampleLine(translation)) continue;
+
+    const reading =
+      rawReading && !isCorruptExampleLine(rawReading) && isReadingForPhrase(phrase, rawReading)
+        ? rawReading
+        : undefined;
+    examples.push({ phrase, reading, translation });
+  }
+
+  return examples;
+}
+
+function replaceStructuredExampleSections(
+  formatted: string,
+  sections: StructuredExampleSection[],
+): string {
+  const sectionByHeading = new Map(sections.map((section) => [section.heading, section]));
+  const output: string[] = [];
+  const lines = formatted.split("\n");
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const heading = isHeading(line) ? normalizeHeadingLabel(line) : "";
+    const section = heading ? sectionByHeading.get(heading) : undefined;
+
+    if (!section) {
+      output.push(line);
+      continue;
+    }
+
+    output.push(line);
+    output.push(...formatExamplePairs(section.examples));
+    while (index + 1 < lines.length && !isHeading(lines[index + 1])) {
+      index += 1;
+    }
+  }
+
+  return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function readTextField(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function splitReadableLine(line: string): string[] {
