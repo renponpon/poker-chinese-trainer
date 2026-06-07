@@ -1,6 +1,8 @@
 import { pinyin } from "pinyin-pro";
 
 const CHINESE_CHARACTER_RE = /[\u3400-\u9fff]/;
+const INLINE_CHINESE_TERM_RE =
+  /([A-Za-z0-9_+\-./]*[\u3400-\u9fff][A-Za-z0-9_+\-./\u3400-\u9fff，、。？！；：]*)\s*[（(]([^（）()]+)[）)]/g;
 const PINYIN_LIKE_RE = /^[A-Za-zÀ-ỹüÜǖǘǚǜńňḿ\s,.;:?!'-]+$/;
 
 export function hasChineseText(value: string): boolean {
@@ -69,7 +71,7 @@ function normalizePinyinText(value: string): string {
 }
 
 function normalizeExistingInlinePinyin(value: string): string {
-  return value.replace(/([\u3400-\u9fff]+)\s*[（(]([^（）()]+)[）)]/g, (match, text, inner) => {
+  return value.replace(INLINE_CHINESE_TERM_RE, (match, text, inner) => {
     const trimmedInner = inner.trim();
     if (!PINYIN_LIKE_RE.test(trimmedInner)) return match;
     const reading = toMandarinPinyin(text);
