@@ -13,11 +13,17 @@ type FlashcardProps = {
   phrase: Phrase;
   onScore: (score: Score) => void;
   explanationPending?: boolean;
+  resetKey?: number;
 };
 
 const REVEAL_FADE_MS = 200;
 
-export default function Flashcard({ phrase, onScore, explanationPending = false }: FlashcardProps) {
+export default function Flashcard({
+  phrase,
+  onScore,
+  explanationPending = false,
+  resetKey = 0,
+}: FlashcardProps) {
   const [isFlipped, setIsFlipped] = useState(false);
   const [isHidden, setIsHidden] = useState(false);
   const [isAdvancing, setIsAdvancing] = useState(false);
@@ -81,7 +87,7 @@ export default function Flashcard({ phrase, onScore, explanationPending = false 
     setSkipFlipTransition(true);
     setIsHidden(true);
     revealNextCard();
-  }, [phrase.id, revealNextCard]);
+  }, [phrase.id, resetKey, revealNextCard]);
 
   useEffect(() => {
     return () => {

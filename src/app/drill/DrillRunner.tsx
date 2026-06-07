@@ -33,6 +33,7 @@ export default function DrillRunner() {
   const [queue, setQueue] = useState<Phrase[]>([]);
   const [completed, setCompleted] = useState(0);
   const [sessionTotal, setSessionTotal] = useState(0);
+  const [cardResetKey, setCardResetKey] = useState(0);
   const [pendingExplanationIds, setPendingExplanationIds] = useState<Set<string>>(new Set());
   const skipNextQueueResetRef = useRef(false);
 
@@ -131,6 +132,7 @@ export default function DrillRunner() {
       // Score=1 のときは末尾に戻して同セッション中に再出題
       return score === 1 ? [...rest, current] : rest;
     });
+    setCardResetKey((key) => key + 1);
     if (score !== 1) {
       setCompleted((c) => c + 1);
     }
@@ -288,6 +290,7 @@ export default function DrillRunner() {
         <Flashcard
           phrase={current}
           onScore={handleScore}
+          resetKey={cardResetKey}
           explanationPending={
             pendingExplanationIds.has(current.id) || isExplanationPending(current.id)
           }
