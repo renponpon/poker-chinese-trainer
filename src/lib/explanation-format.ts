@@ -19,6 +19,12 @@ type StructuredExampleSection = {
   examples: ExamplePair[];
 };
 
+type StructuredExplanationSection = {
+  heading: string;
+  bullets: string[];
+  examples: ExamplePair[];
+};
+
 export function formatExplanationForReading(value: string): string {
   const normalized = value
     .replace(/\r\n/g, "\n")
@@ -83,8 +89,21 @@ export function formatExplanationWithStructuredExamples(
   value: string,
   structuredSections: unknown,
 ): string {
+  return formatExplanationWithStructuredSections(value, undefined, structuredSections);
+}
+
+export function formatExplanationWithStructuredSections(
+  value: string,
+  structuredSections: unknown,
+  structuredExampleSections?: unknown,
+): string {
+  const explanationSections = parseStructuredExplanationSections(structuredSections);
+  if (explanationSections.length > 0) {
+    return formatExplanationForReading(buildStructuredExplanation(value, explanationSections));
+  }
+
   const formatted = formatExplanationForReading(value);
-  const sections = parseStructuredExampleSections(structuredSections);
+  const sections = parseStructuredExampleSections(structuredExampleSections);
   if (sections.length === 0) return formatted;
   return replaceStructuredExampleSections(formatted, sections);
 }
@@ -220,6 +239,26 @@ function parseStructuredExampleSections(value: unknown): StructuredExampleSectio
   return sections;
 }
 
+function parseStructuredExplanationSections(value: unknown): StructuredExplanationSection[] {
+  if (!Array.isArray(value)) return [];
+
+  const sections: StructuredExplanationSection[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+
+    const heading = normalizeHeadingLabel(readTextField(item, ["heading", "title", "section"]));
+    if (!heading) continue;
+
+    const bullets = parseStructuredBullets(item).slice(0, 2);
+    const examples = parseStructuredExamples(item.examples).slice(0, 2);
+    if (bullets.length === 0 && examples.length === 0) continue;
+
+    sections.push({ heading, bullets, examples });
+  }
+
+  return sections;
+}
+
 function parseStructuredExamples(value: unknown): ExamplePair[] {
   if (!Array.isArray(value)) return [];
 
@@ -246,6 +285,56 @@ function parseStructuredExamples(value: unknown): ExamplePair[] {
   }
 
   return examples;
+}
+
+function parseStructuredBullets(record: Record<string, unknown>): string[] {
+  for (const key of ["bullets", "items", "points", "body", "details"]) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return value
+        .filter((item): item is string => typeof item === "string")
+        .map(cleanBulletText)
+        .filter(Boolean);
+    }
+    if (typeof value === "string" && value.trim()) {
+      return value
+        .split(/\r?\n/)
+        .map(cleanBulletText)
+        .filter(Boolean);
+    }
+  }
+
+  return [];
+}
+
+function buildStructuredExplanation(
+  originalValue: string,
+  sections: StructuredExplanationSection[],
+): string {
+  const headingStyle = originalValue.includes("【") && !originalValue.includes("##")
+    ? "bracket"
+    : "markdown";
+  const output: string[] = [];
+
+  for (const section of sections) {
+    if (output.length > 0) output.push("");
+    output.push(formatHeading(section.heading, headingStyle));
+
+    if (section.examples.length > 0) {
+      output.push(...formatExamplePairs(section.examples));
+      continue;
+    }
+
+    for (const bullet of section.bullets) {
+      output.push(`- ${bullet}`);
+    }
+  }
+
+  return output.join("\n").trim();
+}
+
+function formatHeading(heading: string, style: "bracket" | "markdown"): string {
+  return style === "bracket" ? `【${heading}】` : `## ${heading}`;
 }
 
 function replaceStructuredExampleSections(
@@ -282,6 +371,12 @@ function readTextField(record: Record<string, unknown>, keys: string[]): string 
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return "";
+}
+
+function cleanBulletText(value: string): string {
+  return stripLeadingSeparator(value.trim())
+    .replace(/^[-・]\s*/, "")
+    .trim();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
