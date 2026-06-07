@@ -323,10 +323,9 @@ function cleanExamplePhrase(value: string): string {
 }
 
 function cleanExampleTranslation(value: string): string {
-  return value
-    .replace(/^[（(]\s*/, "")
-    .replace(/\s*[）)]$/, "")
-    .trim();
+  const trimmed = value.trim();
+  const parenthetical = trimmed.match(/^[（(]\s*(.+?)\s*[）)]$/);
+  return parenthetical ? parenthetical[1].trim() : trimmed;
 }
 
 function stripLeadingSeparator(value: string): string {
