@@ -4,6 +4,24 @@ const CHINESE_CHARACTER_RE = /[\u3400-\u9fff]/;
 const INLINE_CHINESE_TERM_RE =
   /([A-Za-z0-9_+\-./]*[\u3400-\u9fff][A-Za-z0-9_+\-./\u3400-\u9fff]*)\s*[（(]([^（）()]+)[）)]/g;
 const PINYIN_LIKE_RE = /^[A-Za-zÀ-ỹüÜǖǘǚǜńňḿ\s,.;:?!'-]+$/;
+const JAPANESE_EXPLANATION_PREFIXES = [
+  "文末助詞",
+  "可能補語",
+  "結果補語",
+  "方向補語",
+  "疑問詞",
+  "否定詞",
+  "方位詞",
+  "接続詞",
+  "形容詞",
+  "副詞",
+  "動詞",
+  "名詞",
+  "助詞",
+  "量詞",
+  "介詞",
+  "数詞",
+];
 
 export function hasChineseText(value: string): boolean {
   return CHINESE_CHARACTER_RE.test(value);
@@ -25,8 +43,7 @@ export function addMandarinPinyinToMarkedChineseTerms(value: string): string {
   return normalizeExistingInlinePinyin(value).replace(/{{\s*([^{}]+?)\s*}}/g, (_match, term) => {
     const text = term.trim();
     if (!hasChineseText(text)) return text;
-    const reading = toMandarinPinyin(text);
-    return reading ? `${text}(${reading})` : text;
+    return addPinyinToInlineChineseTerm(text);
   });
 }
 
@@ -74,9 +91,23 @@ function normalizeExistingInlinePinyin(value: string): string {
   return value.replace(INLINE_CHINESE_TERM_RE, (match, text, inner) => {
     const trimmedInner = inner.trim();
     if (!PINYIN_LIKE_RE.test(trimmedInner)) return match;
-    const reading = toMandarinPinyin(text);
-    return reading ? `${text}(${reading})` : text;
+    return addPinyinToInlineChineseTerm(text);
   });
+}
+
+function addPinyinToInlineChineseTerm(value: string): string {
+  const { prefix, term } = splitJapaneseExplanationPrefix(value.trim());
+  const reading = toMandarinPinyin(term);
+  return reading ? `${prefix}${term}(${reading})` : value;
+}
+
+function splitJapaneseExplanationPrefix(value: string): { prefix: string; term: string } {
+  for (const prefix of JAPANESE_EXPLANATION_PREFIXES) {
+    if (!value.startsWith(prefix)) continue;
+    const term = value.slice(prefix.length).trim();
+    if (term && hasChineseText(term)) return { prefix, term };
+  }
+  return { prefix: "", term: value };
 }
 
 function readTextField(record: Record<string, unknown>, keys: string[]): string {
