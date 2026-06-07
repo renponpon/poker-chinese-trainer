@@ -2,7 +2,7 @@ import { pinyin } from "pinyin-pro";
 
 const CHINESE_CHARACTER_RE = /[\u3400-\u9fff]/;
 const INLINE_CHINESE_TERM_RE =
-  /([A-Za-z0-9_+\-./]*[\u3400-\u9fff][A-Za-z0-9_+\-./\u3400-\u9fff，、。？！；：]*)\s*[（(]([^（）()]+)[）)]/g;
+  /([A-Za-z0-9_+\-./]*[\u3400-\u9fff][A-Za-z0-9_+\-./\u3400-\u9fff]*)\s*[（(]([^（）()]+)[）)]/g;
 const PINYIN_LIKE_RE = /^[A-Za-zÀ-ỹüÜǖǘǚǜńňḿ\s,.;:?!'-]+$/;
 
 export function hasChineseText(value: string): boolean {
