@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -516,6 +516,7 @@ export default function ConversationPage() {
       speechTimeoutRef.current = window.setTimeout(() => {
         recognitionRef.current?.stop();
         recognitionRef.current = null;
+        speechTimeoutRef.current = null;
         setListening(null);
         rememberHighAccuracySpeechPreference();
         recordWebSpeechUsageEvent({
@@ -925,3 +926,5 @@ function SendIcon() {
     </svg>
   );
 }
+
+
