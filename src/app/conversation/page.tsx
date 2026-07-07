@@ -2,6 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  linkTranslationHistoryToSavedPhrase,
+  recordTranslationHistory,
+} from "@/application/phrase/record-translation-history";
+import { saveTranslationAsSavedPhrase } from "@/application/phrase/save-translation-as-saved-phrase";
+import { syncDrillSchedule } from "@/application/practice/drill-schedule";
 import BottomNav from "@/components/BottomNav";
 import GenerationModeToggle from "@/components/GenerationModeToggle";
 import TargetLanguageSelect from "@/components/TargetLanguageSelect";
@@ -13,8 +19,22 @@ import {
   getLanguageLabel,
   LANGUAGE_CONFIGS,
 } from "@/lib/languages";
-import { addLocalPhrase, loadLocalPhrases, loadNickname, loadOwnerKey, updateLocalPhrase } from "@/lib/local-phrases";
-import { ensureSrsItems, loadSrsData } from "@/lib/srs";
+import {
+  loadLocalSrsItems,
+  saveLocalSrsItems,
+} from "@/infrastructure/local/srs-storage";
+import {
+  addLocalTranslationHistoryItem,
+  loadLocalTranslationHistory,
+  updateLocalTranslationHistoryItem,
+} from "@/infrastructure/local/translation-history-storage";
+import {
+  addLocalPhrase,
+  loadLocalPhrases,
+  loadNickname,
+  loadOwnerKey,
+  updateLocalPhrase,
+} from "@/infrastructure/local/phrase-storage";
 import { playSpeechForLang, prefetchSpeechForLang, primeSpeech, stopSpeech } from "@/lib/speech";
 import type { SpeechPlayOptions } from "@/lib/speech";
 import {
@@ -27,6 +47,7 @@ import {
 } from "@/lib/speech-recognition";
 import { useHighAccuracySpeech } from "@/lib/use-high-accuracy-speech";
 import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
+import { recordProductAnalyticsEvent } from "@/lib/product-analytics";
 import { toStudyPhraseFields } from "@/lib/study-phrase";
 import {
   TRANSLATION_WARMUP_DELAY_MS,
@@ -52,6 +73,7 @@ type Message = {
   explanation: string;
   provider?: string;
   inDrill?: boolean;
+  historyItemId?: string;
 };
 
 type SpeechRecognitionEvent = Event & {
@@ -104,6 +126,7 @@ export default function ConversationPage() {
   const translatingRef = useRef(false);
   const suppressSpeechErrorRef = useRef(false);
   const speechTimeoutRef = useRef<number | null>(null);
+  const inputStartRecordedRef = useRef(false);
   const highAccuracySpeech = useHighAccuracySpeech();
 
   const handleTargetLanguageChange = (language: LanguageCode) => {
@@ -155,8 +178,25 @@ export default function ConversationPage() {
           ? LANGUAGE_CONFIGS[targetLanguage].speechRecognitionCode
           : LANGUAGE_CONFIGS.ja.speechRecognitionCode,
       sourcePage: "conversation",
-      onTranscript: setDraft,
+      onTranscript: handleDraftChange,
     });
+  };
+
+  const handleDraftChange = (value: string) => {
+    setDraft(value);
+    if (!inputStartRecordedRef.current && value.trim()) {
+      inputStartRecordedRef.current = true;
+      const direction: PhraseDirection =
+        speaker === "ja" ? buildDirection("ja", targetLanguage) : buildDirection(targetLanguage, "ja");
+      recordProductAnalyticsEvent({
+        eventName: "input_start",
+        sourcePage: "conversation",
+        direction,
+        targetLanguage: speaker === "ja" ? targetLanguage : "ja",
+        generationMode,
+        inputChars: value.trim().length,
+      });
+    }
   };
 
   const translate = async (text: string, source: Speaker) => {
@@ -166,7 +206,16 @@ export default function ConversationPage() {
 
     const direction: PhraseDirection =
       source === "ja" ? buildDirection("ja", targetLanguage) : buildDirection(targetLanguage, "ja");
+    const outputLanguage = source === "ja" ? targetLanguage : "ja";
     const phraseId = createId();
+    recordProductAnalyticsEvent({
+      eventName: "translation_submit",
+      sourcePage: "conversation",
+      direction,
+      targetLanguage: outputLanguage,
+      generationMode,
+      inputChars: trimmed.length,
+    });
     translatingRef.current = true;
     setLoading(true);
     setError(null);
@@ -193,29 +242,61 @@ export default function ConversationPage() {
       if (!res.ok) {
         throw new Error(data.error ?? "翻訳に失敗しました");
       }
+      recordProductAnalyticsEvent({
+        eventName: "translation_success",
+        sourcePage: "conversation",
+        direction,
+        targetLanguage: outputLanguage,
+        generationMode,
+        inputChars: trimmed.length,
+        success: true,
+      });
+
+      const message: Message = {
+        id: phraseId,
+        speaker: source,
+        direction,
+        japanese: data.japanese,
+        chinese: data.chinese,
+        pinyin: data.pinyin ?? "",
+        sourceLanguage: data.sourceLanguage,
+        targetLanguage: data.targetLanguage,
+        sourceText: data.sourceText,
+        targetText: data.targetText,
+        reading: data.reading ?? data.pinyin ?? "",
+        readingType: data.readingType,
+        explanation: data.explanation ?? "",
+        provider: data.provider,
+        inDrill: false,
+      };
+      const history = recordTranslationHistory({
+        historyItemId: createId(),
+        translation: toStudyPhraseFields(message),
+        source: "conversation",
+        translatedAt: new Date().toISOString(),
+        storage: { addHistoryItem: addLocalTranslationHistoryItem },
+      });
 
       setMessages((current) => [
         ...current,
         {
-          id: phraseId,
-          speaker: source,
-          direction,
-          japanese: data.japanese,
-          chinese: data.chinese,
-          pinyin: data.pinyin ?? "",
-          sourceLanguage: data.sourceLanguage,
-          targetLanguage: data.targetLanguage,
-          sourceText: data.sourceText,
-          targetText: data.targetText,
-          reading: data.reading ?? data.pinyin ?? "",
-          readingType: data.readingType,
-          explanation: data.explanation ?? "",
-          provider: data.provider,
-          inDrill: false,
+          ...message,
+          historyItemId: history.id,
         },
       ]);
       setDraft("");
+      inputStartRecordedRef.current = false;
     } catch (err) {
+      recordProductAnalyticsEvent({
+        eventName: "translation_failure",
+        sourcePage: "conversation",
+        direction,
+        targetLanguage: outputLanguage,
+        generationMode,
+        inputChars: trimmed.length,
+        success: false,
+        errorCode: "translation_failed",
+      });
       setError(err instanceof Error ? err.message : "翻訳に失敗しました");
     } finally {
       translatingRef.current = false;
@@ -310,28 +391,46 @@ export default function ConversationPage() {
         reading,
         explanation,
       });
-      return loadLocalPhrases().find((phrase) => phrase.id === message.id)!;
+      const phrase = loadLocalPhrases().find((item) => item.id === message.id)!;
+      if (message.historyItemId) {
+        linkTranslationHistoryToSavedPhrase({
+          historyItemId: message.historyItemId,
+          savedPhrase: phrase,
+          storage: {
+            loadHistoryItems: loadLocalTranslationHistory,
+            updateHistoryItem: updateLocalTranslationHistoryItem,
+          },
+        });
+      }
+      return phrase;
     }
 
-    return addLocalPhrase({
-      id: studyPhrase.id,
-      direction: studyPhrase.direction,
-      japanese: studyPhrase.japanese,
-      chinese: studyPhrase.chinese,
-      pinyin,
-      sourceLanguage: studyPhrase.sourceLanguage,
-      targetLanguage: studyPhrase.targetLanguage,
-      sourceText: studyPhrase.sourceText,
-      targetText: studyPhrase.targetText,
-      reading,
-      readingType: studyPhrase.readingType,
-      explanation,
-      audioUrl: null,
+    const savedAt = new Date().toISOString();
+    const saved = saveTranslationAsSavedPhrase({
+      translation: {
+        ...studyPhrase,
+        pinyin,
+        reading,
+        explanation,
+      },
       categoryId: null,
-      shouldDrill: true,
       source: "conversation",
-      usedAt: new Date().toISOString(),
+      savedAt,
+      storage: { addPhrase: addLocalPhrase },
+      shouldDrill: true,
+      usedAt: savedAt,
     });
+    if (message.historyItemId) {
+      linkTranslationHistoryToSavedPhrase({
+        historyItemId: message.historyItemId,
+        savedPhrase: saved.savedPhrase,
+        storage: {
+          loadHistoryItems: loadLocalTranslationHistory,
+          updateHistoryItem: updateLocalTranslationHistoryItem,
+        },
+      });
+    }
+    return saved.storedPhrase;
   };
 
   const persistPhrasesToCloud = async (
@@ -386,11 +485,30 @@ export default function ConversationPage() {
           ),
         );
       }
-      ensureSrsItems(loadLocalPhrases(), loadSrsData());
+      syncDrillSchedule({
+        phrases: loadLocalPhrases(),
+        items: loadLocalSrsItems(),
+        storage: { saveSrsItems: saveLocalSrsItems },
+      });
       await persistPhrasesToCloud(savedPhrases, authHeaders);
+      recordProductAnalyticsEvent({
+        eventName: "conversation_drill_save",
+        sourcePage: "conversation",
+        targetLanguage,
+        generationMode,
+        success: true,
+      });
       setSelectedIds(new Set());
       setSelectingForDrill(false);
     } catch (err) {
+      recordProductAnalyticsEvent({
+        eventName: "conversation_drill_save",
+        sourcePage: "conversation",
+        targetLanguage,
+        generationMode,
+        success: false,
+        errorCode: "save_failed",
+      });
       setDrillAddError(
         err instanceof Error ? err.message : "ドリルへの追加に失敗しました",
       );
@@ -463,7 +581,7 @@ export default function ConversationPage() {
         if (event.results[i].isFinal) finalTranscript += transcript;
         else interim += transcript;
       }
-      setDraft((finalTranscript || interim).trim());
+      handleDraftChange((finalTranscript || interim).trim());
     };
     recognition.onerror = (event) => {
       if (
@@ -672,7 +790,10 @@ export default function ConversationPage() {
               <span>{speaker === "ja" ? "日本語" : getLanguageLabel(targetLanguage)}</span>
               <button
                 type="button"
-                onClick={() => setDraft("")}
+                onClick={() => {
+                  setDraft("");
+                  inputStartRecordedRef.current = false;
+                }}
                 className="text-sm text-neutral-500 hover:text-neutral-200"
               >
                 消去
@@ -680,7 +801,7 @@ export default function ConversationPage() {
             </div>
             <textarea
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => handleDraftChange(event.target.value)}
               onFocus={() => {
                 setInputFocused(true);
                 triggerTranslationWarmup(targetLanguage);

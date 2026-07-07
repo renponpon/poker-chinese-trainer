@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { saveTranslationAsSavedPhrase } from "@/application/phrase/save-translation-as-saved-phrase";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { getLanguageLabel } from "@/lib/languages";
-import { addLocalPhrase } from "@/lib/local-phrases";
+import { addLocalPhrase } from "@/infrastructure/local/phrase-storage";
 import { enqueuePackExplanationJob } from "@/lib/pending-pack-explanations";
 import {
   PHRASE_PACK_DETAILS_MAX_CHARS,
@@ -85,6 +86,9 @@ export default function PersonalPhrasePackFlow({
   const profileStorageKey = `${PHRASE_PACK_PROFILE_KEY}:${targetLanguage}`;
 
   useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
     try {
       const raw =
         window.localStorage.getItem(profileStorageKey) ??
@@ -96,6 +100,10 @@ export default function PersonalPhrasePackFlow({
     } catch {
       // 壊れた保存値は無視して初期値を使う。
     }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [profileStorageKey, targetLanguage]);
 
   const categoryHints = useMemo(
@@ -105,19 +113,22 @@ export default function PersonalPhrasePackFlow({
 
   useEffect(() => {
     if (!loading) {
-      setLoadingProgress(0);
-      return;
+      const resetTimer = window.setTimeout(() => setLoadingProgress(0), 0);
+      return () => window.clearTimeout(resetTimer);
     }
 
     let step = 0;
-    setLoadingProgress(GENERATION_STEPS[0]);
+    const startTimer = window.setTimeout(() => setLoadingProgress(GENERATION_STEPS[0]), 0);
 
     const timer = window.setInterval(() => {
       step = Math.min(step + 1, GENERATION_STEPS.length - 1);
       setLoadingProgress(GENERATION_STEPS[step]);
     }, 2500);
 
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearTimeout(startTimer);
+      window.clearInterval(timer);
+    };
   }, [loading]);
 
   const handleSceneToggle = (scene: PhrasePackScene) => {
@@ -216,26 +227,27 @@ export default function PersonalPhrasePackFlow({
     setError("");
     const createdAt = new Date().toISOString();
     const saved = [...selected].reverse().map((item) =>
-      addLocalPhrase({
-        id: item.id,
-        japanese: item.japanese,
-        chinese: item.targetText,
-        pinyin: item.readingType === "pinyin" ? item.reading : "",
-        sourceLanguage: item.sourceLanguage,
-        targetLanguage: item.targetLanguage,
-        sourceText: item.sourceText,
-        targetText: item.targetText,
-        reading: item.reading,
-        readingType: item.readingType,
-        explanation: "",
-        audioUrl: null,
-        createdAt,
-        direction: item.direction,
+      saveTranslationAsSavedPhrase({
+        translation: {
+          id: item.id,
+          japanese: item.japanese,
+          chinese: item.targetText,
+          pinyin: item.readingType === "pinyin" ? item.reading : "",
+          sourceLanguage: item.sourceLanguage,
+          targetLanguage: item.targetLanguage,
+          sourceText: item.sourceText,
+          targetText: item.targetText,
+          reading: item.reading,
+          readingType: item.readingType,
+          explanation: "",
+          direction: item.direction,
+        },
         categoryId: item.categoryId,
-        shouldDrill: true,
         source: "prototype",
-        usedAt: null,
-      }),
+        savedAt: createdAt,
+        storage: { addPhrase: addLocalPhrase },
+        shouldDrill: true,
+      }).storedPhrase,
     ).reverse();
 
     void enqueuePackExplanationJob({

@@ -279,6 +279,7 @@ function playBrowserSpeechForLang(
 }
 
 function shouldUseRemoteSpeech(langCode: string): boolean {
+  void langCode;
   return false;
 }
 

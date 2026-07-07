@@ -1,5 +1,10 @@
 import { getAuthHeaders } from "@/lib/auth-headers";
-import { loadLocalPhrases, loadNickname, loadOwnerKey, updateLocalPhrase } from "@/lib/local-phrases";
+import {
+  loadLocalPhrases,
+  loadNickname,
+  loadOwnerKey,
+  updateLocalPhrase,
+} from "@/infrastructure/local/phrase-storage";
 import type { Phrase } from "@/lib/types";
 
 export const PHRASE_UPDATED_EVENT = "phrabit-phrases-updated";

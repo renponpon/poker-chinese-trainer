@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { loadLocalPhrases } from "@/lib/local-phrases";
 import {
-  ensureSrsItems,
-  getDuePhrases,
-  getStatusCounts,
-  loadSrsData,
-} from "@/lib/srs";
+  countDrillStatuses,
+  selectDueDrillPhrases,
+  syncDrillSchedule,
+} from "@/application/practice/drill-schedule";
+import {
+  loadLocalSrsItems,
+  saveLocalSrsItems,
+} from "@/infrastructure/local/srs-storage";
+import { loadLocalPhrases } from "@/infrastructure/local/phrase-storage";
 import type { Phrase } from "@/lib/types";
 
 export default function HomeStats() {
@@ -18,18 +21,28 @@ export default function HomeStats() {
   );
 
   const refreshStats = (phrases: Phrase[]) => {
-    let items = loadSrsData();
-    items = ensureSrsItems(phrases, items);
-    const due = getDuePhrases(phrases, items);
+    const { items } = syncDrillSchedule({
+      phrases,
+      items: loadLocalSrsItems(),
+      storage: { saveSrsItems: saveLocalSrsItems },
+    });
+    const due = selectDueDrillPhrases({ phrases, items });
     setTotal(phrases.length);
     setDueCount(due.length);
-    const sc = getStatusCounts(phrases, items);
+    const sc = countDrillStatuses({ phrases, items });
     setCounts({ mastered: sc.mastered, maintenance: sc.maintenance });
   };
 
   useEffect(() => {
-    const phrases = loadLocalPhrases();
-    refreshStats(phrases);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      const phrases = loadLocalPhrases();
+      refreshStats(phrases);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (

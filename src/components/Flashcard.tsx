@@ -74,6 +74,9 @@ export default function Flashcard({
   }, [clearFadeInFrame, clearRevealTimeout, finishAdvance]);
 
   useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
     setIsFlipped(false);
 
     if (isInitialPhraseRef.current) {
@@ -87,6 +90,10 @@ export default function Flashcard({
     setSkipFlipTransition(true);
     setIsHidden(true);
     revealNextCard();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [phrase.id, resetKey, revealNextCard]);
 
   useEffect(() => {

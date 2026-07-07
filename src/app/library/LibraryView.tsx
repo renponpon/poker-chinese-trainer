@@ -1,25 +1,26 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { deleteSavedPhrases } from "@/application/phrase/delete-saved-phrases";
+import { syncDrillSchedule } from "@/application/practice/drill-schedule";
+import { setPhraseDrillMembership } from "@/application/practice/set-drill-membership";
+import {
+  loadLocalSrsItems,
+  saveLocalSrsItems,
+} from "@/infrastructure/local/srs-storage";
 import { formatExplanationForReading } from "@/lib/explanation-format";
 import {
-  deleteLocalPhrase,
   loadPhraseCategories,
   loadLocalPhrases,
   saveLocalPhrases,
   updateLocalPhrase,
-} from "@/lib/local-phrases";
+} from "@/infrastructure/local/phrase-storage";
 import {
   ACTIVE_TARGET_LANGUAGE_CODES,
   getLanguageLabel,
   LANGUAGE_CONFIGS,
 } from "@/lib/languages";
-import {
-  ensureSrsItems,
-  loadSrsData,
-  saveSrsData,
-  statusLabel,
-} from "@/lib/srs";
+import { statusLabel } from "@/lib/srs";
 import SpeechPlayButton from "@/components/SpeechPlayButton";
 import { playSpeechForLang, prefetchSpeechForLang, primeSpeech } from "@/lib/speech";
 import { cn } from "@/lib/utils";
@@ -58,23 +59,40 @@ export default function LibraryView() {
 
   useEffect(() => {
     primeSpeech();
-    const localPhrases = loadLocalPhrases();
-    setPhrases(localPhrases);
-    setCategories(loadPhraseCategories());
-    let stored = loadSrsData();
-    stored = ensureSrsItems(localPhrases, stored);
-    setItems(stored);
-    setHydrated(true);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      const localPhrases = loadLocalPhrases();
+      setPhrases(localPhrases);
+      setCategories(loadPhraseCategories());
+      const synced = syncDrillSchedule({
+        phrases: localPhrases,
+        items: loadLocalSrsItems(),
+        storage: { saveSrsItems: saveLocalSrsItems },
+      });
+      setItems(synced.items);
+      setHydrated(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleDelete = (id: string) => {
     if (!window.confirm("このフレーズをこの端末のライブラリから削除しますか？")) {
       return;
     }
-    deleteLocalPhrase(id);
-    const next = loadLocalPhrases();
-    setPhrases(next);
-    saveLocalPhrases(next);
+    const result = deleteSavedPhrases({
+      phraseIds: [id],
+      storage: {
+        loadPhrases: loadLocalPhrases,
+        savePhrases: saveLocalPhrases,
+        loadSrsItems: loadLocalSrsItems,
+        saveSrsItems: saveLocalSrsItems,
+      },
+    });
+    setPhrases(result.phrases);
+    setItems(result.srsItems);
     setExpandedIds((prev) => {
       const nextExpanded = new Set(prev);
       nextExpanded.delete(id);
@@ -96,11 +114,17 @@ export default function LibraryView() {
     ) {
       return;
     }
-    const next = phrases.filter((phrase) => !selectedIds.has(phrase.id));
-    setPhrases(next);
-    saveLocalPhrases(next);
-    saveSrsData(items.filter((item) => !selectedIds.has(item.id)));
-    setItems((prev) => prev.filter((item) => !selectedIds.has(item.id)));
+    const result = deleteSavedPhrases({
+      phraseIds: [...selectedIds],
+      storage: {
+        loadPhrases: loadLocalPhrases,
+        savePhrases: saveLocalPhrases,
+        loadSrsItems: loadLocalSrsItems,
+        saveSrsItems: saveLocalSrsItems,
+      },
+    });
+    setPhrases(result.phrases);
+    setItems(result.srsItems);
     setSelectedIds(new Set());
     setExpandedIds((prev) => {
       const nextExpanded = new Set(prev);
@@ -130,12 +154,17 @@ export default function LibraryView() {
   };
 
   const handleToggleDrill = (phrase: Phrase) => {
-    const nextPhrases = updateLocalPhrase(phrase.id, {
-      shouldDrill: !phrase.shouldDrill,
+    const result = setPhraseDrillMembership({
+      phrase,
+      enabled: !phrase.shouldDrill,
+      storage: {
+        updatePhrase: updateLocalPhrase,
+        loadSrsItems: loadLocalSrsItems,
+        saveSrsItems: saveLocalSrsItems,
+      },
     });
-    setPhrases(nextPhrases);
-    const nextItems = ensureSrsItems(nextPhrases, loadSrsData());
-    setItems(nextItems);
+    setPhrases(result.phrases);
+    setItems(result.srsItems);
   };
 
   const handleCategoryChange = (phrase: Phrase, categoryId: string) => {

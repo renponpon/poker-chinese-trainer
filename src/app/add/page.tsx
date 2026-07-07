@@ -2,6 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import {
+  linkTranslationHistoryToSavedPhrase,
+  recordTranslationHistory,
+} from "@/application/phrase/record-translation-history";
+import { saveTranslationAsSavedPhrase } from "@/application/phrase/save-translation-as-saved-phrase";
 import AddTutorial from "@/components/AddTutorial";
 import AppHeader from "@/components/AppHeader";
 import BottomNav from "@/components/BottomNav";
@@ -14,7 +19,12 @@ import {
   loadNickname,
   loadOwnerKey,
   updateLocalPhrase,
-} from "@/lib/local-phrases";
+} from "@/infrastructure/local/phrase-storage";
+import {
+  addLocalTranslationHistoryItem,
+  loadLocalTranslationHistory,
+  updateLocalTranslationHistoryItem,
+} from "@/infrastructure/local/translation-history-storage";
 import SpeechPlayButton from "@/components/SpeechPlayButton";
 import TargetLanguageSelect from "@/components/TargetLanguageSelect";
 import { playSpeechForLang, prefetchSpeechForLang, primeSpeech } from "@/lib/speech";
@@ -34,6 +44,7 @@ import {
 } from "@/lib/speech-recognition";
 import { useHighAccuracySpeech } from "@/lib/use-high-accuracy-speech";
 import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
+import { recordProductAnalyticsEvent } from "@/lib/product-analytics";
 import { toStudyPhraseFields } from "@/lib/study-phrase";
 import {
   TRANSLATION_WARMUP_DELAY_MS,
@@ -116,6 +127,7 @@ export default function AddPage() {
   const lastSubmittedDraftKeyRef = useRef<string | null>(null);
   const lastSubmittedPhraseIdRef = useRef<string | null>(null);
   const activePhraseIdRef = useRef<string | null>(null);
+  const inputStartRecordedRef = useRef(false);
   const highAccuracySpeech = useHighAccuracySpeech();
 
   const handleTargetLanguageChange = (language: LanguageCode) => {
@@ -151,6 +163,14 @@ export default function AddPage() {
   const handleGenerate = async () => {
     const trimmed = inputText.trim();
     if (!trimmed) return;
+    recordProductAnalyticsEvent({
+      eventName: "translation_submit",
+      sourcePage: "add",
+      direction,
+      targetLanguage,
+      generationMode,
+      inputChars: trimmed.length,
+    });
     setLoading(true);
     setError(null);
     setExplanationError(null);
@@ -188,6 +208,15 @@ export default function AddPage() {
       if (!res.ok) {
         throw new Error(data.error ?? "生成に失敗しました");
       }
+      recordProductAnalyticsEvent({
+        eventName: "translation_success",
+        sourcePage: "add",
+        direction,
+        targetLanguage,
+        generationMode,
+        inputChars: trimmed.length,
+        success: true,
+      });
       const studyPhrase = toStudyPhraseFields({
         id: phraseId,
         direction,
@@ -202,18 +231,34 @@ export default function AddPage() {
         readingType: data.readingType,
         explanation: data.explanation,
       });
-      const localPhrase = addLocalPhrase({
-        ...studyPhrase,
-        audioUrl: null,
-        categoryId,
-        shouldDrill,
-        source: "manual",
-        usedAt: null,
+      const savedAt = new Date().toISOString();
+      const history = recordTranslationHistory({
+        historyItemId: createId(),
+        translation: studyPhrase,
+        source: "add",
+        translatedAt: savedAt,
+        storage: { addHistoryItem: addLocalTranslationHistoryItem },
       });
-      const nextResult = { ...(data as Result), id: localPhrase.id };
-      const studyResult = { ...studyPhrase, id: localPhrase.id };
+      const saved = saveTranslationAsSavedPhrase({
+        translation: studyPhrase,
+        categoryId,
+        source: "manual",
+        savedAt,
+        storage: { addPhrase: addLocalPhrase },
+        shouldDrill,
+      });
+      linkTranslationHistoryToSavedPhrase({
+        historyItemId: history.id,
+        savedPhrase: saved.savedPhrase,
+        storage: {
+          loadHistoryItems: loadLocalTranslationHistory,
+          updateHistoryItem: updateLocalTranslationHistoryItem,
+        },
+      });
+      const nextResult = { ...(data as Result), id: saved.storedPhrase.id };
+      const studyResult = { ...studyPhrase, id: saved.storedPhrase.id };
       lastSubmittedDraftKeyRef.current = draftKey;
-      lastSubmittedPhraseIdRef.current = localPhrase.id;
+      lastSubmittedPhraseIdRef.current = saved.storedPhrase.id;
       setResult(nextResult);
       setLoading(false);
       if (!studyPhrase.explanation?.trim()) {
@@ -223,6 +268,16 @@ export default function AddPage() {
         setExplanationError(null);
       }
     } catch (err) {
+      recordProductAnalyticsEvent({
+        eventName: "translation_failure",
+        sourcePage: "add",
+        direction,
+        targetLanguage,
+        generationMode,
+        inputChars: trimmed.length,
+        success: false,
+        errorCode: "translation_failed",
+      });
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
@@ -283,6 +338,7 @@ export default function AddPage() {
 
   const handleNext = () => {
     setInputText("");
+    inputStartRecordedRef.current = false;
     setResult(null);
     setError(null);
     setSpeechError(null);
@@ -313,8 +369,23 @@ export default function AddPage() {
     void highAccuracySpeech.startRecording({
       languageHint: LANGUAGE_CONFIGS[parseDirection(direction).sourceLanguage].speechRecognitionCode,
       sourcePage: "add",
-      onTranscript: setInputText,
+      onTranscript: handleInputTextChange,
     });
+  };
+
+  const handleInputTextChange = (value: string) => {
+    setInputText(value);
+    if (!inputStartRecordedRef.current && value.trim()) {
+      inputStartRecordedRef.current = true;
+      recordProductAnalyticsEvent({
+        eventName: "input_start",
+        sourcePage: "add",
+        direction,
+        targetLanguage,
+        generationMode,
+        inputChars: value.trim().length,
+      });
+    }
   };
 
   const handleVoiceInput = () => {
@@ -385,7 +456,7 @@ export default function AddPage() {
 
       const spoken = (finalTranscript || interim).trim();
       if (spoken) {
-        setInputText(spoken);
+        handleInputTextChange(spoken);
       }
     };
 
@@ -531,7 +602,10 @@ export default function AddPage() {
               <span>{getLanguageLabel(parseDirection(direction).sourceLanguage)}</span>
               <button
                 type="button"
-                onClick={() => setInputText("")}
+                onClick={() => {
+                  setInputText("");
+                  inputStartRecordedRef.current = false;
+                }}
                 className="text-sm text-neutral-500 hover:text-neutral-200"
               >
                 消去
@@ -539,7 +613,7 @@ export default function AddPage() {
             </div>
             <textarea
               value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
+              onChange={(e) => handleInputTextChange(e.target.value)}
               onFocus={() => {
                 setInputFocused(true);
                 triggerTranslationWarmup(targetLanguage);

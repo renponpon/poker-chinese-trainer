@@ -2,10 +2,22 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  selectDueDrillPhrases,
+  syncDrillSchedule,
+} from "@/application/practice/drill-schedule";
+import { recordDrillPracticeResult } from "@/application/practice/record-practice-result";
 import Flashcard from "@/components/Flashcard";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { ACTIVE_TARGET_LANGUAGE_CODES, getLanguageLabel } from "@/lib/languages";
-import { loadLocalPhrases, loadOwnerKey } from "@/lib/local-phrases";
+import {
+  loadLocalSrsItems,
+  saveLocalSrsItems,
+} from "@/infrastructure/local/srs-storage";
+import {
+  loadLocalPhrases,
+  loadOwnerKey,
+} from "@/infrastructure/local/phrase-storage";
 import {
   getPendingExplanationIds,
   isExplanationPending,
@@ -14,14 +26,8 @@ import {
   refreshPhrasesFromStorage,
   resumePendingPackJobs,
 } from "@/lib/pending-pack-explanations";
-import {
-  applyScore,
-  ensureSrsItems,
-  getDuePhrases,
-  loadSrsData,
-  saveSrsData,
-} from "@/lib/srs";
 import { primeSpeech } from "@/lib/speech";
+import { recordProductAnalyticsEvent } from "@/lib/product-analytics";
 import type { LanguageCode, Phrase, Score, SrsItem } from "@/lib/types";
 import PersonalPhrasePackFlow from "./PersonalPhrasePackFlow";
 
@@ -39,18 +45,36 @@ export default function DrillRunner() {
 
   useEffect(() => {
     primeSpeech();
-    const localPhrases = loadLocalPhrases();
-    setPhrases(localPhrases);
-    let stored = loadSrsData();
-    stored = ensureSrsItems(localPhrases, stored);
-    setItems(stored);
-    const due = getDuePhrases(filterPhrasesByTarget(localPhrases, "zh"), stored);
-    const shuffled = [...due].sort(() => Math.random() - 0.5);
-    setQueue(shuffled);
-    setSessionTotal(shuffled.length);
-    setPendingExplanationIds(new Set(getPendingExplanationIds()));
-    resumePendingPackJobs();
-    setHydrated(true);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      const localPhrases = loadLocalPhrases();
+      setPhrases(localPhrases);
+      const { items: stored } = syncDrillSchedule({
+        phrases: localPhrases,
+        items: loadLocalSrsItems(),
+        storage: { saveSrsItems: saveLocalSrsItems },
+      });
+      setItems(stored);
+      const due = selectDueDrillPhrases({
+        phrases: filterPhrasesByTarget(localPhrases, "zh"),
+        items: stored,
+      });
+      const shuffled = [...due].sort(() => Math.random() - 0.5);
+      setQueue(shuffled);
+      setSessionTotal(shuffled.length);
+      setPendingExplanationIds(new Set(getPendingExplanationIds()));
+      resumePendingPackJobs();
+      recordProductAnalyticsEvent({
+        eventName: "drill_open",
+        sourcePage: "drill",
+        targetLanguage: "zh",
+      });
+      setHydrated(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -59,7 +83,10 @@ export default function DrillRunner() {
       skipNextQueueResetRef.current = false;
       return;
     }
-    const due = getDuePhrases(filterPhrasesByTarget(phrases, targetLanguage), items);
+    const due = selectDueDrillPhrases({
+      phrases: filterPhrasesByTarget(phrases, targetLanguage),
+      items,
+    });
     const shuffled = [...due].sort(() => Math.random() - 0.5);
     setQueue(shuffled);
     setSessionTotal(shuffled.length);
@@ -99,28 +126,34 @@ export default function DrillRunner() {
 
   const handleScore = (score: Score) => {
     if (!current) return;
-    const idx = items.findIndex((it) => it.id === current.id);
-    let nextItems = items;
-    let updatedItem: SrsItem | null = null;
-    if (idx >= 0) {
-      const updated = applyScore(items[idx], score);
-      nextItems = [...items];
-      nextItems[idx] = updated;
-      updatedItem = updated;
+    recordProductAnalyticsEvent({
+      eventName: "drill_answer",
+      sourcePage: "drill",
+      direction: current.direction,
+      targetLanguage: current.targetLanguage,
+      score,
+      success: true,
+    });
+    const result = recordDrillPracticeResult({
+      items,
+      phraseId: current.id,
+      score,
+      storage: { saveSrsItems: saveLocalSrsItems },
+    });
+    if (result.updatedItem) {
       skipNextQueueResetRef.current = true;
     }
-    setItems(nextItems);
-    saveSrsData(nextItems);
+    setItems(result.items);
 
     const ownerKey = loadOwnerKey();
-    if (updatedItem) {
+    if (result.updatedItem) {
       void getAuthHeaders().then((authHeaders) => fetch("/api/srs/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
           ownerKey,
           phrase: current,
-          srsItem: updatedItem,
+          srsItem: result.updatedItem,
         }),
       })).catch((error) => {
         console.warn("[DrillRunner] SRS cloud sync failed", error);
@@ -141,7 +174,11 @@ export default function DrillRunner() {
   const handlePackSaved = (newPhrases: Phrase[]) => {
     const nextPhrases = [...newPhrases, ...phrases];
     setPhrases(nextPhrases);
-    const nextItems = ensureSrsItems(nextPhrases, items);
+    const { items: nextItems } = syncDrillSchedule({
+      phrases: nextPhrases,
+      items,
+      storage: { saveSrsItems: saveLocalSrsItems },
+    });
     setItems(nextItems);
     setQueue((prev) => [
       ...prev,

@@ -10,7 +10,7 @@ export default function AuthSessionKeeper() {
 
     void supabase.auth.getSession();
 
-    const { data } = supabase.auth.onAuthStateChange((_event, _session) => {
+    const { data } = supabase.auth.onAuthStateChange(() => {
       // Supabase persists/refreshes the session in localStorage automatically.
     });
 
