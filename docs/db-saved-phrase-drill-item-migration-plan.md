@@ -155,8 +155,27 @@ Do not drop or rename existing tables first.
 
 Start with:
 
-1. Add `saved_phrases` and `drill_items`.
-2. Backfill from existing tables.
-3. Add infrastructure readers that can read the new shape and fall back to legacy.
-4. Add tests around storage mapping before switching API routes.
+1. Done: add `saved_phrases` and `drill_items` in `supabase/migrations/20260707104219_split_saved_phrases_and_drill_items.sql`.
+2. Done: backfill from existing `phrases` and `srs_items`.
+3. Done: add infrastructure readers that read the new shape first and fall back to legacy when the new tables are empty or unavailable.
+4. Done: add transition dual-writes for saved phrases and drill schedule updates.
+5. Done: apply the migration to the Supabase `translation-app` database through MCP and verify row counts, RLS, policies, and grants.
+6. Next: add focused tests around Supabase row mapping if the adapter is split into a pure mapper plus client wrapper.
 
+## Implementation Notes
+
+- `public.saved_phrases` intentionally has no `should_drill` column.
+- `public.drill_items` row existence represents drill membership.
+- During the transition, `src/lib/supabase.ts` still writes legacy `phrases` and `srs_items` so older clients keep working.
+- The new table writes ignore missing-table errors so code deployment can remain compatible with environments where the migration has not been applied yet.
+- Supabase CLI and `psql` are not installed in the current workspace, so database changes were applied and verified through the Supabase MCP tools instead.
+- Applied migrations in Supabase history:
+  - `20260707104219_split_saved_phrases_and_drill_items`
+  - `20260707104336_restrict_saved_phrase_drill_api_roles`
+  - `20260707104411_restrict_saved_phrase_drill_authenticated_privileges`
+  - `20260707104646_optimize_legacy_phrase_rls_policies`
+- Verification on 2026-07-07: `phrases=73`, `saved_phrases=73`, `srs_items=49`, `drill_items=73`, `orphan_drill_items=0`.
+- RLS is enabled for both new tables. Policies are scoped to `authenticated` with `(select auth.uid()) = user_id`, and `UPDATE` policies include both `USING` and `WITH CHECK`.
+- `anon` has no table privilege on the new tables. `authenticated` has only `SELECT`, `INSERT`, `UPDATE`, and `DELETE`; `TRUNCATE` is not granted.
+- Supabase advisors were run after the DDL changes. The previous `auth_rls_initplan` warnings for `phrases`, `srs_items`, and `phrase_categories` were resolved by rewriting those policies to `to authenticated` plus `(select auth.uid())`.
+- Remaining advisors are outside this slice: `ai_usage_events` and `product_analytics_events` have RLS enabled with no policies, Auth leaked-password protection is disabled in project settings, and several indexes are still marked unused.

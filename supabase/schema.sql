@@ -36,6 +36,42 @@ create table if not exists public.srs_items (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.saved_phrases (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  japanese text not null default '',
+  chinese text not null default '',
+  pinyin text not null default '',
+  source_language text not null default 'ja',
+  target_language text not null default 'zh',
+  source_text text not null default '',
+  target_text text not null default '',
+  reading text not null default '',
+  reading_type text not null default 'pinyin' check (reading_type in ('pinyin', 'none')),
+  explanation text not null default '',
+  audio_url text,
+  direction text not null check (direction ~ '^[a-z]{2,3}-to-[a-z]{2,3}$'),
+  category_id text,
+  source text not null default 'manual' check (source in ('manual', 'conversation', 'prototype')),
+  used_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.drill_items (
+  saved_phrase_id uuid primary key references public.saved_phrases(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  status text not null default 'new' check (status in ('new', 'learning', 'review', 'maintenance', 'mastered')),
+  next_review_at timestamptz,
+  interval_days double precision not null default 0,
+  ease_factor double precision not null default 2.5,
+  consecutive_good integer not null default 0,
+  last_score integer check (last_score in (1, 2, 3)),
+  last_reviewed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.phrase_categories (
   id text not null,
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -104,72 +140,146 @@ create table if not exists public.product_analytics_events (
 
 alter table public.phrases enable row level security;
 alter table public.srs_items enable row level security;
+alter table public.saved_phrases enable row level security;
+alter table public.drill_items enable row level security;
 alter table public.phrase_categories enable row level security;
 alter table public.ai_usage_events enable row level security;
 alter table public.product_analytics_events enable row level security;
 
+revoke all on table public.saved_phrases from anon;
+revoke all on table public.drill_items from anon;
+revoke all on table public.saved_phrases from public;
+revoke all on table public.drill_items from public;
+revoke all on table public.saved_phrases from authenticated;
+revoke all on table public.drill_items from authenticated;
+
+grant select, insert, update, delete on table public.saved_phrases to authenticated;
+grant select, insert, update, delete on table public.drill_items to authenticated;
+
 drop policy if exists "Users can read own phrases" on public.phrases;
 create policy "Users can read own phrases"
   on public.phrases for select
-  using (auth.uid() = user_id);
+  to authenticated
+  using ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can insert own phrases" on public.phrases;
 create policy "Users can insert own phrases"
   on public.phrases for insert
-  with check (auth.uid() = user_id);
+  to authenticated
+  with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can update own phrases" on public.phrases;
 create policy "Users can update own phrases"
   on public.phrases for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can delete own phrases" on public.phrases;
 create policy "Users can delete own phrases"
   on public.phrases for delete
-  using (auth.uid() = user_id);
+  to authenticated
+  using ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can read own srs items" on public.srs_items;
 create policy "Users can read own srs items"
   on public.srs_items for select
-  using (auth.uid() = user_id);
+  to authenticated
+  using ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can insert own srs items" on public.srs_items;
 create policy "Users can insert own srs items"
   on public.srs_items for insert
-  with check (auth.uid() = user_id);
+  to authenticated
+  with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can update own srs items" on public.srs_items;
 create policy "Users can update own srs items"
   on public.srs_items for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can delete own srs items" on public.srs_items;
 create policy "Users can delete own srs items"
   on public.srs_items for delete
-  using (auth.uid() = user_id);
+  to authenticated
+  using ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can read own saved phrases" on public.saved_phrases;
+create policy "Users can read own saved phrases"
+  on public.saved_phrases for select
+  to authenticated
+  using ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can insert own saved phrases" on public.saved_phrases;
+create policy "Users can insert own saved phrases"
+  on public.saved_phrases for insert
+  to authenticated
+  with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can update own saved phrases" on public.saved_phrases;
+create policy "Users can update own saved phrases"
+  on public.saved_phrases for update
+  to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can delete own saved phrases" on public.saved_phrases;
+create policy "Users can delete own saved phrases"
+  on public.saved_phrases for delete
+  to authenticated
+  using ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can read own drill items" on public.drill_items;
+create policy "Users can read own drill items"
+  on public.drill_items for select
+  to authenticated
+  using ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can insert own drill items" on public.drill_items;
+create policy "Users can insert own drill items"
+  on public.drill_items for insert
+  to authenticated
+  with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can update own drill items" on public.drill_items;
+create policy "Users can update own drill items"
+  on public.drill_items for update
+  to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can delete own drill items" on public.drill_items;
+create policy "Users can delete own drill items"
+  on public.drill_items for delete
+  to authenticated
+  using ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can read own phrase categories" on public.phrase_categories;
 create policy "Users can read own phrase categories"
   on public.phrase_categories for select
-  using (auth.uid() = user_id);
+  to authenticated
+  using ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can insert own phrase categories" on public.phrase_categories;
 create policy "Users can insert own phrase categories"
   on public.phrase_categories for insert
-  with check (auth.uid() = user_id);
+  to authenticated
+  with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can update own phrase categories" on public.phrase_categories;
 create policy "Users can update own phrase categories"
   on public.phrase_categories for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can delete own phrase categories" on public.phrase_categories;
 create policy "Users can delete own phrase categories"
   on public.phrase_categories for delete
-  using (auth.uid() = user_id);
+  to authenticated
+  using ((select auth.uid()) = user_id);
 
 create index if not exists phrases_user_created_idx
   on public.phrases(user_id, created_at desc);
@@ -182,6 +292,21 @@ create index if not exists phrases_user_language_pair_idx
 
 create index if not exists srs_user_next_review_idx
   on public.srs_items(user_id, next_review_at);
+
+create index if not exists saved_phrases_user_created_idx
+  on public.saved_phrases(user_id, created_at desc);
+
+create index if not exists saved_phrases_user_direction_idx
+  on public.saved_phrases(user_id, direction);
+
+create index if not exists saved_phrases_user_language_pair_idx
+  on public.saved_phrases(user_id, source_language, target_language, created_at desc);
+
+create index if not exists drill_items_user_next_review_idx
+  on public.drill_items(user_id, next_review_at);
+
+create index if not exists drill_items_user_status_idx
+  on public.drill_items(user_id, status);
 
 create index if not exists phrase_categories_user_created_idx
   on public.phrase_categories(user_id, created_at desc);

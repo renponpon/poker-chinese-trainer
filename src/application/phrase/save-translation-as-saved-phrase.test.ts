@@ -25,7 +25,7 @@ test("saving a translation stores a legacy phrase with drill disabled by default
   assert.equal(storage.phrases.length, 1);
 });
 
-test("saving can explicitly opt into drill during the legacy transition", () => {
+test("saving preserves saved phrase metadata without adding it to drill", () => {
   const storage = createMemoryStorage();
 
   const result = saveTranslationAsSavedPhrase({
@@ -34,11 +34,10 @@ test("saving can explicitly opt into drill during the legacy transition", () => 
     source: "conversation",
     savedAt: SAVED_AT,
     storage,
-    shouldDrill: true,
     usedAt: SAVED_AT,
   });
 
-  assert.equal(result.storedPhrase.shouldDrill, true);
+  assert.equal(result.storedPhrase.shouldDrill, false);
   assert.equal(result.storedPhrase.categoryId, "restaurant");
   assert.equal(result.storedPhrase.source, "conversation");
   assert.equal(result.storedPhrase.usedAt, SAVED_AT);

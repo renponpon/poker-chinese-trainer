@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { saveTranslationAsSavedPhrase } from "@/application/phrase/save-translation-as-saved-phrase";
+import { saveGeneratedPhrasePackSelection } from "@/application/phrase/save-generated-phrase-pack-selection";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { getLanguageLabel } from "@/lib/languages";
-import { addLocalPhrase } from "@/infrastructure/local/phrase-storage";
+import {
+  addLocalPhrase,
+  updateLocalPhrase,
+} from "@/infrastructure/local/phrase-storage";
+import {
+  loadLocalSrsItems,
+  saveLocalSrsItems,
+} from "@/infrastructure/local/srs-storage";
 import { enqueuePackExplanationJob } from "@/lib/pending-pack-explanations";
 import {
   PHRASE_PACK_DETAILS_MAX_CHARS,
@@ -225,30 +232,17 @@ export default function PersonalPhrasePackFlow({
     }
 
     setError("");
-    const createdAt = new Date().toISOString();
-    const saved = [...selected].reverse().map((item) =>
-      saveTranslationAsSavedPhrase({
-        translation: {
-          id: item.id,
-          japanese: item.japanese,
-          chinese: item.targetText,
-          pinyin: item.readingType === "pinyin" ? item.reading : "",
-          sourceLanguage: item.sourceLanguage,
-          targetLanguage: item.targetLanguage,
-          sourceText: item.sourceText,
-          targetText: item.targetText,
-          reading: item.reading,
-          readingType: item.readingType,
-          explanation: "",
-          direction: item.direction,
-        },
-        categoryId: item.categoryId,
-        source: "prototype",
-        savedAt: createdAt,
-        storage: { addPhrase: addLocalPhrase },
-        shouldDrill: true,
-      }).storedPhrase,
-    ).reverse();
+    const saved = saveGeneratedPhrasePackSelection({
+      items: preview,
+      selectedIds,
+      savedAt: new Date().toISOString(),
+      storage: {
+        addPhrase: addLocalPhrase,
+        updatePhrase: updateLocalPhrase,
+        loadSrsItems: loadLocalSrsItems,
+        saveSrsItems: saveLocalSrsItems,
+      },
+    }).savedPhrases;
 
     void enqueuePackExplanationJob({
       packRequestId,

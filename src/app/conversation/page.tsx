@@ -2,12 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  linkTranslationHistoryToSavedPhrase,
-  recordTranslationHistory,
-} from "@/application/phrase/record-translation-history";
-import { saveTranslationAsSavedPhrase } from "@/application/phrase/save-translation-as-saved-phrase";
-import { syncDrillSchedule } from "@/application/practice/drill-schedule";
+import { saveConversationTranslationToDrill } from "@/application/phrase/save-conversation-translation-to-drill";
+import { recordTranslationHistory } from "@/application/phrase/record-translation-history";
 import BottomNav from "@/components/BottomNav";
 import GenerationModeToggle from "@/components/GenerationModeToggle";
 import TargetLanguageSelect from "@/components/TargetLanguageSelect";
@@ -232,7 +228,6 @@ export default function ConversationPage() {
           ownerKey,
           nickname,
           phraseId,
-          shouldDrill: true,
           source: "conversation",
           generationMode,
           persist: false,
@@ -375,61 +370,26 @@ export default function ConversationPage() {
       explanation = data.explanation ?? explanation;
     }
 
-    const existing = loadLocalPhrases().some((phrase) => phrase.id === message.id);
-    if (existing) {
-      updateLocalPhrase(message.id, {
-        direction: studyPhrase.direction,
-        japanese: studyPhrase.japanese,
-        chinese: studyPhrase.chinese,
-        sourceLanguage: studyPhrase.sourceLanguage,
-        targetLanguage: studyPhrase.targetLanguage,
-        sourceText: studyPhrase.sourceText,
-        targetText: studyPhrase.targetText,
-        readingType: studyPhrase.readingType,
-        shouldDrill: true,
-        pinyin,
-        reading,
-        explanation,
-      });
-      const phrase = loadLocalPhrases().find((item) => item.id === message.id)!;
-      if (message.historyItemId) {
-        linkTranslationHistoryToSavedPhrase({
-          historyItemId: message.historyItemId,
-          savedPhrase: phrase,
-          storage: {
-            loadHistoryItems: loadLocalTranslationHistory,
-            updateHistoryItem: updateLocalTranslationHistoryItem,
-          },
-        });
-      }
-      return phrase;
-    }
-
-    const savedAt = new Date().toISOString();
-    const saved = saveTranslationAsSavedPhrase({
+    const saved = saveConversationTranslationToDrill({
       translation: {
         ...studyPhrase,
         pinyin,
         reading,
         explanation,
       },
-      categoryId: null,
-      source: "conversation",
-      savedAt,
-      storage: { addPhrase: addLocalPhrase },
-      shouldDrill: true,
-      usedAt: savedAt,
+      historyItemId: message.historyItemId,
+      savedAt: new Date().toISOString(),
+      storage: {
+        addPhrase: addLocalPhrase,
+        loadPhrases: loadLocalPhrases,
+        updatePhrase: updateLocalPhrase,
+        loadHistoryItems: loadLocalTranslationHistory,
+        updateHistoryItem: updateLocalTranslationHistoryItem,
+        loadSrsItems: loadLocalSrsItems,
+        saveSrsItems: saveLocalSrsItems,
+      },
     });
-    if (message.historyItemId) {
-      linkTranslationHistoryToSavedPhrase({
-        historyItemId: message.historyItemId,
-        savedPhrase: saved.savedPhrase,
-        storage: {
-          loadHistoryItems: loadLocalTranslationHistory,
-          updateHistoryItem: updateLocalTranslationHistoryItem,
-        },
-      });
-    }
+
     return saved.storedPhrase;
   };
 
@@ -485,11 +445,6 @@ export default function ConversationPage() {
           ),
         );
       }
-      syncDrillSchedule({
-        phrases: loadLocalPhrases(),
-        items: loadLocalSrsItems(),
-        storage: { saveSrsItems: saveLocalSrsItems },
-      });
       await persistPhrasesToCloud(savedPhrases, authHeaders);
       recordProductAnalyticsEvent({
         eventName: "conversation_drill_save",

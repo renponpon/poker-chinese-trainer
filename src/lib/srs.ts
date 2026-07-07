@@ -1,22 +1,4 @@
-import {
-  createDrillItem,
-  recordPracticeResult,
-} from "@/domain/practice/practice-schedule";
-import {
-  countDrillStatuses,
-  selectDueDrillPhrases,
-  syncDrillSchedule,
-  type StatusCounts,
-} from "@/application/practice/drill-schedule";
-import {
-  drillItemToSrsItem,
-  srsItemToDrillItem,
-} from "@/application/practice/srs-item-adapter";
-import {
-  loadLocalSrsItems,
-  saveLocalSrsItems,
-} from "@/infrastructure/local/srs-storage";
-import type { Phrase, Score, SrsItem, SrsStatus } from "./types";
+import type { SrsStatus } from "./types";
 
 export const SRS_STATUS_GUIDE: Array<{
   status: SrsStatus;
@@ -56,48 +38,11 @@ export const SRS_STATUS_GUIDE: Array<{
   },
 ];
 
-export function loadSrsData(): SrsItem[] {
-  return loadLocalSrsItems();
-}
-
-export function saveSrsData(items: SrsItem[]): void {
-  saveLocalSrsItems(items);
-}
-
-export function ensureSrsItems(phrases: Phrase[], items: SrsItem[]): SrsItem[] {
-  return syncDrillSchedule({
-    phrases,
-    items,
-    storage: { saveSrsItems: saveSrsData },
-  }).items;
-}
-
-export function makeNewItem(id: string): SrsItem {
-  return drillItemToSrsItem(createDrillItem({ phraseId: id }));
-}
-
 /**
  * Anki SM-2 を瞬間作文向けに調整した採点ロジック。
  * Anki の SM-2 系（Ease Factor と間隔増加）をベースに、瞬間作文向けに短期再学習を強めた設定。
  * Duolingo 的な「間違えた問題をすぐ戻す」挙動も入れ、Bad は同セッション再出題 + 10分後復習にする。
  */
-export function applyScore(item: SrsItem, score: Score, now: number = Date.now()): SrsItem {
-  return drillItemToSrsItem(
-    recordPracticeResult(srsItemToDrillItem(item), {
-      score,
-      reviewedAt: now,
-    }),
-  );
-}
-
-export function getDuePhrases(phrases: Phrase[], items: SrsItem[], now: number = Date.now()): Phrase[] {
-  return selectDueDrillPhrases({ phrases, items, now });
-}
-
-export function getStatusCounts(phrases: Phrase[], items: SrsItem[]): StatusCounts {
-  return countDrillStatuses({ phrases, items });
-}
-
 export function statusLabel(status: SrsStatus): string {
   switch (status) {
     case "new":

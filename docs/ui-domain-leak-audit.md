@@ -7,67 +7,60 @@ Updated: 2026-07-07
 - `src/app/library/LibraryView.tsx` already calls application use cases for deleting saved phrases, toggling drill membership, and syncing drill schedule.
 - `src/app/drill/DrillRunner.tsx` already calls application use cases for selecting due drill phrases and recording practice results.
 - API routes no longer import raw Supabase helpers, raw Gemini clients, provider SDKs, or direct `fetch`.
+- `src/app/add/page.tsx` now delegates history recording, saved-phrase creation, history linking, and optional drill membership to `saveGeneratedTranslation`.
+- `src/app/conversation/page.tsx` now delegates saved-phrase creation, existing phrase enrichment persistence, history linking, and drill membership to `saveConversationTranslationToDrill`.
+- `src/app/drill/PersonalPhrasePackFlow.tsx` now delegates selected pack candidate persistence and drill membership to `saveGeneratedPhrasePackSelection`.
+- `src/infrastructure/local/phrase-storage.ts` now defaults new saved phrases to library-only when `shouldDrill` is omitted. The old direction-based fallback is limited to legacy localStorage reads.
 
 ## Remaining UI Decisions To Move
 
 ### `src/app/add/page.tsx`
 
-The add page still orchestrates a full workflow:
+The local workflow is now application-owned. Remaining concern:
 
-- record translation history
-- save translation as saved phrase
-- link the history item to the saved phrase
-- decide whether the saved phrase should also enter drill via `shouldDrill`
-
-The `shouldDrill` value is UI state, but the workflow that combines history, save, and link should become an application command such as `saveGeneratedTranslationFromAddPage`.
+- `/api/phrase/add` still accepts the legacy `shouldDrill` flag for cloud persistence while `phrases` and `srs_items` are still coupled in the DB schema.
 
 ### `src/app/conversation/page.tsx`
 
-The conversation page still decides and coordinates:
+The local save/drill workflow is now application-owned. Remaining concerns:
 
-- selected message becomes a saved phrase
-- conversation phrases are always added to drill with `shouldDrill: true`
-- existing local phrases are enriched in place before being marked as in-drill
-- local SRS schedule is synced after selected messages are saved
 - cloud save is chunked through `/api/phrase/save-pack`
+- missing reading/explanation enrichment is still driven by a UI-side fetch to `/api/phrase/explain`
 
-This should become an application command such as `saveConversationMessagesToDrill`, with UI passing selected message ids and adapters for local/cloud persistence.
+These can move behind a wider application command later, with UI passing selected message ids and adapters for enrichment/cloud persistence.
 
 ### `src/app/drill/PersonalPhrasePackFlow.tsx`
 
-The phrase pack UI still maps generated pack candidates into saved phrases directly:
+The selected candidate save/drill workflow is now application-owned. Remaining concern:
 
-- selected generated phrases are converted to saved phrases
-- every saved phrase from this flow is marked `shouldDrill: true`
 - pack explanation jobs are enqueued after save
 
-The selection and conversion policy should move into an application command such as `saveGeneratedPhrasePackSelection`.
+The explanation job enqueue can move behind an application command later if pack generation persistence gets more complicated.
 
 ### `src/infrastructure/local/phrase-storage.ts`
 
-`normalizeStoredPhrase` still contains a domain default:
+`normalizePhrase` still contains a legacy compatibility fallback:
 
 ```ts
-shouldDrill: input.shouldDrill ?? direction === "ja-to-zh"
+Boolean(options.legacyDrillDefault && direction === "ja-to-zh")
 ```
 
-Infrastructure should not decide drill membership defaults. This should be moved to application/domain and kept only as legacy data migration compatibility if needed.
+This is intentionally limited to old localStorage records that do not have `shouldDrill`. New writes should pass an explicit value from application code or default to library-only.
 
 ### `src/lib/srs.ts`
 
-This file is now mostly a legacy facade over domain/application/infrastructure:
+This file has been reduced to UI labels only:
 
-- it imports domain practice rules
-- it imports application schedule use cases
-- it imports local storage adapters
+- `SRS_STATUS_GUIDE`
+- `statusLabel`
 
-New UI code should import application and infrastructure modules directly. Existing imports can be migrated gradually, then this facade can be deleted or reduced to labels only.
+New behavior code should keep importing application and infrastructure modules directly.
 
 ## Safe Refactoring Order
 
-1. Extract `saveGeneratedTranslationFromAddPage` for add-page history + save + link.
-2. Extract `saveGeneratedPhrasePackSelection` for pack candidate selection and saved phrase creation.
-3. Extract `saveConversationMessagesToDrill` for conversation selected-message persistence.
-4. Move default drill-membership fallback out of `normalizeStoredPhrase`.
-5. Remove or shrink `src/lib/srs.ts` after UI imports are migrated.
-
+1. Done: extract `saveGeneratedTranslation` for add-page history + save + link + optional drill membership.
+2. Done: extract `saveGeneratedPhrasePackSelection` for pack candidate selection and saved phrase creation.
+3. Done: extract `saveConversationTranslationToDrill` for selected conversation message local persistence.
+4. Done: move default drill-membership fallback out of new local phrase writes.
+5. Done: shrink `src/lib/srs.ts` to UI labels only after UI imports were migrated.
+6. Next: move conversation enrichment/cloud persistence orchestration behind application ports if it starts growing.

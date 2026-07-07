@@ -29,6 +29,10 @@ function isClient(): boolean {
   return typeof window !== "undefined";
 }
 
+type NormalizePhraseOptions = {
+  legacyDrillDefault?: boolean;
+};
+
 export function loadLocalPhrases(): Phrase[] {
   if (!isClient()) return [];
   try {
@@ -43,7 +47,7 @@ export function loadLocalPhrases(): Phrase[] {
     if (!Array.isArray(parsed)) return [];
     let normalized = parsed
       .filter((phrase) => phrase.id && phrase.japanese !== undefined && phrase.chinese !== undefined)
-      .map(normalizePhrase);
+      .map((phrase) => normalizePhrase(phrase, { legacyDrillDefault: true }));
     if (window.localStorage.getItem(STARTER_SEED_KEY) !== "1") {
       normalized = mergeStarterPhrases(normalized);
       window.localStorage.setItem(STARTER_SEED_KEY, "1");
@@ -159,7 +163,10 @@ export function saveOwnerKey(ownerKey: string): void {
   window.localStorage.setItem(OWNER_KEY, ownerKey.trim());
 }
 
-function normalizePhrase(input: Partial<Phrase>): Phrase {
+function normalizePhrase(
+  input: Partial<Phrase>,
+  options: NormalizePhraseOptions = {},
+): Phrase {
   const direction = input.direction ?? "ja-to-zh";
   const { sourceLanguage, targetLanguage } = parseDirection(direction);
   const sourceText =
@@ -191,7 +198,10 @@ function normalizePhrase(input: Partial<Phrase>): Phrase {
     createdAt: input.createdAt ?? new Date().toISOString(),
     direction,
     categoryId,
-    shouldDrill: input.shouldDrill ?? direction === "ja-to-zh",
+    shouldDrill:
+      typeof input.shouldDrill === "boolean"
+        ? input.shouldDrill
+        : Boolean(options.legacyDrillDefault && direction === "ja-to-zh"),
     source: input.source ?? "manual",
     usedAt: input.usedAt ?? null,
   };

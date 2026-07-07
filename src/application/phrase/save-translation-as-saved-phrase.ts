@@ -17,7 +17,6 @@ export type SaveTranslationInput = {
   source: SavedPhrase["source"];
   savedAt: string;
   storage: SaveTranslationStorage;
-  shouldDrill?: boolean;
   usedAt?: string | null;
   audioUrl?: string | null;
 };
@@ -39,9 +38,7 @@ export function saveTranslationAsSavedPhrase(
     audioUrl: input.audioUrl,
   });
   const storedPhrase = input.storage.addPhrase(
-    savedPhraseToLegacyPhrase(savedPhrase, {
-      shouldDrill: input.shouldDrill ?? false,
-    }),
+    savedPhraseToLegacyPhrase(savedPhrase),
   );
 
   return { savedPhrase, storedPhrase };
@@ -49,7 +46,6 @@ export function saveTranslationAsSavedPhrase(
 
 export function savedPhraseToLegacyPhrase(
   savedPhrase: SavedPhrase,
-  input: { shouldDrill: boolean },
 ): Omit<Phrase, "createdAt"> & { createdAt?: string } {
   return {
     id: savedPhrase.id,
@@ -67,7 +63,7 @@ export function savedPhraseToLegacyPhrase(
     createdAt: savedPhrase.savedAt,
     direction: savedPhrase.direction,
     categoryId: savedPhrase.categoryId,
-    shouldDrill: input.shouldDrill,
+    shouldDrill: false,
     source: savedPhrase.source,
     usedAt: savedPhrase.usedAt,
   };

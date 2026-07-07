@@ -32,6 +32,8 @@ type PhraseRow = {
   created_at: string;
 };
 
+type SavedPhraseRow = Omit<PhraseRow, "should_drill">;
+
 type SrsRow = {
   phrase_id: string;
   status: SrsStatus;
@@ -41,6 +43,10 @@ type SrsRow = {
   consecutive_good: number;
   last_score: Score | null;
   last_reviewed_at: string | null;
+};
+
+type DrillItemRow = Omit<SrsRow, "phrase_id"> & {
+  saved_phrase_id: string;
 };
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -103,27 +109,34 @@ export async function createSupabasePhrase(
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError || !userData.user) return null;
 
-  const { error } = await supabase.from("phrases").upsert({
-    id: input.id,
-    user_id: userData.user.id,
-    japanese: input.japanese,
-    chinese: input.chinese,
-    pinyin: input.pinyin,
-    source_language: input.sourceLanguage,
-    target_language: input.targetLanguage,
-    source_text: input.sourceText,
-    target_text: input.targetText,
-    reading: input.reading,
-    reading_type: input.readingType,
-    explanation: input.explanation,
-    audio_url: input.audioUrl,
-    direction: input.direction,
-    category_id: input.categoryId,
-    should_drill: input.shouldDrill,
-    source: input.source,
-    used_at: input.usedAt,
-    created_at: input.createdAt,
-  });
+  await upsertSupabaseSavedPhraseRow(supabase, userData.user.id, input);
+  if (input.shouldDrill) {
+    await insertSupabaseDefaultDrillItemRow(supabase, userData.user.id, input.id);
+  }
+
+  const { error } = await supabase
+    .from("phrases")
+    .upsert({
+      id: input.id,
+      user_id: userData.user.id,
+      japanese: input.japanese,
+      chinese: input.chinese,
+      pinyin: input.pinyin,
+      source_language: input.sourceLanguage,
+      target_language: input.targetLanguage,
+      source_text: input.sourceText,
+      target_text: input.targetText,
+      reading: input.reading,
+      reading_type: input.readingType,
+      explanation: input.explanation,
+      audio_url: input.audioUrl,
+      direction: input.direction,
+      category_id: input.categoryId,
+      should_drill: input.shouldDrill,
+      source: input.source,
+      used_at: input.usedAt,
+      created_at: input.createdAt,
+    });
   if (error) throw error;
   return { id: input.id };
 }
@@ -154,6 +167,13 @@ export async function updateSupabasePhraseFollowUp(
     payload.pinyin = updates.pinyin;
   }
 
+  const { error: savedError } = await supabase
+    .from("saved_phrases")
+    .update(payload)
+    .eq("id", phraseId)
+    .eq("user_id", userData.user.id);
+  if (savedError && !isMissingRelationError(savedError)) throw savedError;
+
   const { data, error } = await supabase
     .from("phrases")
     .update(payload)
@@ -171,6 +191,44 @@ export async function getSupabasePhrasesByUser(accessToken: string): Promise<{
   const supabase = getServerSupabase(accessToken);
   if (!supabase) return null;
 
+  const { data: savedRows, error: savedError } = await supabase
+    .from("saved_phrases")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (savedError) {
+    if (!isMissingRelationError(savedError)) throw savedError;
+    return getSupabasePhrasesByUserFromLegacy(supabase);
+  }
+
+  const { data: drillRows, error: drillError } = await supabase
+    .from("drill_items")
+    .select("*");
+  if (drillError) {
+    if (!isMissingRelationError(drillError)) throw drillError;
+    return getSupabasePhrasesByUserFromLegacy(supabase);
+  }
+
+  if ((savedRows ?? []).length > 0) {
+    const drillItems = ((drillRows ?? []) as DrillItemRow[]).map(rowToSrsItem);
+    const drillItemIds = new Set(drillItems.map((item) => item.id));
+
+    return {
+      phrases: ((savedRows ?? []) as SavedPhraseRow[]).map((row) =>
+        rowToPhrase(row, drillItemIds.has(row.id)),
+      ),
+      srsItems: drillItems,
+    };
+  }
+
+  return getSupabasePhrasesByUserFromLegacy(supabase);
+}
+
+async function getSupabasePhrasesByUserFromLegacy(
+  supabase: SupabaseClient,
+): Promise<{
+  phrases: Phrase[];
+  srsItems: SrsItem[];
+}> {
   const { data: phraseRows, error: phraseError } = await supabase
     .from("phrases")
     .select("*")
@@ -183,7 +241,7 @@ export async function getSupabasePhrasesByUser(accessToken: string): Promise<{
   if (srsError) throw srsError;
 
   return {
-    phrases: ((phraseRows ?? []) as PhraseRow[]).map(rowToPhrase),
+    phrases: ((phraseRows ?? []) as PhraseRow[]).map((row) => rowToPhrase(row)),
     srsItems: ((srsRows ?? []) as SrsRow[]).map(rowToSrsItem),
   };
 }
@@ -198,6 +256,9 @@ export async function upsertSupabaseSrsItem(
 
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError || !userData.user) return false;
+
+  await upsertSupabaseSavedPhraseRow(supabase, userData.user.id, phrase);
+  await upsertSupabaseDrillItemRow(supabase, userData.user.id, phrase.id, srsItem);
 
   const { error } = await supabase.from("srs_items").upsert({
     phrase_id: phrase.id,
@@ -215,10 +276,107 @@ export async function upsertSupabaseSrsItem(
       : null,
   });
   if (error) throw error;
+
+  const { error: phraseError } = await supabase
+    .from("phrases")
+    .update({ should_drill: true })
+    .eq("id", phrase.id)
+    .eq("user_id", userData.user.id);
+  if (phraseError) throw phraseError;
+
   return true;
 }
 
-function rowToPhrase(row: PhraseRow): Phrase {
+async function upsertSupabaseSavedPhraseRow(
+  supabase: SupabaseClient,
+  userId: string,
+  input: Omit<Phrase, "createdAt"> & { createdAt?: string },
+): Promise<void> {
+  const { error } = await supabase
+    .from("saved_phrases")
+    .upsert({
+      id: input.id,
+      user_id: userId,
+      japanese: input.japanese,
+      chinese: input.chinese,
+      pinyin: input.pinyin,
+      source_language: input.sourceLanguage,
+      target_language: input.targetLanguage,
+      source_text: input.sourceText,
+      target_text: input.targetText,
+      reading: input.reading,
+      reading_type: input.readingType,
+      explanation: input.explanation,
+      audio_url: input.audioUrl,
+      direction: input.direction,
+      category_id: input.categoryId,
+      source: input.source,
+      used_at: input.usedAt,
+      created_at: input.createdAt,
+    });
+
+  if (error && !isMissingRelationError(error)) throw error;
+}
+
+async function insertSupabaseDefaultDrillItemRow(
+  supabase: SupabaseClient,
+  userId: string,
+  phraseId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("drill_items")
+    .upsert(
+      {
+        saved_phrase_id: phraseId,
+        user_id: userId,
+        status: "new",
+        next_review_at: null,
+        interval_days: 0,
+        ease_factor: 2.5,
+        consecutive_good: 0,
+        last_score: null,
+        last_reviewed_at: null,
+      },
+      {
+        onConflict: "saved_phrase_id",
+        ignoreDuplicates: true,
+      },
+    );
+
+  if (error && !isMissingRelationError(error)) throw error;
+}
+
+async function upsertSupabaseDrillItemRow(
+  supabase: SupabaseClient,
+  userId: string,
+  phraseId: string,
+  srsItem: SrsItem,
+): Promise<void> {
+  const { error } = await supabase
+    .from("drill_items")
+    .upsert({
+      saved_phrase_id: phraseId,
+      user_id: userId,
+      status: srsItem.status,
+      next_review_at: srsItem.nextReviewAt
+        ? new Date(srsItem.nextReviewAt).toISOString()
+        : null,
+      interval_days: srsItem.intervalDays,
+      ease_factor: srsItem.easeFactor,
+      consecutive_good: srsItem.consecutiveGood,
+      last_score: srsItem.lastScore,
+      last_reviewed_at: srsItem.lastReviewedAt
+        ? new Date(srsItem.lastReviewedAt).toISOString()
+        : null,
+    });
+
+  if (error && !isMissingRelationError(error)) throw error;
+}
+
+function rowToPhrase(
+  row: PhraseRow | SavedPhraseRow,
+  shouldDrill = "should_drill" in row ? row.should_drill : false,
+): Phrase {
   const { sourceLanguage, targetLanguage } = parseDirection(row.direction);
   return {
     id: row.id,
@@ -242,15 +400,15 @@ function rowToPhrase(row: PhraseRow): Phrase {
     createdAt: row.created_at,
     direction: row.direction,
     categoryId: row.category_id,
-    shouldDrill: row.should_drill,
+    shouldDrill,
     source: row.source,
     usedAt: row.used_at,
   };
 }
 
-function rowToSrsItem(row: SrsRow): SrsItem {
+function rowToSrsItem(row: SrsRow | DrillItemRow): SrsItem {
   return {
-    id: row.phrase_id,
+    id: "phrase_id" in row ? row.phrase_id : row.saved_phrase_id,
     status: row.status,
     nextReviewAt: row.next_review_at ? new Date(row.next_review_at).getTime() : 0,
     intervalDays: row.interval_days,
@@ -261,4 +419,16 @@ function rowToSrsItem(row: SrsRow): SrsItem {
       ? new Date(row.last_reviewed_at).getTime()
       : null,
   };
+}
+
+function isMissingRelationError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as { code?: string; message?: string };
+  const message = maybeError.message ?? "";
+  return (
+    maybeError.code === "42P01" ||
+    maybeError.code === "PGRST205" ||
+    message.includes("Could not find the table") ||
+    (message.includes("relation") && message.includes("does not exist"))
+  );
 }

@@ -2,11 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import {
-  linkTranslationHistoryToSavedPhrase,
-  recordTranslationHistory,
-} from "@/application/phrase/record-translation-history";
-import { saveTranslationAsSavedPhrase } from "@/application/phrase/save-translation-as-saved-phrase";
+import { saveGeneratedTranslation } from "@/application/phrase/save-generated-translation";
 import AddTutorial from "@/components/AddTutorial";
 import AppHeader from "@/components/AppHeader";
 import BottomNav from "@/components/BottomNav";
@@ -20,6 +16,10 @@ import {
   loadOwnerKey,
   updateLocalPhrase,
 } from "@/infrastructure/local/phrase-storage";
+import {
+  loadLocalSrsItems,
+  saveLocalSrsItems,
+} from "@/infrastructure/local/srs-storage";
 import {
   addLocalTranslationHistoryItem,
   loadLocalTranslationHistory,
@@ -231,28 +231,22 @@ export default function AddPage() {
         readingType: data.readingType,
         explanation: data.explanation,
       });
-      const savedAt = new Date().toISOString();
-      const history = recordTranslationHistory({
+      const saved = saveGeneratedTranslation({
+        translation: studyPhrase,
         historyItemId: createId(),
-        translation: studyPhrase,
-        source: "add",
-        translatedAt: savedAt,
-        storage: { addHistoryItem: addLocalTranslationHistoryItem },
-      });
-      const saved = saveTranslationAsSavedPhrase({
-        translation: studyPhrase,
+        historySource: "add",
+        savedPhraseSource: "manual",
         categoryId,
-        source: "manual",
-        savedAt,
-        storage: { addPhrase: addLocalPhrase },
-        shouldDrill,
-      });
-      linkTranslationHistoryToSavedPhrase({
-        historyItemId: history.id,
-        savedPhrase: saved.savedPhrase,
+        savedAt: new Date().toISOString(),
+        addToDrill: shouldDrill,
         storage: {
+          addPhrase: addLocalPhrase,
+          updatePhrase: updateLocalPhrase,
+          addHistoryItem: addLocalTranslationHistoryItem,
           loadHistoryItems: loadLocalTranslationHistory,
           updateHistoryItem: updateLocalTranslationHistoryItem,
+          loadSrsItems: loadLocalSrsItems,
+          saveSrsItems: saveLocalSrsItems,
         },
       });
       const nextResult = { ...(data as Result), id: saved.storedPhrase.id };
