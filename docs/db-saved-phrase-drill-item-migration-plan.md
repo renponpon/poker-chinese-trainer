@@ -176,8 +176,27 @@ Start with:
   - `20260707104336_restrict_saved_phrase_drill_api_roles`
   - `20260707104411_restrict_saved_phrase_drill_authenticated_privileges`
   - `20260707104646_optimize_legacy_phrase_rls_policies`
+  - `20260707112716_restrict_analytics_event_client_access`
 - Verification on 2026-07-07: `phrases=73`, `saved_phrases=73`, `srs_items=49`, `drill_items=73`, `orphan_drill_items=0`.
 - RLS is enabled for both new tables. Policies are scoped to `authenticated` with `(select auth.uid()) = user_id`, and `UPDATE` policies include both `USING` and `WITH CHECK`.
 - `anon` has no table privilege on the new tables. `authenticated` has only `SELECT`, `INSERT`, `UPDATE`, and `DELETE`; `TRUNCATE` is not granted.
 - Supabase advisors were run after the DDL changes. The previous `auth_rls_initplan` warnings for `phrases`, `srs_items`, and `phrase_categories` were resolved by rewriting those policies to `to authenticated` plus `(select auth.uid())`.
-- Remaining advisors are outside this slice: `ai_usage_events` and `product_analytics_events` have RLS enabled with no policies, Auth leaked-password protection is disabled in project settings, and several indexes are still marked unused.
+- Supabase security advisor no longer reports `rls_enabled_no_policy` for `ai_usage_events` or `product_analytics_events`. These tables are service-role-only for application code; `anon` and `authenticated` have no direct table privileges and explicit deny policies.
+- Remaining advisor items are tracked in `docs/production-hardening-checklist.md`: Auth leaked-password protection must be enabled in Supabase Dashboard if the project plan supports it, and unused-index INFOs should be reviewed after production traffic rather than dropped immediately.
+
+## Legacy Retirement Gate
+
+Do not remove `phrases` / `srs_items` yet.
+
+Before switching to new-table-only reads:
+
+- Run a production authenticated E2E pass: translate -> save -> add to drill -> review -> saved list -> remove from drill.
+- Confirm data parity and no orphan drill items with the query in `docs/production-hardening-checklist.md`.
+- Keep at least one production release where rollback can still use the dual-write data.
+
+Safe next release:
+
+1. Remove legacy fallback reads from `src/infrastructure/server/supabase-phrase-repository.ts`.
+2. Keep legacy writes for one more release if older deployed clients may still exist.
+3. After monitoring, remove legacy writes.
+4. Archive or drop legacy tables only when rollback and data-recovery needs are gone.

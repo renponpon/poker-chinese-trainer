@@ -152,9 +152,17 @@ revoke all on table public.saved_phrases from public;
 revoke all on table public.drill_items from public;
 revoke all on table public.saved_phrases from authenticated;
 revoke all on table public.drill_items from authenticated;
+revoke all on table public.ai_usage_events from anon;
+revoke all on table public.ai_usage_events from authenticated;
+revoke all on table public.ai_usage_events from public;
+revoke all on table public.product_analytics_events from anon;
+revoke all on table public.product_analytics_events from authenticated;
+revoke all on table public.product_analytics_events from public;
 
 grant select, insert, update, delete on table public.saved_phrases to authenticated;
 grant select, insert, update, delete on table public.drill_items to authenticated;
+grant select, insert on table public.ai_usage_events to service_role;
+grant select, insert on table public.product_analytics_events to service_role;
 
 drop policy if exists "Users can read own phrases" on public.phrases;
 create policy "Users can read own phrases"
@@ -280,6 +288,20 @@ create policy "Users can delete own phrase categories"
   on public.phrase_categories for delete
   to authenticated
   using ((select auth.uid()) = user_id);
+
+drop policy if exists "No client access to ai usage events" on public.ai_usage_events;
+create policy "No client access to ai usage events"
+  on public.ai_usage_events for all
+  to anon, authenticated
+  using (false)
+  with check (false);
+
+drop policy if exists "No client access to product analytics events" on public.product_analytics_events;
+create policy "No client access to product analytics events"
+  on public.product_analytics_events for all
+  to anon, authenticated
+  using (false)
+  with check (false);
 
 create index if not exists phrases_user_created_idx
   on public.phrases(user_id, created_at desc);
