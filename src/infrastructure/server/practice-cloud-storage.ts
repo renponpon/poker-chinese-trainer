@@ -1,6 +1,6 @@
 import { updatePhraseSrs } from "../../lib/notion";
-import { upsertSupabaseSrsItem } from "../../lib/supabase";
 import type { Phrase, SrsItem } from "../../lib/types";
+import { upsertSupabaseSrsItem } from "./supabase-phrase-repository";
 
 export type PracticeCloudStorageInput = {
   accessToken: string;

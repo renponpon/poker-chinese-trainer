@@ -160,13 +160,15 @@ Start with:
 3. Done: add infrastructure readers that read the new shape first and fall back to legacy when the new tables are empty or unavailable.
 4. Done: add transition dual-writes for saved phrases and drill schedule updates.
 5. Done: apply the migration to the Supabase `translation-app` database through MCP and verify row counts, RLS, policies, and grants.
-6. Next: add focused tests around Supabase row mapping if the adapter is split into a pure mapper plus client wrapper.
+6. Done: split Supabase phrase persistence into an infrastructure repository and pure row mapper, with focused mapper tests.
 
 ## Implementation Notes
 
 - `public.saved_phrases` intentionally has no `should_drill` column.
 - `public.drill_items` row existence represents drill membership.
-- During the transition, `src/lib/supabase.ts` still writes legacy `phrases` and `srs_items` so older clients keep working.
+- During the transition, `src/infrastructure/server/supabase-phrase-repository.ts` still writes legacy `phrases` and `srs_items` so older clients keep working.
+- `src/lib/supabase.ts` is now limited to browser Supabase client/auth helpers; server-side phrase persistence lives under `src/infrastructure/server`.
+- `src/infrastructure/server/supabase-phrase-mapper.ts` owns pure row/domain conversion and is covered by `npm run test:infrastructure`.
 - The new table writes ignore missing-table errors so code deployment can remain compatible with environments where the migration has not been applied yet.
 - Supabase CLI and `psql` are not installed in the current workspace, so database changes were applied and verified through the Supabase MCP tools instead.
 - Applied migrations in Supabase history:

@@ -10,6 +10,7 @@
     "lint:domain": "eslint src/domain src/application",
     "lint:architecture": "eslint src/domain src/application src/infrastructure",
     "test:domain": "node ./scripts/run-domain-tests.mjs",
+    "test:infrastructure": "node ./scripts/run-infrastructure-tests.mjs",
     "smoke:responsive": "node ./scripts/responsive-screenshots.mjs"
   },
   "dependencies": {

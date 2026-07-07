@@ -1,6 +1,6 @@
 import type { PhraseFollowUpTarget } from "../../application/phrase/persist-phrase-follow-up";
 import { updatePhraseFollowUp } from "../../lib/notion";
-import { updateSupabasePhraseFollowUp } from "../../lib/supabase";
+import { updateSupabasePhraseFollowUp } from "./supabase-phrase-repository";
 
 export function createPhraseFollowUpCloudTargets(input: {
   accessToken: string;

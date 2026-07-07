@@ -1,6 +1,6 @@
 import { createPhrase } from "../../lib/notion";
-import { createSupabasePhrase } from "../../lib/supabase";
 import type { Phrase } from "../../lib/types";
+import { createSupabasePhrase } from "./supabase-phrase-repository";
 
 export type PhraseCloudStorageInput = {
   accessToken: string;
