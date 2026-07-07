@@ -1,24 +1,25 @@
 import { NextResponse } from "next/server";
-import { getPhrasesByOwner } from "@/lib/notion";
-import { getBearerToken, getSupabasePhrasesByUser } from "@/lib/supabase";
+import {
+  loadSavedPhrases,
+  normalizeLoadSavedPhrasesRequest,
+} from "@/application/phrase/load-saved-phrases";
+import { createPhraseCloudReader } from "@/infrastructure/server/phrase-cloud-reader";
+import { getBearerToken } from "@/infrastructure/server/request-auth";
 
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   try {
     const accessToken = getBearerToken(req);
-    if (accessToken) {
-      const cloud = await getSupabasePhrasesByUser(accessToken);
-      if (cloud) return NextResponse.json(cloud);
-    }
-
     const url = new URL(req.url);
-    const ownerKey = url.searchParams.get("ownerKey")?.trim() ?? "";
-    if (!ownerKey) {
-      return NextResponse.json({ phrases: [], srsItems: [] });
-    }
-
-    const { phrases, srsItems } = await getPhrasesByOwner(ownerKey);
+    const { ownerKey } = normalizeLoadSavedPhrasesRequest({
+      ownerKey: url.searchParams.get("ownerKey"),
+    });
+    const { phrases, srsItems } = await loadSavedPhrases({
+      accessToken,
+      ownerKey,
+      storage: createPhraseCloudReader(),
+    });
     return NextResponse.json({ phrases, srsItems });
   } catch (error) {
     console.error("[/api/phrases] error", error);

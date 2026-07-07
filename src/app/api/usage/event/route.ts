@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { createId } from "@/lib/id";
-import { getBearerToken } from "@/lib/supabase";
+import { getBearerToken } from "@/infrastructure/server/request-auth";
 import { isSupportedDirection } from "@/lib/languages";
-import { recordAiUsageEvent } from "@/lib/server/supabase-admin";
-import { identifyRequestActor } from "@/lib/server/usage-limits";
+import { recordAiUsageEvent } from "@/infrastructure/server/usage-event-recorder";
+import { identifyRequestActor } from "@/infrastructure/server/usage-limits";
 import { RequestValidationError } from "@/lib/server/validation";
 import type { PhraseDirection } from "@/lib/types";
 

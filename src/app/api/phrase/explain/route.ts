@@ -1,11 +1,16 @@
 import { after, NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
+import {
+  generatePhraseFollowUp,
+  normalizePhraseFollowUpRequest,
+  PhraseFollowUpGenerationError,
+  PhraseFollowUpRequestError,
+} from "@/application/phrase/generate-phrase-follow-up";
+import { persistPhraseFollowUp } from "@/application/phrase/persist-phrase-follow-up";
+import { createPhraseFollowUpTextGenerator } from "@/infrastructure/server/phrase-explanation-generator";
+import { createPhraseFollowUpCloudTargets } from "@/infrastructure/server/phrase-follow-up-cloud-storage";
 import { createId } from "@/lib/id";
-import { updatePhraseFollowUp } from "@/lib/notion";
-import { getBearerToken, updateSupabasePhraseFollowUp } from "@/lib/supabase";
-import { formatExplanationForReading } from "@/lib/explanation-format";
-import { isSupportedDirection, parseDirection } from "@/lib/languages";
-import { recordAiUsageEvent } from "@/lib/server/supabase-admin";
+import { getBearerToken } from "@/infrastructure/server/request-auth";
+import { recordAiUsageEvent } from "@/infrastructure/server/usage-event-recorder";
 import {
   AiBurstLimitError,
   assertWithinAiBurstLimit,
@@ -13,26 +18,13 @@ import {
   UsageLimitError,
   UsageTrackingError,
   type RequestActor,
-} from "@/lib/server/usage-limits";
-import { RequestValidationError } from "@/lib/server/validation";
+} from "@/infrastructure/server/usage-limits";
 import type { PhraseDirection } from "@/lib/types";
-import { buildExplainRequestPrompt } from "@/lib/explanation-prompt";
 
 export const runtime = "nodejs";
 
 const ENDPOINT = "/api/phrase/explain";
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
-
-type ExplainRequest = {
-  phraseId?: unknown;
-  direction?: unknown;
-  japanese?: unknown;
-  chinese?: unknown;
-  pinyin?: unknown;
-  sourceText?: unknown;
-  targetText?: unknown;
-  reading?: unknown;
-};
 
 class ApiRouteError extends Error {
   constructor(
@@ -57,64 +49,23 @@ export async function POST(req: Request) {
     actor = await identifyRequestActor(req, accessToken);
     assertWithinAiBurstLimit(actor);
 
-    let body: ExplainRequest;
-    try {
-      const raw = await req.json();
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-        throw new RequestValidationError("リクエスト形式が正しくありません");
-      }
-      body = raw as ExplainRequest;
-    } catch (error) {
-      if (error instanceof RequestValidationError) throw error;
-      throw new RequestValidationError("JSON形式のリクエストを送ってください");
-    }
-
-    const phraseId = normalizeText(body.phraseId, "phraseId");
-    direction = normalizeDirection(body.direction);
-    const { sourceLanguage, targetLanguage } = parseDirection(direction);
-    const sourceText = normalizeOptionalText(body.sourceText);
-    const targetText = normalizeOptionalText(body.targetText);
-    const japanese =
-      normalizeOptionalText(body.japanese) ??
-      (sourceLanguage === "ja" ? sourceText : targetLanguage === "ja" ? targetText : "") ??
-      "";
-    const chinese =
-      normalizeOptionalText(body.chinese) ??
-      (sourceLanguage === "zh" ? sourceText : targetLanguage === "zh" ? targetText : "") ??
-      "";
-    if (!sourceText && !targetText && (!japanese || !chinese)) {
-      throw new RequestValidationError("フレーズ本文が空です");
-    }
-    const pinyin = normalizeText(body.pinyin ?? body.reading ?? "", "pinyin", true);
-    const needsPinyin = (sourceLanguage === "zh" || targetLanguage === "zh") && !pinyin;
-    const payload = buildExplainRequestPrompt({
-      direction,
-      japanese,
-      chinese,
-      pinyin,
-      sourceText,
-      targetText,
-      reading: normalizeOptionalText(body.reading),
+    const body = normalizePhraseFollowUpRequest(await parseRequest(req));
+    const { phraseId } = body;
+    direction = body.direction;
+    const generatedFollowUp = await generatePhraseFollowUp({
+      ...body,
+      generateText: createPhraseFollowUpTextGenerator({
+        model: GEMINI_MODEL,
+        createMissingApiKeyError: () =>
+          new ApiRouteError("GEMINI_API_KEY is not configured", 500, "missing_gemini_api_key"),
+      }),
+      onMissingPinyin: () => {
+        console.warn("[/api/phrase/explain] pinyin missing in Gemini response");
+      },
     });
-    inputChars = payload.length;
+    inputChars = generatedFollowUp.inputChars;
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new ApiRouteError("GEMINI_API_KEY が設定されていません", 500, "missing_gemini_api_key");
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: payload,
-      config: { responseMimeType: "application/json" },
-    });
-    const text = response.text;
-    if (!text) {
-      throw new ApiRouteError("Gemini から空の応答が返りました", 502, "empty_gemini_response");
-    }
-    outputChars = text.length;
-    const { explanation, pinyin: generatedPinyin } = extractExplainResponse(text, needsPinyin);
+    outputChars = generatedFollowUp.outputChars;
 
     await recordUsage({
       requestId,
@@ -127,41 +78,24 @@ export async function POST(req: Request) {
     });
 
     after(async () => {
-      try {
-        if (accessToken) {
-          const updated = await updateSupabasePhraseFollowUp(accessToken, phraseId, {
-            explanation,
-            pinyin: generatedPinyin,
+      await persistPhraseFollowUp({
+        followUp: generatedFollowUp.followUp,
+        targets: createPhraseFollowUpCloudTargets({ accessToken }),
+        onError: (saveError, targetName) => {
+          console.error("[/api/phrase/explain] save error", {
+            requestId,
+            targetName,
+            saveError,
           });
-          if (!updated) {
-            await sleep(1000);
-            await updateSupabasePhraseFollowUp(accessToken, phraseId, {
-              explanation,
-              pinyin: generatedPinyin,
-            });
-          }
-        }
-        const notionUpdated = await updatePhraseFollowUp(phraseId, {
-          explanation,
-          pinyin: generatedPinyin,
-        });
-        if (!notionUpdated) {
-          await sleep(1000);
-          await updatePhraseFollowUp(phraseId, {
-            explanation,
-            pinyin: generatedPinyin,
-          });
-        }
-      } catch (saveError) {
-        console.error("[/api/phrase/explain] save error", { requestId, saveError });
-      }
+        },
+      });
     });
 
     return NextResponse.json({
       requestId,
       phraseId,
-      explanation,
-      ...(generatedPinyin ? { pinyin: generatedPinyin } : {}),
+      explanation: generatedFollowUp.followUp.explanation,
+      ...(generatedFollowUp.followUp.pinyin ? { pinyin: generatedFollowUp.followUp.pinyin } : {}),
     });
   } catch (error) {
     const normalized = normalizeRouteError(error);
@@ -210,58 +144,12 @@ export async function POST(req: Request) {
   }
 }
 
-function extractExplainResponse(
-  text: string,
-  needsPinyin: boolean,
-): { explanation: string; pinyin?: string } {
-  const trimmed = text.trim();
-  const jsonStart = trimmed.indexOf("{");
-  const jsonEnd = trimmed.lastIndexOf("}");
-  if (jsonStart < 0 || jsonEnd < 0) {
-    throw new ApiRouteError("Gemini からの応答に JSON が見つかりません", 502, "invalid_gemini_json");
+async function parseRequest(req: Request): Promise<unknown> {
+  try {
+    return await req.json();
+  } catch {
+    throw new PhraseFollowUpRequestError("JSON形式のリクエストを送ってください");
   }
-  const parsed = JSON.parse(trimmed.slice(jsonStart, jsonEnd + 1)) as {
-    explanation?: unknown;
-    pinyin?: unknown;
-  };
-  if (typeof parsed.explanation !== "string" || !parsed.explanation.trim()) {
-    throw new ApiRouteError("解説の生成結果が空です", 502, "empty_explanation");
-  }
-  const explanation = formatExplanationForReading(parsed.explanation);
-  const pinyin =
-    typeof parsed.pinyin === "string" && parsed.pinyin.trim()
-      ? parsed.pinyin.trim()
-      : undefined;
-  if (needsPinyin && !pinyin) {
-    console.warn("[/api/phrase/explain] pinyin missing in Gemini response");
-  }
-  return { explanation, pinyin };
-}
-
-function normalizeText(value: unknown, field: string, allowEmpty = false): string {
-  if (typeof value !== "string") {
-    throw new RequestValidationError(`${field} が正しくありません`);
-  }
-  const normalized = value.trim();
-  if (!allowEmpty && !normalized) {
-    throw new RequestValidationError(`${field} が空です`);
-  }
-  return normalized;
-}
-
-function normalizeDirection(value: unknown): PhraseDirection {
-  if (isSupportedDirection(value)) return value;
-  throw new RequestValidationError("翻訳方向が正しくありません");
-}
-
-function normalizeOptionalText(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const normalized = value.trim();
-  return normalized ? normalized : undefined;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function recordUsage(input: {
@@ -298,7 +186,7 @@ function normalizeRouteError(error: unknown): {
   code: string;
   message: string;
 } {
-  if (error instanceof RequestValidationError) {
+  if (error instanceof PhraseFollowUpRequestError) {
     return { status: error.status, code: error.code, message: error.message };
   }
   if (error instanceof UsageLimitError || error instanceof UsageTrackingError) {
@@ -306,6 +194,9 @@ function normalizeRouteError(error: unknown): {
   }
   if (error instanceof ApiRouteError) {
     return { status: error.status, code: error.code, message: error.message };
+  }
+  if (error instanceof PhraseFollowUpGenerationError) {
+    return { status: 502, code: error.code, message: error.message };
   }
   return {
     status: 500,

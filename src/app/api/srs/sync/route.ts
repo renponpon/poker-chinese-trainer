@@ -1,35 +1,25 @@
 import { NextResponse } from "next/server";
-import { updatePhraseSrs } from "@/lib/notion";
-import { getBearerToken, upsertSupabaseSrsItem } from "@/lib/supabase";
-import type { Phrase, SrsItem } from "@/lib/types";
+import {
+  normalizePracticeScheduleSyncRequest,
+  persistPracticeSchedule,
+} from "@/application/practice/persist-practice-schedule";
+import { createPracticeCloudStorage } from "@/infrastructure/server/practice-cloud-storage";
+import { getBearerToken } from "@/infrastructure/server/request-auth";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as {
-      ownerKey?: string;
-      phrase?: Phrase;
-      srsItem?: SrsItem;
-    };
-    const ownerKey = body.ownerKey?.trim() ?? "";
-    if (!body.phrase || !body.srsItem) {
+    const { ownerKey, schedule } = normalizePracticeScheduleSyncRequest(await req.json());
+    if (!schedule) {
       return NextResponse.json({ ok: true });
     }
 
     const accessToken = getBearerToken(req);
-    if (accessToken) {
-      await upsertSupabaseSrsItem(accessToken, body.phrase, body.srsItem);
-    }
-
-    if (!ownerKey) {
-      return NextResponse.json({ ok: true });
-    }
-
-    await updatePhraseSrs({
-      ownerKey,
-      phrase: body.phrase,
-      srsItem: body.srsItem,
+    await persistPracticeSchedule({
+      phrase: schedule.phrase,
+      srsItem: schedule.srsItem,
+      storage: createPracticeCloudStorage({ accessToken, ownerKey }),
     });
 
     return NextResponse.json({ ok: true });

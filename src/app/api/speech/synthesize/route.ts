@@ -1,39 +1,31 @@
 import { NextResponse } from "next/server";
 import { createId } from "@/lib/id";
 import { isLanguageCode, LANGUAGE_CONFIGS } from "@/lib/languages";
-import { recordAiUsageEvent } from "@/lib/server/supabase-admin";
+import {
+  getOpenAiTextToSpeechModel,
+  OpenAiSpeechProviderError,
+  synthesizeSpeechWithOpenAi,
+} from "@/infrastructure/server/openai-speech";
+import { recordAiUsageEvent } from "@/infrastructure/server/usage-event-recorder";
 import {
   assertWithinDailyAiLimit,
   identifyRequestActor,
   UsageLimitError,
   UsageTrackingError,
   type RequestActor,
-} from "@/lib/server/usage-limits";
+} from "@/infrastructure/server/usage-limits";
 import { RequestValidationError } from "@/lib/server/validation";
-import { getBearerToken } from "@/lib/supabase";
+import { getBearerToken } from "@/infrastructure/server/request-auth";
 
 export const runtime = "nodejs";
 
 const ENDPOINT = "/api/speech/synthesize";
-const DEFAULT_MODEL = "gpt-4o-mini-tts";
-const DEFAULT_VOICE = "marin";
 const MAX_TEXT_CHARS = 300;
 
 type SynthesizeRequest = {
   text?: unknown;
   langCode?: unknown;
 };
-
-class ApiRouteError extends Error {
-  constructor(
-    message: string,
-    public status: number,
-    public code: string,
-  ) {
-    super(message);
-    this.name = "ApiRouteError";
-  }
-}
 
 export async function POST(req: Request) {
   const requestId = createId();
@@ -45,43 +37,15 @@ export async function POST(req: Request) {
     actor = await identifyRequestActor(req, accessToken);
     await assertWithinDailyAiLimit(actor);
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new ApiRouteError("OPENAI_API_KEY が設定されていません", 500, "missing_openai_api_key");
-    }
-
     const body = await parseRequest(req);
     const text = normalizeText(body.text, "text", MAX_TEXT_CHARS);
     const langCode = normalizeLangCode(body.langCode);
     inputChars = text.length;
 
-    const model = process.env.OPENAI_TTS_MODEL || DEFAULT_MODEL;
-    const voice = process.env.OPENAI_TTS_VOICE || DEFAULT_VOICE;
-    const response = await fetch("https://api.openai.com/v1/audio/speech", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        voice,
-        input: text,
-        response_format: "mp3",
-        instructions: buildInstructions(langCode),
-      }),
+    const { audio, model } = await synthesizeSpeechWithOpenAi({
+      text,
+      instructions: buildInstructions(langCode),
     });
-
-    if (!response.ok) {
-      const data = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-      throw new ApiRouteError(
-        data?.error?.message || "音声の生成に失敗しました",
-        response.status,
-        "openai_tts_failed",
-      );
-    }
-
-    const audio = await response.arrayBuffer();
 
     if (actor) {
       await recordUsage({
@@ -116,7 +80,7 @@ export async function POST(req: Request) {
         inputChars,
         success: false,
         errorCode: normalized.code,
-        model: process.env.OPENAI_TTS_MODEL || DEFAULT_MODEL,
+        model: getOpenAiTextToSpeechModel(),
       });
     }
 
@@ -200,7 +164,7 @@ function normalizeRouteError(error: unknown): {
   if (error instanceof UsageLimitError || error instanceof UsageTrackingError) {
     return { status: error.status, code: error.code, message: error.message };
   }
-  if (error instanceof ApiRouteError) {
+  if (error instanceof OpenAiSpeechProviderError) {
     return { status: error.status, code: error.code, message: error.message };
   }
   return {
