@@ -10,6 +10,7 @@
 
 # testing
 /coverage
+/tmp/phrabit-responsive-shots
 
 # next.js
 /.next/
