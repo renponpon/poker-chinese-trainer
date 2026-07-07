@@ -1,5 +1,5 @@
-import type { PhraseDirection } from "@/lib/types";
-import { getLanguageLabel, parseDirection } from "@/lib/languages";
+import { getLanguageLabel, parseDirection } from "./languages";
+import type { PhraseDirection } from "./types";
 
 export const EXPLANATION_SYSTEM_PROMPT = `あなたは、中国語圏での実生活、旅行・仕事・日常会話に詳しい実践的な中国語コーチです。
 

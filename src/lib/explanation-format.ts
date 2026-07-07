@@ -2,7 +2,7 @@ import {
   addMandarinPinyinToMarkedChineseTerms,
   hasChineseText,
   toMandarinPinyin,
-} from "@/lib/chinese-pinyin";
+} from "./chinese-pinyin";
 
 const MAX_LINE_CHARS = 58;
 const EXAMPLE_HEADING_LABELS = new Set([

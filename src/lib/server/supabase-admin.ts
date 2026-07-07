@@ -22,6 +22,24 @@ export type AiUsageEventInput = {
   model: string | null;
 };
 
+export type ProductAnalyticsEventInput = {
+  requestId: string;
+  userId: string | null;
+  actorType: AiUsageActorType;
+  ipHash: string | null;
+  sessionId: string | null;
+  eventName: string;
+  route: string | null;
+  sourcePage: string | null;
+  direction: PhraseDirection | null;
+  targetLanguage: string | null;
+  generationMode: string | null;
+  inputChars: number;
+  score: number | null;
+  success: boolean | null;
+  errorCode: string | null;
+};
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -196,6 +214,36 @@ export async function recordAiUsageEvent(
   });
   if (error) {
     console.error("[ai_usage_events] insert failed", error);
+    return false;
+  }
+  return true;
+}
+
+export async function recordProductAnalyticsEvent(
+  input: ProductAnalyticsEventInput,
+): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return false;
+
+  const { error } = await supabase.from("product_analytics_events").insert({
+    request_id: input.requestId,
+    user_id: input.userId,
+    actor_type: input.actorType,
+    ip_hash: input.ipHash,
+    session_id: input.sessionId,
+    event_name: input.eventName,
+    route: input.route,
+    source_page: input.sourcePage,
+    direction: input.direction,
+    target_language: input.targetLanguage,
+    generation_mode: input.generationMode,
+    input_chars: input.inputChars,
+    score: input.score,
+    success: input.success,
+    error_code: input.errorCode,
+  });
+  if (error) {
+    console.error("[product_analytics_events] insert failed", error);
     return false;
   }
   return true;

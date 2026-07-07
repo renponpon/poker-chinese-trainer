@@ -1,10 +1,9 @@
-import { GoogleGenAI } from "@google/genai";
-import { formatExplanationForReading } from "@/lib/explanation-format";
+import { formatExplanationForReading } from "./explanation-format";
 import {
   buildPackBatchExplanationPrompt,
   buildPackSingleExplanationPrompt,
-} from "@/lib/explanation-prompt";
-import type { LanguageCode, PhraseDirection, ReadingType } from "@/lib/types";
+} from "./explanation-prompt";
+import type { LanguageCode, PhraseDirection, ReadingType } from "./types";
 
 export const PACK_EXPLANATION_GEMINI_MODEL = "gemini-3.1-flash-lite";
 export const PACK_EXPLANATION_BATCH_SIZE = 4;
@@ -33,8 +32,13 @@ export type PackExplanationInput = {
   readingType?: ReadingType;
 };
 
+export type PackExplanationTextGenerator = (input: {
+  contents: string;
+  maxOutputTokens: number;
+}) => Promise<string | undefined>;
+
 export async function generatePackExplanations(
-  ai: GoogleGenAI,
+  generateText: PackExplanationTextGenerator,
   phrases: PackExplanationInput[],
 ): Promise<string[]> {
   if (!phrases.length) return [];
@@ -42,7 +46,7 @@ export async function generatePackExplanations(
   const results = new Array<string>(phrases.length);
   for (let index = 0; index < phrases.length; index += PACK_EXPLANATION_BATCH_SIZE) {
     const batch = phrases.slice(index, index + PACK_EXPLANATION_BATCH_SIZE);
-    const batchResults = await generatePackExplanationBatch(ai, batch);
+    const batchResults = await generatePackExplanationBatch(generateText, batch);
     for (let offset = 0; offset < batchResults.length; offset += 1) {
       results[index + offset] = batchResults[offset];
     }
@@ -51,27 +55,22 @@ export async function generatePackExplanations(
 }
 
 async function generatePackExplanationBatch(
-  ai: GoogleGenAI,
+  generateText: PackExplanationTextGenerator,
   phrases: PackExplanationInput[],
 ): Promise<string[]> {
   if (phrases.some((phrase) => !isChinesePackPhrase(phrase))) {
-    return Promise.all(phrases.map((phrase) => generatePackExplanation(ai, phrase)));
+    return Promise.all(phrases.map((phrase) => generatePackExplanation(generateText, phrase)));
   }
 
   if (phrases.length === 1) {
-    return [await generatePackExplanation(ai, phrases[0])];
+    return [await generatePackExplanation(generateText, phrases[0])];
   }
 
   try {
-    const response = await ai.models.generateContent({
-      model: PACK_EXPLANATION_GEMINI_MODEL,
+    const text = await generateText({
       contents: buildPackBatchExplanationPrompt(phrases),
-      config: {
-        responseMimeType: "application/json",
-        maxOutputTokens: BATCH_EXPLANATION_MAX_OUTPUT_TOKENS,
-      },
+      maxOutputTokens: BATCH_EXPLANATION_MAX_OUTPUT_TOKENS,
     });
-    const text = response.text;
     if (text) {
       const parsed = parseBatchExplanations(text, phrases);
       if (parsed.length === phrases.length) return parsed;
@@ -83,29 +82,23 @@ async function generatePackExplanationBatch(
     });
   }
 
-  return Promise.all(phrases.map((phrase) => generatePackExplanation(ai, phrase)));
+  return Promise.all(phrases.map((phrase) => generatePackExplanation(generateText, phrase)));
 }
 
 export async function generatePackExplanation(
-  ai: GoogleGenAI,
+  generateText: PackExplanationTextGenerator,
   phrase: PackExplanationInput,
 ): Promise<string> {
   try {
-    const response = await ai.models.generateContent({
-      model: PACK_EXPLANATION_GEMINI_MODEL,
+    const text = await generateText({
       contents: buildPackSingleExplanationPrompt(phrase),
-      config: {
-        responseMimeType: "application/json",
-        maxOutputTokens: SINGLE_EXPLANATION_MAX_OUTPUT_TOKENS,
-      },
+      maxOutputTokens: SINGLE_EXPLANATION_MAX_OUTPUT_TOKENS,
     });
-    const text = response.text;
     if (!text) return buildTemplateExplanation(phrase);
 
     const parsed = extractJson(text) as { explanation?: unknown };
     const explanation = ensureExplanationHeadings(
       normalizeOptionalText(parsed.explanation, 4000),
-      phrase,
     );
     if (explanation.trim()) return explanation;
   } catch (error) {
@@ -129,7 +122,6 @@ function parseBatchExplanations(
 
   const output: string[] = [];
   for (let index = 0; index < phrases.length; index += 1) {
-    const phrase = phrases[index];
     const raw = parsed.explanations[index];
     const explanationRaw =
       raw && typeof raw === "object" && !Array.isArray(raw)
@@ -137,7 +129,6 @@ function parseBatchExplanations(
         : undefined;
     const explanation = ensureExplanationHeadings(
       normalizeOptionalText(explanationRaw, 4000),
-      phrase,
     );
     if (!explanation.trim()) {
       throw new SyntaxError("empty explanation in batch");
@@ -148,15 +139,13 @@ function parseBatchExplanations(
 }
 
 export function buildTemplateExplanation(phrase: PackExplanationInput): string {
-  return ensureExplanationHeadings("", phrase);
+  void phrase;
+  return ensureExplanationHeadings("");
 }
 
 const PLACEHOLDER = "（未生成）";
 
-function ensureExplanationHeadings(
-  explanation: string,
-  phrase: PackExplanationInput,
-): string {
+function ensureExplanationHeadings(explanation: string): string {
   let result = explanation.trim();
   if (!result) {
     result = `【単語分解と骨組み】\n${PLACEHOLDER}`;
