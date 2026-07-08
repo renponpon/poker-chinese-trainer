@@ -168,6 +168,8 @@ export async function upsertSupabaseSrsItem(
   phrase: Phrase,
   srsItem: SrsItem,
 ): Promise<boolean> {
+  if (!isSupabasePersistableSchedule(phrase, srsItem)) return false;
+
   const supabase = getServerSupabase(accessToken);
   if (!supabase) return false;
 
@@ -190,6 +192,19 @@ export async function upsertSupabaseSrsItem(
   if (phraseError) throw phraseError;
 
   return true;
+}
+
+export function isSupabasePersistableSchedule(
+  phrase: Pick<Phrase, "id">,
+  srsItem: Pick<SrsItem, "id">,
+): boolean {
+  return isPostgresUuid(phrase.id) && isPostgresUuid(srsItem.id);
+}
+
+function isPostgresUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
 }
 
 async function upsertSupabaseSavedPhraseRow(
