@@ -12,6 +12,7 @@ import {
 } from "@/infrastructure/local/srs-storage";
 import { loadLocalPhrases } from "@/infrastructure/local/phrase-storage";
 import type { Phrase } from "@/lib/types";
+import { ACCOUNT_PHRASE_DATA_SYNCED_EVENT } from "@/lib/account-phrase-sync";
 
 export default function HomeStats() {
   const [total, setTotal] = useState<number | null>(null);
@@ -42,6 +43,14 @@ export default function HomeStats() {
     });
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const refreshSyncedStats = () => refreshStats(loadLocalPhrases());
+    window.addEventListener(ACCOUNT_PHRASE_DATA_SYNCED_EVENT, refreshSyncedStats);
+    return () => {
+      window.removeEventListener(ACCOUNT_PHRASE_DATA_SYNCED_EVENT, refreshSyncedStats);
     };
   }, []);
 

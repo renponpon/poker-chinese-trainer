@@ -5,7 +5,10 @@ import {
   loadLocalSrsItems,
   saveLocalSrsItems,
 } from "./srs-storage";
-import { STARTER_PHRASES } from "../../lib/starter-phrases";
+import {
+  migrateStarterPhraseId,
+  STARTER_PHRASES,
+} from "../../lib/starter-phrases";
 
 const PHRASES_KEY = "poker-chinese-local-phrases-v1";
 const CATEGORIES_KEY = "poker-chinese-phrase-categories-v1";
@@ -45,9 +48,10 @@ export function loadLocalPhrases(): Phrase[] {
     }
     const parsed = JSON.parse(raw) as Partial<Phrase>[];
     if (!Array.isArray(parsed)) return [];
-    let normalized = parsed
+    const migrated = parsed
       .filter((phrase) => phrase.id && phrase.japanese !== undefined && phrase.chinese !== undefined)
       .map((phrase) => normalizePhrase(phrase, { legacyDrillDefault: true }));
+    let normalized = [...new Map(migrated.map((phrase) => [phrase.id, phrase])).values()];
     if (window.localStorage.getItem(STARTER_SEED_KEY) !== "1") {
       normalized = mergeStarterPhrases(normalized);
       window.localStorage.setItem(STARTER_SEED_KEY, "1");
@@ -96,7 +100,7 @@ export function addLocalPhrase(
 ): Phrase {
   const phrase = normalizePhrase({
     ...input,
-    id: input.id ?? createId(),
+    id: migrateStarterPhraseId(input.id ?? createId()),
     createdAt: input.createdAt ?? new Date().toISOString(),
   });
   const current = loadLocalPhrases();
@@ -183,7 +187,7 @@ function normalizePhrase(
       ? null
       : input.categoryId;
   return {
-    id: input.id ?? createId(),
+    id: migrateStarterPhraseId(input.id ?? createId()),
     japanese: input.japanese ?? "",
     chinese: input.chinese ?? "",
     pinyin: input.pinyin ?? "",

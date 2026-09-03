@@ -7,6 +7,7 @@ import AddTutorial from "@/components/AddTutorial";
 import AppHeader from "@/components/AppHeader";
 import BottomNav from "@/components/BottomNav";
 import { getAuthHeaders } from "@/lib/auth-headers";
+import { deletePhrasesFromCloud } from "@/lib/account-phrase-sync";
 import { formatExplanationForReading } from "@/lib/explanation-format";
 import { createId } from "@/lib/id";
 import {
@@ -185,6 +186,9 @@ export default function AddPage() {
           : null;
       if (supersededPhraseId) {
         deleteLocalPhraseAndSrs(supersededPhraseId);
+        void deletePhrasesFromCloud([supersededPhraseId]).catch((error) => {
+          console.warn("[add] superseded cloud phrase delete failed", error);
+        });
       }
 
       const phraseId = createId();

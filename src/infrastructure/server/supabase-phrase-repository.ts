@@ -194,6 +194,132 @@ export async function upsertSupabaseSrsItem(
   return true;
 }
 
+export async function mergeSupabasePhraseSnapshot(
+  accessToken: string,
+  input: { phrases: Phrase[]; srsItems: SrsItem[] },
+): Promise<{ phrases: Phrase[]; srsItems: SrsItem[] } | null> {
+  const authenticated = await getAuthenticatedSupabase(accessToken);
+  if (!authenticated) return null;
+  const { supabase, userId } = authenticated;
+  const phrases = input.phrases.filter((phrase) => isPostgresUuid(phrase.id));
+  const itemById = new Map(input.srsItems.map((item) => [item.id, item]));
+
+  if (phrases.length > 0) {
+    const { error: savedError } = await supabase
+      .from("saved_phrases")
+      .upsert(phrases.map((phrase) => phraseToSavedPhraseRow(userId, phrase)));
+    if (savedError && !isMissingRelationError(savedError)) throw savedError;
+
+    const { error: legacyPhraseError } = await supabase
+      .from("phrases")
+      .upsert(phrases.map((phrase) => phraseToLegacyPhraseRow(userId, phrase)));
+    if (legacyPhraseError) throw legacyPhraseError;
+  }
+
+  const scheduledPhrases = phrases.filter((phrase) => phrase.shouldDrill);
+  if (scheduledPhrases.length > 0) {
+    const drillRows = scheduledPhrases.map((phrase) => {
+      const item = itemById.get(phrase.id);
+      return item
+        ? srsItemToDrillItemRow(userId, phrase.id, item)
+        : defaultDrillItemRow(userId, phrase.id);
+    });
+    const { error: drillError } = await supabase.from("drill_items").upsert(drillRows);
+    if (drillError && !isMissingRelationError(drillError)) throw drillError;
+
+    const legacyRows = scheduledPhrases.map((phrase) => {
+      const item = itemById.get(phrase.id);
+      return srsItemToLegacySrsRow(
+        userId,
+        item ?? rowToSrsItem(defaultDrillItemRow(userId, phrase.id)),
+      );
+    });
+    const { error: legacySrsError } = await supabase.from("srs_items").upsert(legacyRows);
+    if (legacySrsError) throw legacySrsError;
+  }
+
+  return getSupabasePhrasesByUser(accessToken);
+}
+
+export async function replaceSupabasePhraseState(
+  accessToken: string,
+  phrase: Phrase,
+  srsItem: SrsItem | null,
+): Promise<boolean> {
+  if (!isPostgresUuid(phrase.id)) return false;
+  const authenticated = await getAuthenticatedSupabase(accessToken);
+  if (!authenticated) return false;
+  const { supabase, userId } = authenticated;
+
+  await upsertSupabaseSavedPhraseRow(supabase, userId, phrase);
+  const { error: phraseError } = await supabase
+    .from("phrases")
+    .upsert(phraseToLegacyPhraseRow(userId, phrase));
+  if (phraseError) throw phraseError;
+
+  if (phrase.shouldDrill) {
+    const item = srsItem ?? rowToSrsItem(defaultDrillItemRow(userId, phrase.id));
+    await upsertSupabaseDrillItemRow(supabase, userId, phrase.id, item);
+    const { error: srsError } = await supabase
+      .from("srs_items")
+      .upsert(srsItemToLegacySrsRow(userId, item));
+    if (srsError) throw srsError;
+  } else {
+    const { error: drillError } = await supabase
+      .from("drill_items")
+      .delete()
+      .eq("saved_phrase_id", phrase.id)
+      .eq("user_id", userId);
+    if (drillError && !isMissingRelationError(drillError)) throw drillError;
+    const { error: srsError } = await supabase
+      .from("srs_items")
+      .delete()
+      .eq("phrase_id", phrase.id)
+      .eq("user_id", userId);
+    if (srsError) throw srsError;
+  }
+
+  return true;
+}
+
+export async function deleteSupabasePhrases(
+  accessToken: string,
+  phraseIds: string[],
+): Promise<boolean> {
+  const ids = phraseIds.filter(isPostgresUuid);
+  if (ids.length === 0) return true;
+  const authenticated = await getAuthenticatedSupabase(accessToken);
+  if (!authenticated) return false;
+  const { supabase, userId } = authenticated;
+
+  const { error: drillError } = await supabase
+    .from("drill_items")
+    .delete()
+    .in("saved_phrase_id", ids)
+    .eq("user_id", userId);
+  if (drillError && !isMissingRelationError(drillError)) throw drillError;
+  const { error: legacySrsError } = await supabase
+    .from("srs_items")
+    .delete()
+    .in("phrase_id", ids)
+    .eq("user_id", userId);
+  if (legacySrsError) throw legacySrsError;
+  const { error: savedError } = await supabase
+    .from("saved_phrases")
+    .delete()
+    .in("id", ids)
+    .eq("user_id", userId);
+  if (savedError && !isMissingRelationError(savedError)) throw savedError;
+  const { error: legacyPhraseError } = await supabase
+    .from("phrases")
+    .delete()
+    .in("id", ids)
+    .eq("user_id", userId);
+  if (legacyPhraseError) throw legacyPhraseError;
+
+  return true;
+}
+
 export function isSupabasePersistableSchedule(
   phrase: Pick<Phrase, "id">,
   srsItem: Pick<SrsItem, "id">,
@@ -205,6 +331,17 @@ function isPostgresUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     value,
   );
+}
+
+async function getAuthenticatedSupabase(accessToken: string): Promise<{
+  supabase: SupabaseClient;
+  userId: string;
+} | null> {
+  const supabase = getServerSupabase(accessToken);
+  if (!supabase) return null;
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) return null;
+  return { supabase, userId: data.user.id };
 }
 
 async function upsertSupabaseSavedPhraseRow(

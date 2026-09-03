@@ -117,7 +117,7 @@ function normalizePhrases(value: unknown): Phrase[] {
         phrase.readingType,
         sourceLanguage === "zh" || targetLanguage === "zh" ? "pinyin" : "none",
       ),
-      explanation: normalizeText(phrase.explanation, "explanation", 5000),
+      explanation: normalizeOptionalText(phrase.explanation, 5000) ?? "",
       audioUrl: null,
       createdAt: normalizeText(phrase.createdAt, "createdAt", 80),
       direction,

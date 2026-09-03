@@ -1,4 +1,5 @@
 import type { SrsItem } from "../../lib/types";
+import { migrateStarterPhraseId } from "../../lib/starter-phrases";
 
 const STORAGE_KEY = "poker-chinese-srs-v1";
 
@@ -13,7 +14,17 @@ export function loadLocalSrsItems(): SrsItem[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as SrsItem[];
     if (!Array.isArray(parsed)) return [];
-    return parsed;
+    const migrated = parsed.map((item) => ({
+      ...item,
+      id: migrateStarterPhraseId(item.id),
+    }));
+    const normalized = [
+      ...new Map(migrated.map((item) => [item.id, item])).values(),
+    ];
+    if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
+      saveLocalSrsItems(normalized);
+    }
+    return normalized;
   } catch {
     return [];
   }

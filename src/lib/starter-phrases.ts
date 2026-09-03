@@ -21,6 +21,29 @@ type StarterSeed = Omit<
   id: string;
 };
 
+const STARTER_ID_MIGRATIONS: Record<string, string> = {
+  "starter-001-really": "7823f46c-1477-4fe4-a33a-ce69e0a637fb",
+  "starter-002-japanese": "14ef28c3-b7c6-4eea-a50b-858d71c58132",
+  "starter-003-where-from": "fdc1b76a-f14e-4dbb-86a5-cd9a838d290b",
+  "starter-004-tea": "31c552a4-469b-470c-a065-96fbccffbaa8",
+  "starter-005-restroom": "9ff653d5-4aae-40a9-95ea-bd58bff61729",
+  "starter-006-what-is-this": "fb88e68d-1567-42c6-8d4c-a4420b74bd83",
+  "starter-007-excuse-me": "fe3ae9a8-1e6c-4f2c-a63f-6cef752a9c41",
+  "starter-008-no-problem": "7f5d6e2c-6812-4cf0-b82e-3549455aa142",
+  "starter-009-chinese-not-good": "54a865c0-d807-4c84-bd0a-7233f33c7191",
+  "starter-010-english": "202b39ef-f32e-4387-9228-3b4e4defcdec",
+  "starter-011-price": "1a7dad74-dcb7-4033-95b1-6ec62bb5c1e6",
+  "starter-012-this-one": "bb6d21bd-fd49-4b21-991f-fd3a9610a333",
+  "starter-013-recommendation": "7ea36327-6dc2-419f-8259-309b076e70fb",
+  "starter-014-not-spicy": "c3e91a53-bc60-4557-b14b-b704cb80b40e",
+  "starter-015-check": "082809bd-84b6-4274-8c8c-cd6cace72f2a",
+  "starter-016-wait": "6e9105cf-1a07-4d18-ae87-05c54d2e0e39",
+};
+
+export function migrateStarterPhraseId(id: string): string {
+  return STARTER_ID_MIGRATIONS[id] ?? id;
+}
+
 const STARTER_SEEDS: StarterSeed[] = [
   {
     id: "starter-001-really",
@@ -394,6 +417,7 @@ const STARTER_SEEDS: StarterSeed[] = [
 
 export const STARTER_PHRASES: Phrase[] = STARTER_SEEDS.map((phrase) => ({
   ...phrase,
+  id: migrateStarterPhraseId(phrase.id),
   sourceLanguage: "ja",
   targetLanguage: "zh",
   sourceText: phrase.japanese,

@@ -125,7 +125,7 @@ export default function AuthButton() {
                 {user.email}
               </p>
               <p className="mt-2 text-sm leading-relaxed text-neutral-500">
-                このアカウントに新しく保存したフレーズを同期します。
+                フレーズとドリル進捗を、このアカウントの端末間で同期します。
               </p>
               <button
                 type="button"
@@ -141,7 +141,7 @@ export default function AuthButton() {
                 ログイン
               </div>
               <p className="mt-2 text-sm leading-relaxed text-neutral-400">
-                Googleアカウントでログインすると、保存したフレーズをクラウドに同期できます。
+                Googleアカウントでログインすると、フレーズとドリル進捗を端末間で同期できます。
               </p>
               {!configured && (
                 <p className="mt-3 rounded-xl bg-yellow-900/20 px-3 py-2 text-sm text-yellow-100">

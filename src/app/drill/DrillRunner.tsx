@@ -28,6 +28,7 @@ import {
 } from "@/lib/pending-pack-explanations";
 import { primeSpeech } from "@/lib/speech";
 import { recordProductAnalyticsEvent } from "@/lib/product-analytics";
+import { ACCOUNT_PHRASE_DATA_SYNCED_EVENT } from "@/lib/account-phrase-sync";
 import type { LanguageCode, Phrase, Score, SrsItem } from "@/lib/types";
 import PersonalPhrasePackFlow from "./PersonalPhrasePackFlow";
 
@@ -104,12 +105,24 @@ export default function DrillRunner() {
     const syncPending = () => {
       setPendingExplanationIds(new Set(getPendingExplanationIds()));
     };
+    const syncAccountData = () => {
+      const localPhrases = loadLocalPhrases();
+      const { items: stored } = syncDrillSchedule({
+        phrases: localPhrases,
+        items: loadLocalSrsItems(),
+        storage: { saveSrsItems: saveLocalSrsItems },
+      });
+      setPhrases(localPhrases);
+      setItems(stored);
+    };
 
     window.addEventListener(PHRASE_UPDATED_EVENT, syncPhrases);
     window.addEventListener(PENDING_EXPLANATIONS_CHANGED_EVENT, syncPending);
+    window.addEventListener(ACCOUNT_PHRASE_DATA_SYNCED_EVENT, syncAccountData);
     return () => {
       window.removeEventListener(PHRASE_UPDATED_EVENT, syncPhrases);
       window.removeEventListener(PENDING_EXPLANATIONS_CHANGED_EVENT, syncPending);
+      window.removeEventListener(ACCOUNT_PHRASE_DATA_SYNCED_EVENT, syncAccountData);
     };
   }, []);
 

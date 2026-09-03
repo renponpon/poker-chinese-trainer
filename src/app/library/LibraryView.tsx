@@ -24,6 +24,11 @@ import { statusLabel } from "@/lib/srs";
 import SpeechPlayButton from "@/components/SpeechPlayButton";
 import { playSpeechForLang, prefetchSpeechForLang, primeSpeech } from "@/lib/speech";
 import { cn } from "@/lib/utils";
+import {
+  ACCOUNT_PHRASE_DATA_SYNCED_EVENT,
+  deletePhrasesFromCloud,
+  syncPhraseStateToCloud,
+} from "@/lib/account-phrase-sync";
 import type { LanguageCode, Phrase, PhraseCategory, SrsItem, SrsStatus } from "@/lib/types";
 
 type Filter = "all" | SrsStatus;
@@ -78,8 +83,25 @@ export default function LibraryView() {
     };
   }, []);
 
+  useEffect(() => {
+    const refreshSyncedData = () => {
+      const localPhrases = loadLocalPhrases();
+      const synced = syncDrillSchedule({
+        phrases: localPhrases,
+        items: loadLocalSrsItems(),
+        storage: { saveSrsItems: saveLocalSrsItems },
+      });
+      setPhrases(localPhrases);
+      setItems(synced.items);
+    };
+    window.addEventListener(ACCOUNT_PHRASE_DATA_SYNCED_EVENT, refreshSyncedData);
+    return () => {
+      window.removeEventListener(ACCOUNT_PHRASE_DATA_SYNCED_EVENT, refreshSyncedData);
+    };
+  }, []);
+
   const handleDelete = (id: string) => {
-    if (!window.confirm("このフレーズをこの端末のライブラリから削除しますか？")) {
+    if (!window.confirm("このフレーズをライブラリから削除しますか？\nログイン中は他の端末からも削除されます。")) {
       return;
     }
     const result = deleteSavedPhrases({
@@ -93,6 +115,9 @@ export default function LibraryView() {
     });
     setPhrases(result.phrases);
     setItems(result.srsItems);
+    void deletePhrasesFromCloud([id]).catch((error) => {
+      console.warn("[LibraryView] cloud delete failed", error);
+    });
     setExpandedIds((prev) => {
       const nextExpanded = new Set(prev);
       nextExpanded.delete(id);
@@ -109,7 +134,7 @@ export default function LibraryView() {
     if (selectedIds.size === 0) return;
     if (
       !window.confirm(
-        `選択した${selectedIds.size}件をこの端末のライブラリから削除しますか？`,
+        `選択した${selectedIds.size}件をライブラリから削除しますか？\nログイン中は他の端末からも削除されます。`,
       )
     ) {
       return;
@@ -125,6 +150,9 @@ export default function LibraryView() {
     });
     setPhrases(result.phrases);
     setItems(result.srsItems);
+    void deletePhrasesFromCloud([...selectedIds]).catch((error) => {
+      console.warn("[LibraryView] bulk cloud delete failed", error);
+    });
     setSelectedIds(new Set());
     setExpandedIds((prev) => {
       const nextExpanded = new Set(prev);
@@ -165,6 +193,15 @@ export default function LibraryView() {
     });
     setPhrases(result.phrases);
     setItems(result.srsItems);
+    const updatedPhrase = result.phrases.find((item) => item.id === phrase.id);
+    if (updatedPhrase) {
+      void syncPhraseStateToCloud(
+        updatedPhrase,
+        result.srsItems.find((item) => item.id === phrase.id) ?? null,
+      ).catch((error) => {
+        console.warn("[LibraryView] drill membership sync failed", error);
+      });
+    }
   };
 
   const handleCategoryChange = (phrase: Phrase, categoryId: string) => {
@@ -172,6 +209,15 @@ export default function LibraryView() {
       categoryId: categoryId === "uncategorized" ? null : categoryId,
     });
     setPhrases(nextPhrases);
+    const updatedPhrase = nextPhrases.find((item) => item.id === phrase.id);
+    if (updatedPhrase) {
+      void syncPhraseStateToCloud(
+        updatedPhrase,
+        items.find((item) => item.id === phrase.id) ?? null,
+      ).catch((error) => {
+        console.warn("[LibraryView] category sync failed", error);
+      });
+    }
   };
 
   const itemById = useMemo(
