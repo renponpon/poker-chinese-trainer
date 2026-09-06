@@ -6,7 +6,7 @@ import { reconcileAccountPhraseData, type PhraseMutation } from "@/application/p
 import type { SavedPhraseSnapshot } from "@/application/phrase/load-saved-phrases";
 import { syncDrillSchedule } from "@/application/practice/drill-schedule";
 import { loadLocalPhrases, loadNickname, loadOwnerKey, saveLocalPhrases } from "@/infrastructure/local/phrase-storage";
-import { saveLocalSrsItems } from "@/infrastructure/local/srs-storage";
+import { loadLocalSrsItems, saveLocalSrsItems } from "@/infrastructure/local/srs-storage";
 import {
   ACCOUNT_CACHE_OWNER_KEY, checkpointLocalData, currentDataOwner,
   readAccountCheckpoint, writeAccountCheckpoint,
@@ -185,8 +185,8 @@ async function performAccountSync(session: Session, epoch: number): Promise<void
 
 function readLocalSnapshot(): SavedPhraseSnapshot {
   const snapshot = normalizeAccountPhraseSnapshot({
-    phrases: JSON.parse(localStorage.getItem("poker-chinese-local-phrases-v1") ?? "[]"),
-    srsItems: JSON.parse(localStorage.getItem("poker-chinese-srs-v1") ?? "[]"),
+    phrases: loadLocalPhrases(),
+    srsItems: loadLocalSrsItems(),
   });
   const completed = completeDrillSchedule(snapshot);
   if (JSON.stringify(completed.srsItems) !== JSON.stringify(snapshot.srsItems)) saveLocalSrsItems(completed.srsItems);

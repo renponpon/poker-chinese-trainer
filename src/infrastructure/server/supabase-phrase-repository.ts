@@ -247,7 +247,9 @@ export async function replaceSupabasePhraseState(
   srsItem: SrsItem | null,
   existingOnly = false,
 ): Promise<boolean> {
-  if (!isPostgresUuid(phrase.id)) return false;
+  if (!isPostgresUuid(phrase.id)) {
+    throw Object.assign(new Error("フレーズIDの形式を確認できないため同期を停止しました"), { status: 400 });
+  }
   const authenticated = await getAuthenticatedSupabase(accessToken);
   if (!authenticated) return false;
   const { supabase, userId } = authenticated;

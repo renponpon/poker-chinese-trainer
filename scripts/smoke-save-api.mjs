@@ -112,6 +112,8 @@ const supabase = {
 overrides.delete(repositoryPath);
 overrides.set("@supabase/supabase-js", { createClient: () => supabase });
 const repository = loadSource(repositoryPath);
+await assert.rejects(repository.replaceSupabasePhraseState("test-token", { ...phrase, id: "legacy-invalid-id" }, null), (error) => error.status === 400);
+assert.equal(operations.length, 0, "invalid IDs are validation errors, not failed authentication or writes");
 await assert.rejects(repository.replaceSupabasePhraseState("test-token", phrase, null, true), (error) => error.status === 409);
 assert.equal(operations.length, 1);
 assert.equal(operations[0].kind, "update", "deleted phrases must not be recreated with upsert");

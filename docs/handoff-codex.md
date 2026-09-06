@@ -9,6 +9,8 @@ Cursor での開発から Codex + VSCode への引き継ぎ用ドキュメント
 
 ### 承認後の進捗（2026-09-06）
 
+- 公開試行と一時復帰：アプリ関連56ファイルを `2a62bd7` にcommit/push。Production `dpl_9ni3RHU4mKUyFPRBcKD6ABaMumJJ` がREADYになったが、既存ログイン端末の同期でPATCH `/api/phrases` が401（12:42:49 UTC）、未同期警告を確認した。CLI rollbackで旧 `dpl_FhLM4NM8W1Zcm6qapFKZhEkBBKPQ` / 17c333dへ復帰し、phrabit.comの向き先を照合済み。GitHubは2a62bd7のまま。データ復元やDBスキーマ変更はしていない。旧版でGoogle再ログインは成功。
+- 切り分け：同期が端末JSONを直接読んで既存starter ID移行を迂回する不具合を疑似クラウドで再現した。`loadLocalPhrases` / `loadLocalSrsItems` を使い、既知の旧IDとSRSを既存の安定UUIDへ移行してから同期するよう修正。初回バックアップは旧ID/回答履歴を保持、クラウド既存フレーズは重複しないことを検証。未知の不正IDは削除せず同期を停止し、サーバーは401と区別して400を返す。本番401がこの原因だったかはまだ確定していない。97件のテスト、同期/保存APIスモーク、対象ESLint、別distDirでの25ページビルド成功。再公開後の実アカウント確認が完了するまで公開成功と扱わない。
 - 本番反映承認：最終確認後の「よい」に基づき、2026-09-06 21:37:22 JSTに本番学習5テーブルを単一SELECTで再取得し、`.private-backups/learning-20260906-prerelease-owner.dpapi` へ新規暗号化保存した。Windows DPAPI CurrentUser（本人renre）、633,670 bytes、SHA-256 `A5C1B226965A1384A3F8B5B3B1C8BA8C2094123484EE574ACF3C6334FDE0BA35`。saved_phrases 163 / drill_items 161 / phrases 158 / srs_items 96 / phrase_categories 0。メモリ内PGliteで5テーブル全件を復元してJSONB完全一致・所有者/外部キー整合を確認。秘密値/本文の表示・平文ファイル化・外部サービスへの転送なし。Auth/Storage/他端末の未同期データは含まない。GitHub fetch後、ローカルmainとorigin/mainは17c333dで一致。本番公開前の戻し先は `dpl_FhLM4NM8W1Zcm6qapFKZhEkBBKPQ`。この時点では公開前で、次にアプリ関連差分だけをcommit/pushする。以下の本番承認待ちは承認前の履歴。
 
 - 本番前の最終確認：「それはOK、次に進んで」を受け、スマホ確認はユーザー報告として記録。Codexは最新Previewの同一アカウントで「同期済み」と既存中国語2件を再確認した。新たな回答のID/時刻を突合したわけではなく、実スマホの通信断復帰を確認済みとは扱わない。

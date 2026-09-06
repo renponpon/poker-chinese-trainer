@@ -67,6 +67,9 @@ globalThis.fetch = async (url, options = {}) => {
     cloud.phrases = cloud.phrases.filter((phrase) => !body.phraseIds.includes(phrase.id));
     cloud.srsItems = cloud.srsItems.filter((item) => !body.phraseIds.includes(item.id));
   } else if (method === "PATCH") {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.phrase.id)) {
+      return Response.json({ error: "invalid phrase ID" }, { status: 400 });
+    }
     const exists = cloud.phrases.some((phrase) => phrase.id === body.phrase.id);
     if (body.existingOnly && !exists) return Response.json({ error: "deleted" }, { status: 409 });
     cloud.phrases = [...cloud.phrases.filter((phrase) => phrase.id !== body.phrase.id), clone(body.phrase)];
@@ -85,9 +88,20 @@ const cache = loadSource(resolve(root, "infrastructure/local/account-cache-stora
 const starters = loadSource(resolve(root, "lib/starter-phrases"));
 const phrase = { ...starters.STARTER_PHRASES[0], explanation: "base" };
 
-local.addLocalPhrase(phrase);
+storage.setItem("poker-chinese-local-phrases-v1", JSON.stringify([{ ...phrase, id: "starter-001-really" }]));
+storage.setItem("poker-chinese-srs-v1", JSON.stringify([{
+  id: "starter-001-really", status: "review", intervalDays: 3, consecutiveGood: 2, easeFactor: 2.5,
+  lastScore: 2, lastReviewedAt: 2000, nextReviewAt: 9000,
+}]));
+backend.get("token-a").phrases.push(clone(phrase));
 await sync.synchronizeAccountPhraseData(session);
 assert.equal(backend.get("token-a").phrases.length, 1);
+assert.equal(backend.get("token-a").phrases[0].id, phrase.id);
+assert.equal(backend.get("token-a").srsItems[0].id, phrase.id);
+assert.equal(backend.get("token-a").srsItems[0].lastReviewedAt, 2000);
+const upgradeBackup = JSON.parse(storage.getItem("phrabit-before-sync-upgrade-20260906-v1"));
+assert.equal(JSON.parse(upgradeBackup.entries.find(([key]) => key === "poker-chinese-local-phrases-v1")[1])[0].id, "starter-001-really");
+assert.equal(JSON.parse(upgradeBackup.entries.find(([key]) => key === "poker-chinese-srs-v1")[1])[0].lastReviewedAt, 2000);
 assert.equal(cache.currentDataOwner(), "account-a");
 assert.equal(sync.getAccountSyncStatus(), "同期済み");
 assert.equal(AccountSyncNotice({}).props.children, "同期済み", "他の画面の同期済み表示を維持");
@@ -194,4 +208,4 @@ const callsBeforeRecovery = calls.length;
 storage.setItem("phrabit-device-recovery-v1", "active");
 await assert.rejects(sync.synchronizeAccountPhraseData(session), /復元確認中/);
 assert.equal(calls.length, callsBeforeRecovery);
-console.log("PASS: actual sync coordinator with mocked cloud: offline edit/delete, network-disconnected addition/review/retry without duplicates, in-flight edit, remote add/delete, conflict preservation, SRS, logout recovery, account-switch cancellation/isolation, recovery blocks cloud requests");
+console.log("PASS: actual sync coordinator with mocked cloud: legacy starter ID migration with review and original backup preserved, no duplicate cloud phrase, offline edit/delete, network-disconnected addition/review/retry without duplicates, in-flight edit, remote add/delete, conflict preservation, SRS, logout recovery, account-switch cancellation/isolation, recovery blocks cloud requests");
