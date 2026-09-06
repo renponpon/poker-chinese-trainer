@@ -1,4 +1,7 @@
 import type { NextConfig } from "next";
+import { assertPreviewEnvironment } from "./src/infrastructure/server/preview-environment";
+
+assertPreviewEnvironment(process.env);
 
 const nextConfig: NextConfig = {
   experimental: {

@@ -1,4 +1,4 @@
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import {
   normalizePersistSavedPhrasesRequest,
   persistSavedPhrases,
@@ -11,14 +11,14 @@ import { identifyRequestActor } from "@/infrastructure/server/usage-limits";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  const accessToken = getBearerToken(req);
-  await identifyRequestActor(req, accessToken);
-  const { ownerKey, nickname, phrases } = normalizePersistSavedPhrasesRequest(
-    await parseRequest(req),
-  );
+  try {
+    const accessToken = getBearerToken(req);
+    await identifyRequestActor(req, accessToken);
+    const { ownerKey, nickname, phrases } = normalizePersistSavedPhrasesRequest(
+      await parseRequest(req),
+    );
 
-  after(async () => {
-    await persistSavedPhrases({
+    const result = await persistSavedPhrases({
       phrases,
       storage: createPhraseCloudStorage({ accessToken, ownerKey, nickname }),
       onError: (error, phrase) => {
@@ -28,9 +28,15 @@ export async function POST(req: Request) {
         });
       },
     });
-  });
 
-  return NextResponse.json({ ok: true, count: phrases.length });
+    if (result.failedPhraseIds.length) {
+      return NextResponse.json({ error: "一部のフレーズを保存できませんでした", ...result }, { status: 503 });
+    }
+    return NextResponse.json({ ok: true, count: result.succeeded, synced: Boolean(accessToken) });
+  } catch (error) {
+    const status = error instanceof PersistSavedPhrasesRequestError ? error.status : 500;
+    return NextResponse.json({ error: error instanceof Error ? error.message : "保存に失敗しました" }, { status });
+  }
 }
 
 async function parseRequest(req: Request): Promise<unknown> {

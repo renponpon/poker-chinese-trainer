@@ -1,5 +1,7 @@
 import type { SrsItem } from "../../lib/types";
 import { migrateStarterPhraseId } from "../../lib/starter-phrases";
+import { checkpointLocalData } from "./account-cache-storage";
+import { ensureDeviceBackup } from "./device-backup";
 
 const STORAGE_KEY = "poker-chinese-srs-v1";
 
@@ -9,6 +11,7 @@ function isClient(): boolean {
 
 export function loadLocalSrsItems(): SrsItem[] {
   if (!isClient()) return [];
+  ensureDeviceBackup();
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
@@ -32,5 +35,7 @@ export function loadLocalSrsItems(): SrsItem[] {
 
 export function saveLocalSrsItems(items: SrsItem[]): void {
   if (!isClient()) return;
+  ensureDeviceBackup();
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  checkpointLocalData();
 }

@@ -431,3 +431,18 @@ export const STARTER_PHRASES: Phrase[] = STARTER_SEEDS.map((phrase) => ({
   source: "prototype",
   usedAt: null,
 }));
+
+export function getPracticeSamples(language: Phrase["targetLanguage"]): Phrase[] {
+  if (language === "zh") return STARTER_PHRASES.slice(0, 2);
+  const examples = [
+    { source: "袋は要りません", target: "I don't need a bag." },
+    { source: "もう一度言ってもらえますか？", target: "Could you say that again?" },
+  ];
+  return examples.map((example, index) => ({
+    ...STARTER_PHRASES[index],
+    japanese: example.source, chinese: example.target,
+    sourceText: example.source, targetText: example.target,
+    targetLanguage: "en", direction: "ja-to-en", readingType: "none",
+    reading: "", pinyin: "", explanation: "サンプルの練習です。自分のフレーズや学習履歴には保存されません。",
+  }));
+}

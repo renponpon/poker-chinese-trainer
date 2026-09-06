@@ -18,13 +18,13 @@ export type PhrasePackOption<T extends string> = {
 
 export const PHRASE_PACK_SCENE_OPTIONS: Array<PhrasePackOption<PhrasePackScene>> = [
   { id: "auto", label: "お任せ", categoryId: null },
-  { id: "casino", label: "カジノ", categoryId: "poker-table" },
+  { id: "daily", label: "日常生活", categoryId: "other" },
   { id: "restaurant", label: "レストラン・カフェ", categoryId: "restaurant" },
   { id: "shopping", label: "買い物", categoryId: "shopping" },
   { id: "transport", label: "移動・タクシー", categoryId: "transport" },
   { id: "hotel", label: "ホテル", categoryId: "hotel" },
   { id: "work", label: "仕事・打ち合わせ", categoryId: "work" },
-  { id: "daily", label: "日常生活", categoryId: "other" },
+  { id: "casino", label: "カジノ", categoryId: "poker-table" },
 ];
 
 export const PHRASE_PACK_LEVEL_OPTIONS: Array<PhrasePackOption<PhrasePackLevel>> = [

@@ -245,17 +245,34 @@ export async function replaceSupabasePhraseState(
   accessToken: string,
   phrase: Phrase,
   srsItem: SrsItem | null,
+  existingOnly = false,
 ): Promise<boolean> {
   if (!isPostgresUuid(phrase.id)) return false;
   const authenticated = await getAuthenticatedSupabase(accessToken);
   if (!authenticated) return false;
   const { supabase, userId } = authenticated;
 
-  await upsertSupabaseSavedPhraseRow(supabase, userId, phrase);
-  const { error: phraseError } = await supabase
-    .from("phrases")
-    .upsert(phraseToLegacyPhraseRow(userId, phrase));
-  if (phraseError) throw phraseError;
+  if (existingOnly) {
+    const saved = await supabase.from("saved_phrases")
+      .update(phraseToSavedPhraseRow(userId, phrase))
+      .eq("id", phrase.id).eq("user_id", userId).select("id");
+    if (saved.error && !isMissingRelationError(saved.error)) throw saved.error;
+    if (!saved.error && !saved.data?.length) {
+      throw Object.assign(new Error("別端末で削除されたため更新を停止しました"), { status: 409 });
+    }
+    const legacy = await supabase.from("phrases")
+      .update(phraseToLegacyPhraseRow(userId, phrase))
+      .eq("id", phrase.id).eq("user_id", userId).select("id");
+    if (legacy.error) throw legacy.error;
+    if (!legacy.data?.length) {
+      throw Object.assign(new Error("別端末で削除されたため更新を停止しました"), { status: 409 });
+    }
+  } else {
+    await upsertSupabaseSavedPhraseRow(supabase, userId, phrase);
+    const { error: phraseError } = await supabase.from("phrases")
+      .upsert(phraseToLegacyPhraseRow(userId, phrase));
+    if (phraseError) throw phraseError;
+  }
 
   if (phrase.shouldDrill) {
     const item = srsItem ?? rowToSrsItem(defaultDrillItemRow(userId, phrase.id));

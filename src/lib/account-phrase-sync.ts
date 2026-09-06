@@ -1,143 +1,224 @@
 import type { Session } from "@supabase/supabase-js";
+import { ensureDeviceBackup, isDeviceRecoveryActive } from "@/infrastructure/local/device-backup";
 import { mergeAccountPhraseData } from "@/application/phrase/merge-account-phrase-data";
 import { normalizeAccountPhraseSnapshot } from "@/application/phrase/account-phrase-sync";
+import { reconcileAccountPhraseData, type PhraseMutation } from "@/application/phrase/reconcile-account-phrase-data";
 import type { SavedPhraseSnapshot } from "@/application/phrase/load-saved-phrases";
 import { syncDrillSchedule } from "@/application/practice/drill-schedule";
+import { loadLocalPhrases, loadNickname, loadOwnerKey, saveLocalPhrases } from "@/infrastructure/local/phrase-storage";
+import { saveLocalSrsItems } from "@/infrastructure/local/srs-storage";
 import {
-  loadLocalPhrases,
-  saveLocalPhrases,
-} from "@/infrastructure/local/phrase-storage";
-import {
-  loadLocalSrsItems,
-  saveLocalSrsItems,
-} from "@/infrastructure/local/srs-storage";
-import { STARTER_PHRASES } from "@/lib/starter-phrases";
+  ACCOUNT_CACHE_OWNER_KEY, checkpointLocalData, currentDataOwner,
+  readAccountCheckpoint, writeAccountCheckpoint,
+} from "@/infrastructure/local/account-cache-storage";
 import type { Phrase, SrsItem } from "@/lib/types";
-import { getAuthHeaders } from "./auth-headers";
+import { getBrowserSupabase } from "./supabase";
 
 export const ACCOUNT_PHRASE_DATA_SYNCED_EVENT = "phrabit-account-phrase-data-synced";
+export const ACCOUNT_SYNC_STATUS_EVENT = "phrabit-account-sync-status";
+let syncStatus = "";
+let sessionEpoch = 0;
+let requestedUser: string | null = null;
+let activeSync: { userId: string; promise: Promise<void>; again: boolean } | null = null;
 
-const CACHE_OWNER_KEY = "phrabit-account-cache-owner-v1";
-const INITIAL_SYNC_PREFIX = "phrabit-account-initial-sync-v1:";
-let activeSync: Promise<void> | null = null;
+export function getAccountSyncStatus(): string { return syncStatus; }
 
-export function synchronizeAccountPhraseData(session: Session): Promise<void> {
-  if (activeSync) return activeSync;
-  activeSync = performAccountSync(session).finally(() => {
-    activeSync = null;
+function setSyncStatus(message: string): void {
+  syncStatus = message;
+  window.dispatchEvent(new Event(ACCOUNT_SYNC_STATUS_EVENT));
+}
+
+export async function synchronizeAccountPhraseData(session: Session): Promise<void> {
+  ensureDeviceBackup();
+  const userId = session.user.id;
+  if (requestedUser !== userId) {
+    activateAccount(userId);
+    requestedUser = userId;
+    sessionEpoch += 1;
+  }
+  if (activeSync?.userId === userId) {
+    activeSync.again = true;
+    return activeSync.promise;
+  }
+  const epoch = sessionEpoch;
+  const task = { userId, again: false, promise: Promise.resolve() };
+  const run = async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      task.again = false;
+      assertCurrentAccount(userId, epoch);
+      await performAccountSync(session, epoch);
+      if (!task.again) break;
+    }
+  };
+  task.promise = (navigator.locks
+    ? navigator.locks.request("phrabit-account-sync", run)
+    : Promise.resolve().then(run)
+  ).then(() => undefined).catch((error) => {
+    if (requestedUser === userId && epoch === sessionEpoch) {
+      setSyncStatus("端末に保存済み・未同期です。通信回復時に再試行します。");
+    }
+    throw error;
+  }).finally(() => {
+    if (activeSync === task) activeSync = null;
   });
-  return activeSync;
+  activeSync = task;
+  return task.promise;
 }
 
 export function clearOwnedAccountPhraseData(): void {
-  if (typeof window === "undefined" || !localStorage.getItem(CACHE_OWNER_KEY)) return;
-  saveLocalPhrases([]);
-  saveLocalSrsItems([]);
-  localStorage.removeItem(CACHE_OWNER_KEY);
+  if (typeof window === "undefined") return;
+  ensureDeviceBackup();
+  sessionEpoch += 1;
+  requestedUser = null;
+  if (currentDataOwner() !== "guest") {
+    checkpointLocalData();
+    localStorage.removeItem(ACCOUNT_CACHE_OWNER_KEY);
+    saveLocalPhrases([]);
+    saveLocalSrsItems([]);
+  }
+  setSyncStatus("");
   emitAccountPhraseDataSynced();
 }
 
-export async function syncPhraseStateToCloud(
-  phrase: Phrase,
-  srsItem: SrsItem | null,
-): Promise<boolean> {
-  return mutateCloud("PATCH", { phrase, srsItem });
+function activateAccount(userId: string): void {
+  const owner = currentDataOwner();
+  if (owner === userId) return;
+  const guest = owner === "guest" ? readLocalSnapshot() : null;
+  checkpointLocalData();
+  const previous = readAccountCheckpoint(userId);
+  const local = previous
+    ? guest ? mergeAccountPhraseData(guest, previous.local) : previous.local
+    : guest ?? { phrases: [], srsItems: [] };
+  localStorage.removeItem(ACCOUNT_CACHE_OWNER_KEY);
+  saveLocalPhrases(local.phrases);
+  saveLocalSrsItems(local.srsItems);
+  writeAccountCheckpoint(userId, { baseline: previous?.baseline ?? null, local });
+  localStorage.setItem(ACCOUNT_CACHE_OWNER_KEY, userId);
+  emitAccountPhraseDataSynced();
+}
+
+export async function syncPhraseStateToCloud(phrase: Phrase, srsItem: SrsItem | null): Promise<boolean> {
+  if (await syncCurrentAccount()) return true;
+  if (phrase.shouldDrill && srsItem) {
+    await cloudRequest("", "POST", { phrase, srsItem, ownerKey: loadOwnerKey() }, "/api/srs/sync");
+  }
+  return false;
 }
 
 export async function deletePhrasesFromCloud(phraseIds: string[]): Promise<boolean> {
-  if (phraseIds.length === 0) return true;
-  return mutateCloud("DELETE", { phraseIds });
+  return phraseIds.length === 0 ? true : syncCurrentAccount();
 }
 
-async function performAccountSync(session: Session): Promise<void> {
-  if (typeof window === "undefined") return;
-  const userId = session.user.id;
-  const cacheOwner = localStorage.getItem(CACHE_OWNER_KEY);
-  const initialSyncKey = `${INITIAL_SYNC_PREFIX}${userId}`;
-  const needsMerge =
-    cacheOwner !== userId || localStorage.getItem(initialSyncKey) !== "1";
-  const local = loadSnapshotForAccount(cacheOwner, userId);
-  const cloud = await fetchCloudSnapshot(session.access_token);
-  let result = cloud;
-
-  if (needsMerge) {
-    const merged = completeDrillSchedule(mergeAccountPhraseData(local, cloud));
-    const uploaded = await mutateCloudSnapshot(session.access_token, merged);
-    result = completeDrillSchedule(mergeAccountPhraseData(merged, uploaded));
+async function syncCurrentAccount(): Promise<boolean> {
+  const owner = currentDataOwner();
+  const supabase = getBrowserSupabase();
+  const session = supabase ? (await supabase.auth.getSession()).data.session : null;
+  if (owner !== currentDataOwner()) throw new Error("アカウントが変わったため同期を中止しました");
+  if (!session) {
+    if (owner !== "guest") throw new Error("再ログインすると未同期データを送信できます");
+    return false;
   }
+  if (owner !== "guest" && owner !== session.user.id) throw new Error("アカウントを確認してください");
+  await synchronizeAccountPhraseData(session);
+  return true;
+}
 
+export async function syncSavedPhrases(phrases: Phrase[]): Promise<boolean> {
+  const owner = currentDataOwner();
+  if (await syncCurrentAccount()) return true;
+  if (owner !== "guest" || currentDataOwner() !== owner) return false;
+  const ids = new Set(phrases.map((phrase) => phrase.id));
+  const current = loadLocalPhrases().filter((phrase) => ids.has(phrase.id));
+  for (let offset = 0; offset < current.length; offset += 10) {
+    await cloudRequest("", "POST", {
+      ownerKey: loadOwnerKey(), nickname: loadNickname(), phrases: current.slice(offset, offset + 10),
+    }, "/api/phrase/save-pack");
+  }
+  return false;
+}
+
+async function performAccountSync(session: Session, epoch: number): Promise<void> {
+  const userId = session.user.id;
+  setSyncStatus("端末に保存済み・同期中...");
+  checkpointLocalData();
+  let baseline = readAccountCheckpoint(userId)?.baseline;
+  const cloud = completeDrillSchedule(normalizeAccountPhraseSnapshot(await cloudRequest(session.access_token, "GET")));
+  assertCurrentAccount(userId, epoch);
+  const local = readLocalSnapshot();
+  if (!baseline) {
+    baseline = cloud;
+    const merged = completeDrillSchedule(mergeAccountPhraseData(local, cloud));
+    saveLocalPhrases(merged.phrases);
+    saveLocalSrsItems(merged.srsItems);
+    writeAccountCheckpoint(userId, { baseline, local: merged });
+  }
+  const before = readLocalSnapshot();
+  const plan = reconcileAccountPhraseData(baseline, before, cloud);
+  for (const mutation of plan.mutations) {
+    assertCurrentAccount(userId, epoch);
+    await sendMutation(session.access_token, mutation);
+  }
+  const confirmed = plan.mutations.length
+    ? completeDrillSchedule(normalizeAccountPhraseSnapshot(await cloudRequest(session.access_token, "GET")))
+    : cloud;
+  assertCurrentAccount(userId, epoch);
+  const current = readLocalSnapshot();
+  const pending = reconcileAccountPhraseData(before, current, confirmed);
+  const conflictIds = new Set([...plan.conflicts, ...pending.conflicts]);
+  const result = completeDrillSchedule({
+    phrases: [...pending.snapshot.phrases.filter((phrase) => !conflictIds.has(phrase.id)), ...current.phrases.filter((phrase) => conflictIds.has(phrase.id))],
+    srsItems: [...pending.snapshot.srsItems.filter((item) => !conflictIds.has(item.id)), ...current.srsItems.filter((item) => conflictIds.has(item.id))],
+  });
+  const nextBaseline = {
+    phrases: [...confirmed.phrases, ...baseline.phrases.filter((phrase) => conflictIds.has(phrase.id) && !confirmed.phrases.some((item) => item.id === phrase.id))],
+    srsItems: confirmed.srsItems,
+  };
   saveLocalPhrases(result.phrases);
   saveLocalSrsItems(result.srsItems);
-  localStorage.setItem(CACHE_OWNER_KEY, userId);
-  localStorage.setItem(initialSyncKey, "1");
+  writeAccountCheckpoint(userId, { baseline: nextBaseline, local: result });
+  if (pending.mutations.length && activeSync?.userId === userId) activeSync.again = true;
+  setSyncStatus(conflictIds.size
+    ? "別端末で削除されたフレーズに未同期の変更があります。端末に保持しています。不要なら保存画面で削除してください。"
+    : pending.mutations.length ? "端末に保存済み・変更を同期中..." : "同期済み");
   emitAccountPhraseDataSynced();
 }
 
-function loadSnapshotForAccount(
-  cacheOwner: string | null,
-  userId: string,
-): SavedPhraseSnapshot {
-  if (cacheOwner && cacheOwner !== userId) {
-    return completeDrillSchedule({ phrases: STARTER_PHRASES, srsItems: [] });
-  }
-  return completeDrillSchedule({
-    phrases: loadLocalPhrases(),
-    srsItems: loadLocalSrsItems(),
+function readLocalSnapshot(): SavedPhraseSnapshot {
+  const snapshot = normalizeAccountPhraseSnapshot({
+    phrases: JSON.parse(localStorage.getItem("poker-chinese-local-phrases-v1") ?? "[]"),
+    srsItems: JSON.parse(localStorage.getItem("poker-chinese-srs-v1") ?? "[]"),
   });
+  const completed = completeDrillSchedule(snapshot);
+  if (JSON.stringify(completed.srsItems) !== JSON.stringify(snapshot.srsItems)) saveLocalSrsItems(completed.srsItems);
+  return completed;
 }
 
 function completeDrillSchedule(snapshot: SavedPhraseSnapshot): SavedPhraseSnapshot {
-  const { items } = syncDrillSchedule({
-    phrases: snapshot.phrases,
-    items: snapshot.srsItems,
-  });
-  return { phrases: snapshot.phrases, srsItems: items };
+  return { phrases: snapshot.phrases, srsItems: syncDrillSchedule({ phrases: snapshot.phrases, items: snapshot.srsItems }).items };
 }
 
-async function fetchCloudSnapshot(accessToken: string): Promise<SavedPhraseSnapshot> {
-  const response = await fetch("/api/phrases", {
-    headers: { Authorization: `Bearer ${accessToken}` },
+function assertCurrentAccount(userId: string, epoch: number): void {
+  if (isDeviceRecoveryActive() || requestedUser !== userId || sessionEpoch !== epoch || currentDataOwner() !== userId) {
+    throw new Error("アカウントが変わったため同期を中止しました");
+  }
+}
+
+async function sendMutation(accessToken: string, mutation: PhraseMutation): Promise<void> {
+  await cloudRequest(accessToken, mutation.kind === "delete" ? "DELETE" : "PATCH",
+    mutation.kind === "delete" ? { phraseIds: [mutation.id] } : mutation);
+}
+
+async function cloudRequest(accessToken: string, method: string, body?: unknown, path = "/api/phrases"): Promise<unknown> {
+  ensureDeviceBackup();
+  const response = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json", ...(accessToken ? { Authorization: "Bearer " + accessToken } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
     cache: "no-store",
   });
   const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error ?? "クラウドデータの取得に失敗しました");
-  }
-  return normalizeAccountPhraseSnapshot(data);
-}
-
-async function mutateCloudSnapshot(
-  accessToken: string,
-  snapshot: SavedPhraseSnapshot,
-): Promise<SavedPhraseSnapshot> {
-  const response = await fetch("/api/phrases", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(snapshot),
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error ?? "既存データの統合に失敗しました");
-  }
-  return normalizeAccountPhraseSnapshot(data);
-}
-
-async function mutateCloud(method: "PATCH" | "DELETE", body: unknown): Promise<boolean> {
-  const authHeaders = await getAuthHeaders();
-  if (!authHeaders.Authorization) return false;
-  const response = await fetch("/api/phrases", {
-    method,
-    headers: { "Content-Type": "application/json", ...authHeaders },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    throw new Error(data.error ?? "クラウドデータの更新に失敗しました");
-  }
-  return true;
+  if (!response.ok) throw new Error(data.error ?? "クラウドとの同期に失敗しました");
+  return data;
 }
 
 function emitAccountPhraseDataSynced(): void {

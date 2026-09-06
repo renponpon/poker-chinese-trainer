@@ -11,6 +11,8 @@
 # testing
 /coverage
 /tmp/phrabit-responsive-shots
+/tmp/backup-restore-runtime/
+/.private-backups/
 
 # next.js
 /.next/

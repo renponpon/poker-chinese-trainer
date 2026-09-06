@@ -12,7 +12,8 @@ export function createPhraseCloudStorage(input: PhraseCloudStorageInput) {
   return {
     savePhrase: async (phrase: Phrase): Promise<void> => {
       if (input.accessToken) {
-        await createSupabasePhrase(input.accessToken, phrase);
+        const saved = await createSupabasePhrase(input.accessToken, phrase);
+        if (!saved) throw new Error("ログイン状態を確認して、保存を再試行してください");
       }
       await createPhrase({
         phraseId: phrase.id,

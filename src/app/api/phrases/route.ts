@@ -21,6 +21,12 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   try {
     const accessToken = getBearerToken(req);
+    const storage = createPhraseCloudReader();
+    if (accessToken) {
+      const snapshot = await storage.loadByAccessToken(accessToken);
+      if (!snapshot) return NextResponse.json({ error: "ログイン状態を確認してください" }, { status: 401 });
+      return NextResponse.json(snapshot);
+    }
     const url = new URL(req.url);
     const { ownerKey } = normalizeLoadSavedPhrasesRequest({
       ownerKey: url.searchParams.get("ownerKey"),
@@ -28,7 +34,7 @@ export async function GET(req: Request) {
     const { phrases, srsItems } = await loadSavedPhrases({
       accessToken,
       ownerKey,
-      storage: createPhraseCloudReader(),
+      storage,
     });
     return NextResponse.json({ phrases, srsItems });
   } catch (error) {
@@ -62,8 +68,9 @@ export async function PATCH(req: Request) {
     if (!accessToken) {
       return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     }
-    const { phrase, srsItem } = normalizeAccountPhraseState(await req.json());
-    const updated = await replaceSupabasePhraseState(accessToken, phrase, srsItem);
+    const body = await req.json();
+    const { phrase, srsItem } = normalizeAccountPhraseState(body);
+    const updated = await replaceSupabasePhraseState(accessToken, phrase, srsItem, body.existingOnly === true);
     if (!updated) {
       return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     }

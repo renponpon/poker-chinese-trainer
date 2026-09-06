@@ -1,6 +1,8 @@
 import type { Phrase, PhraseCategory } from "../../lib/types";
 import { createId } from "../../lib/id";
 import { parseDirection } from "../../lib/languages";
+import { checkpointLocalData } from "./account-cache-storage";
+import { ensureDeviceBackup } from "./device-backup";
 import {
   loadLocalSrsItems,
   saveLocalSrsItems,
@@ -38,13 +40,13 @@ type NormalizePhraseOptions = {
 
 export function loadLocalPhrases(): Phrase[] {
   if (!isClient()) return [];
+  ensureDeviceBackup();
   try {
     const raw = window.localStorage.getItem(PHRASES_KEY);
     if (!raw) {
-      const starters = STARTER_PHRASES.map((phrase) => normalizePhrase(phrase));
-      saveLocalPhrases(starters);
+      saveLocalPhrases([]);
       window.localStorage.setItem(STARTER_SEED_KEY, "1");
-      return starters;
+      return [];
     }
     const parsed = JSON.parse(raw) as Partial<Phrase>[];
     if (!Array.isArray(parsed)) return [];
@@ -53,11 +55,9 @@ export function loadLocalPhrases(): Phrase[] {
       .map((phrase) => normalizePhrase(phrase, { legacyDrillDefault: true }));
     let normalized = [...new Map(migrated.map((phrase) => [phrase.id, phrase])).values()];
     if (window.localStorage.getItem(STARTER_SEED_KEY) !== "1") {
-      normalized = mergeStarterPhrases(normalized);
       window.localStorage.setItem(STARTER_SEED_KEY, "1");
-    } else {
-      normalized = patchStarterExplanations(normalized);
     }
+    normalized = patchStarterExplanations(normalized);
     if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
       saveLocalPhrases(normalized);
     }
@@ -79,20 +79,11 @@ function patchStarterExplanations(current: Phrase[]): Phrase[] {
   return changed ? patched : current;
 }
 
-function mergeStarterPhrases(current: Phrase[]): Phrase[] {
-  const existingIds = new Set(current.map((phrase) => phrase.id));
-  const missingStarters = STARTER_PHRASES
-    .filter((phrase) => !existingIds.has(phrase.id))
-    .map((phrase) => normalizePhrase(phrase));
-  const withMissing = missingStarters.length
-    ? [...missingStarters, ...current]
-    : current;
-  return patchStarterExplanations(withMissing);
-}
-
 export function saveLocalPhrases(phrases: Phrase[]): void {
   if (!isClient()) return;
+  ensureDeviceBackup();
   window.localStorage.setItem(PHRASES_KEY, JSON.stringify(phrases));
+  checkpointLocalData();
 }
 
 export function addLocalPhrase(
@@ -104,7 +95,7 @@ export function addLocalPhrase(
     createdAt: input.createdAt ?? new Date().toISOString(),
   });
   const current = loadLocalPhrases();
-  saveLocalPhrases([phrase, ...current]);
+  saveLocalPhrases([phrase, ...current.filter((item) => item.id !== phrase.id)]);
   return phrase;
 }
 
@@ -144,6 +135,7 @@ export function loadPhraseCategories(): PhraseCategory[] {
 
 export function savePhraseCategories(categories: PhraseCategory[]): void {
   if (!isClient()) return;
+  ensureDeviceBackup();
   window.localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
 }
 
@@ -154,6 +146,7 @@ export function loadNickname(): string {
 
 export function saveNickname(nickname: string): void {
   if (!isClient()) return;
+  ensureDeviceBackup();
   window.localStorage.setItem(NICKNAME_KEY, nickname.trim());
 }
 
@@ -164,6 +157,7 @@ export function loadOwnerKey(): string {
 
 export function saveOwnerKey(ownerKey: string): void {
   if (!isClient()) return;
+  ensureDeviceBackup();
   window.localStorage.setItem(OWNER_KEY, ownerKey.trim());
 }
 

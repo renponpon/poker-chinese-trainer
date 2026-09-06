@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { completeSavedExplanation } from "@/lib/saved-phrase-explanation";
 import { deleteSavedPhrases } from "@/application/phrase/delete-saved-phrases";
 import { syncDrillSchedule } from "@/application/practice/drill-schedule";
 import { setPhraseDrillMembership } from "@/application/practice/set-drill-membership";
@@ -24,6 +26,7 @@ import { statusLabel } from "@/lib/srs";
 import SpeechPlayButton from "@/components/SpeechPlayButton";
 import { playSpeechForLang, prefetchSpeechForLang, primeSpeech } from "@/lib/speech";
 import { cn } from "@/lib/utils";
+import { useLearningLanguage } from "@/lib/use-learning-language";
 import {
   ACCOUNT_PHRASE_DATA_SYNCED_EVENT,
   deletePhrasesFromCloud,
@@ -49,13 +52,30 @@ function isUncategorized(categoryId: string | null): boolean {
 }
 
 export default function LibraryView() {
+  const { targetLanguage, setTargetLanguage, languageReady } = useLearningLanguage();
+  return (
+    <LanguageLibrary
+      key={targetLanguage}
+      targetLanguage={targetLanguage}
+      setTargetLanguage={setTargetLanguage}
+      languageReady={languageReady}
+    />
+  );
+}
+
+function LanguageLibrary({ targetLanguage, setTargetLanguage, languageReady }: {
+  targetLanguage: LanguageCode;
+  setTargetLanguage: (language: LanguageCode) => void;
+  languageReady: boolean;
+}) {
   const [phrases, setPhrases] = useState<Phrase[]>([]);
   const [items, setItems] = useState<SrsItem[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const [languageFilter, setLanguageFilter] = useState<LanguageFilter>("all");
+  const [showAllLanguages, setShowAllLanguages] = useState(false);
+  const languageFilter: LanguageFilter = showAllLanguages ? "all" : targetLanguage;
   const [drillFilter, setDrillFilter] = useState<DrillFilter>("all");
   const [filterOpen, setFilterOpen] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -95,8 +115,10 @@ export default function LibraryView() {
       setItems(synced.items);
     };
     window.addEventListener(ACCOUNT_PHRASE_DATA_SYNCED_EVENT, refreshSyncedData);
+    window.addEventListener("phrabit-phrases-updated", refreshSyncedData);
     return () => {
       window.removeEventListener(ACCOUNT_PHRASE_DATA_SYNCED_EVENT, refreshSyncedData);
+      window.removeEventListener("phrabit-phrases-updated", refreshSyncedData);
     };
   }, []);
 
@@ -261,7 +283,7 @@ export default function LibraryView() {
     (languageFilter === "all" ? 0 : 1) +
     (drillFilter === "all" ? 0 : 1);
 
-  if (!hydrated) {
+  if (!hydrated || !languageReady) {
     return (
       <div className="flex min-h-[200px] items-center justify-center text-sm text-neutral-500">
         読み込み中...
@@ -323,13 +345,18 @@ export default function LibraryView() {
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {ACTIVE_TARGET_LANGUAGE_CODES.length > 1 && (
               <label className="flex flex-col gap-1 text-xs text-neutral-400">
-                対象言語
+                学習言語（全画面共通）
                 <select
                   value={languageFilter}
-                  onChange={(e) => setLanguageFilter(e.target.value as LanguageFilter)}
+                  onChange={(event) => {
+                    const value = event.target.value as LanguageFilter;
+                    setShowAllLanguages(value === "all");
+                    setSelectedIds(new Set());
+                    if (value !== "all") setTargetLanguage(value);
+                  }}
                   className="rounded-xl bg-neutral-950/80 px-3 py-2.5 text-sm text-neutral-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                 >
-                  <option value="all">全て</option>
+                  <option value="all">全て（一時表示）</option>
                   {ACTIVE_TARGET_LANGUAGE_CODES.map((language) => (
                     <option key={language} value={language}>
                       {getLanguageLabel(language)}
@@ -451,12 +478,16 @@ export default function LibraryView() {
                         </div>
                       )}
                     </div>
-                    {p.explanation && (
-                      <div className="mt-4 whitespace-pre-wrap rounded-2xl bg-neutral-950/40 p-4 text-sm leading-relaxed text-neutral-300">
-                        {formatExplanationForReading(p.explanation)}
-                      </div>
-                    )}
                     <div className="mt-4 flex gap-2">
+                      {p.shouldDrill && (
+                        <Link
+                          href={"/drill?phrases=" + p.id}
+                          onClick={() => setTargetLanguage(p.targetLanguage)}
+                          className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-bold text-neutral-950"
+                        >
+                          この一言を練習
+                        </Link>
+                      )}
                       <SpeechPlayButton
                         play={(options) =>
                           playSpeechForLang(
@@ -484,6 +515,11 @@ export default function LibraryView() {
                         削除
                       </button>
                     </div>
+                    <details className="mt-4 rounded-2xl bg-neutral-950/40 p-4 text-sm text-neutral-300">
+                      <summary className="cursor-pointer font-bold">使い方・想定返答を見る</summary>
+                      {p.explanation ? <div className="mt-3 whitespace-pre-wrap leading-relaxed">{formatExplanationForReading(p.explanation)}</div>
+                        : <button type="button" className="mt-3 rounded-xl bg-neutral-900 px-3 py-2" onClick={() => void completeSavedExplanation(p)}>解説を生成・再試行する</button>}
+                    </details>
                     <div className="mt-4 grid grid-cols-1 gap-2 border-t border-neutral-800/70 pt-4 sm:grid-cols-2">
                       <label className="flex flex-col gap-1 text-xs text-neutral-500">
                         カテゴリ

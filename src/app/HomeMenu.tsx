@@ -5,9 +5,13 @@ import { useEffect, useRef, useState } from "react";
 import DataHandlingNotice from "@/components/DataHandlingNotice";
 import { SRS_STATUS_GUIDE } from "@/lib/srs";
 import { ADD_TUTORIAL_EVENT, ADD_TUTORIAL_QUERY } from "@/lib/tutorial";
+import { ACTIVE_TARGET_LANGUAGE_CODES, getLanguageLabel } from "@/lib/languages";
+import { useLearningLanguage } from "@/lib/use-learning-language";
+import type { LanguageCode } from "@/lib/types";
 
 export default function HomeMenu() {
   const [open, setOpen] = useState(false);
+  const { targetLanguage, setTargetLanguage, languageReady } = useLearningLanguage();
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -48,12 +52,31 @@ export default function HomeMenu() {
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-label="メニュー"
+        aria-expanded={open}
         className="flex h-10 w-10 items-center justify-center text-emerald-400 hover:text-emerald-300"
       >
         <MenuIcon />
       </button>
       {open && (
         <div className="absolute right-0 top-14 z-[80] max-h-[calc(100vh-96px)] w-[min(88vw,380px)] overflow-y-auto overscroll-contain rounded-2xl bg-neutral-950 p-3 text-left shadow-2xl shadow-black/50">
+          <div className="mb-2 rounded-xl bg-neutral-900 px-4 py-4">
+            <label className="flex flex-col gap-2 text-base font-bold text-neutral-200">
+              学習言語（全画面共通）
+              <select
+                value={targetLanguage}
+                disabled={!languageReady}
+                onChange={(event) => setTargetLanguage(event.target.value as LanguageCode)}
+                className="rounded-xl bg-neutral-950 px-3 py-2.5 text-base text-neutral-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+              >
+                {ACTIVE_TARGET_LANGUAGE_CODES.map((language) => (
+                  <option key={language} value={language}>{getLanguageLabel(language)}</option>
+                ))}
+              </select>
+            </label>
+            <p className="mt-2 text-xs leading-relaxed text-neutral-400">
+              翻訳・ドリル・保存・会話にまとめて反映します。各画面で切り替えた言語も、このブラウザで次回から使います。
+            </p>
+          </div>
           <button
             type="button"
             onClick={handleTutorialClick}
@@ -197,6 +220,7 @@ export default function HomeMenu() {
           >
             運営へのご要望
           </Link>
+          <a href="/data-safety" className="mt-2 block rounded-xl bg-neutral-900 px-4 py-4 text-base font-bold text-neutral-200 hover:bg-neutral-800">バックアップ・復旧</a>
         </div>
       )}
     </div>

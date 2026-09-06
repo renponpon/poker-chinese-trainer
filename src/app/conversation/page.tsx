@@ -42,6 +42,12 @@ import {
   shouldUseHighAccuracySpeechFirst,
 } from "@/lib/speech-recognition";
 import { useHighAccuracySpeech } from "@/lib/use-high-accuracy-speech";
+import { useLearningLanguage } from "@/lib/use-learning-language";
+import { currentDataOwner } from "@/infrastructure/local/account-cache-storage";
+import { syncSavedPhrases } from "@/lib/account-phrase-sync";
+import { completeSavedExplanation } from "@/lib/saved-phrase-explanation";
+import { useDataOwner } from "@/lib/translation-draft";
+import AccountSyncNotice from "@/components/AccountSyncNotice";
 import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
 import { recordProductAnalyticsEvent } from "@/lib/product-analytics";
 import { toStudyPhraseFields } from "@/lib/study-phrase";
@@ -102,9 +108,14 @@ declare global {
 }
 
 export default function ConversationPage() {
+  const owner = useDataOwner();
+  return <Conversation key={owner} owner={owner} />;
+}
+
+function Conversation({ owner }: { owner: string }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
-  const [targetLanguage, setTargetLanguage] = useState<LanguageCode>("zh");
+  const { targetLanguage, setTargetLanguage, languageReady } = useLearningLanguage();
   const [speaker, setSpeaker] = useState<Speaker>("ja");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("speed");
   const [loading, setLoading] = useState(false);
@@ -118,6 +129,8 @@ export default function ConversationPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [addingToDrill, setAddingToDrill] = useState(false);
   const [drillAddError, setDrillAddError] = useState<string | null>(null);
+  const [savedIds, setSavedIds] = useState<string[]>([]);
+  const savingRef = useRef(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const translatingRef = useRef(false);
   const suppressSpeechErrorRef = useRef(false);
@@ -135,12 +148,13 @@ export default function ConversationPage() {
   }, []);
 
   useEffect(() => {
+    if (!languageReady) return;
     const timer = window.setTimeout(
       () => triggerTranslationWarmup(targetLanguage),
       TRANSLATION_WARMUP_DELAY_MS,
     );
     return () => window.clearTimeout(timer);
-  }, [targetLanguage]);
+  }, [targetLanguage, languageReady]);
 
   useEffect(() => {
     return () => {
@@ -197,7 +211,7 @@ export default function ConversationPage() {
 
   const translate = async (text: string, source: Speaker) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!languageReady || !trimmed) return;
     if (translatingRef.current) return;
 
     const direction: PhraseDirection =
@@ -264,21 +278,7 @@ export default function ConversationPage() {
         provider: data.provider,
         inDrill: false,
       };
-      const history = recordTranslationHistory({
-        historyItemId: createId(),
-        translation: toStudyPhraseFields(message),
-        source: "conversation",
-        translatedAt: new Date().toISOString(),
-        storage: { addHistoryItem: addLocalTranslationHistoryItem },
-      });
-
-      setMessages((current) => [
-        ...current,
-        {
-          ...message,
-          historyItemId: history.id,
-        },
-      ]);
+      setMessages((current) => [...current, message]);
       setDraft("");
       inputStartRecordedRef.current = false;
     } catch (err) {
@@ -333,141 +333,56 @@ export default function ConversationPage() {
     });
   };
 
-  const enrichPhraseForDrill = async (
-    message: Message,
-    authHeaders: Record<string, string>,
-  ): Promise<Phrase> => {
-    const studyPhrase = toStudyPhraseFields(message);
-    let pinyin = studyPhrase.pinyin;
-    let reading = studyPhrase.reading;
-    let explanation = studyPhrase.explanation;
-    const needsReading = studyPhrase.readingType === "pinyin" && !pinyin.trim();
-    const needsEnrich = needsReading || !explanation.trim();
-
-    if (needsEnrich) {
-      const res = await fetch("/api/phrase/explain", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({
-          phraseId: studyPhrase.id,
-          direction: studyPhrase.direction,
-          japanese: studyPhrase.japanese,
-          chinese: studyPhrase.chinese,
-          pinyin: studyPhrase.pinyin,
-          sourceText: studyPhrase.sourceText,
-          targetText: studyPhrase.targetText,
-          reading: studyPhrase.reading,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error ?? "解説生成に失敗しました");
-      }
-      if (data.pinyin) {
-        pinyin = data.pinyin;
-        reading = data.pinyin;
-      }
-      explanation = data.explanation ?? explanation;
-    }
-
-    const saved = saveConversationTranslationToDrill({
-      translation: {
-        ...studyPhrase,
-        pinyin,
-        reading,
-        explanation,
-      },
-      historyItemId: message.historyItemId,
-      savedAt: new Date().toISOString(),
-      storage: {
-        addPhrase: addLocalPhrase,
-        loadPhrases: loadLocalPhrases,
-        updatePhrase: updateLocalPhrase,
-        loadHistoryItems: loadLocalTranslationHistory,
-        updateHistoryItem: updateLocalTranslationHistoryItem,
-        loadSrsItems: loadLocalSrsItems,
-        saveSrsItems: saveLocalSrsItems,
-      },
-    });
-
-    return saved.storedPhrase;
-  };
-
-  const persistPhrasesToCloud = async (
-    phrases: Phrase[],
-    authHeaders: Record<string, string>,
-  ) => {
-    const chunkSize = 10;
-    for (let index = 0; index < phrases.length; index += chunkSize) {
-      const chunk = phrases.slice(index, index + chunkSize);
-      const res = await fetch("/api/phrase/save-pack", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({
-          ownerKey,
-          nickname,
-          phrases: chunk,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error ?? "クラウドへの保存に失敗しました");
-      }
-    }
-  };
-
   const handleAddSelectedToDrill = async () => {
-    const targets = messages.filter(
-      (message) => selectedIds.has(message.id) && !message.inDrill,
-    );
-    if (targets.length === 0) return;
-
+    if (addingToDrill || savingRef.current || currentDataOwner() !== owner) return;
+    const targets = messages.filter((message) => selectedIds.has(message.id) && !message.inDrill);
+    if (!targets.length) return;
+    savingRef.current = true;
     setAddingToDrill(true);
     setDrillAddError(null);
-
+    const savedPhrases: Phrase[] = [];
     try {
-      const authHeaders = await getAuthHeaders();
-      const savedPhrases: Phrase[] = [];
       for (const message of targets) {
-        const phrase = await enrichPhraseForDrill(message, authHeaders);
-        savedPhrases.push(phrase);
-        setMessages((current) =>
-          current.map((item) =>
-            item.id === message.id
-              ? {
-                  ...item,
-                  inDrill: true,
-                  pinyin: phrase.pinyin,
-                  reading: phrase.reading,
-                  explanation: phrase.explanation,
-                }
-              : item,
-          ),
-        );
+        const history = recordTranslationHistory({
+          historyItemId: createId(),
+          translation: toStudyPhraseFields(message),
+          source: "conversation",
+          translatedAt: new Date().toISOString(),
+          storage: { addHistoryItem: addLocalTranslationHistoryItem },
+        });
+        const saved = saveConversationTranslationToDrill({
+          translation: toStudyPhraseFields(message),
+          historyItemId: history.id,
+          savedAt: new Date().toISOString(),
+          storage: {
+            addPhrase: addLocalPhrase, loadPhrases: loadLocalPhrases, updatePhrase: updateLocalPhrase,
+            loadHistoryItems: loadLocalTranslationHistory, updateHistoryItem: updateLocalTranslationHistoryItem,
+            loadSrsItems: loadLocalSrsItems, saveSrsItems: saveLocalSrsItems,
+          },
+        });
+        savedPhrases.push(saved.storedPhrase);
+        setMessages((current) => current.map((item) => item.id === message.id ? { ...item, inDrill: true, historyItemId: history.id } : item));
       }
-      await persistPhrasesToCloud(savedPhrases, authHeaders);
-      recordProductAnalyticsEvent({
-        eventName: "conversation_drill_save",
-        sourcePage: "conversation",
-        targetLanguage,
-        generationMode,
-        success: true,
-      });
+      setSavedIds(savedPhrases.map((phrase) => phrase.id));
       setSelectedIds(new Set());
       setSelectingForDrill(false);
-    } catch (err) {
+      setAddingToDrill(false);
+      void (async () => {
+        for (const phrase of savedPhrases) {
+          if (!phrase.explanation.trim()) await completeSavedExplanation(phrase);
+        }
+      })();
+      await syncSavedPhrases(savedPhrases);
       recordProductAnalyticsEvent({
-        eventName: "conversation_drill_save",
-        sourcePage: "conversation",
-        targetLanguage,
-        generationMode,
-        success: false,
-        errorCode: "save_failed",
+        eventName: "conversation_drill_save", sourcePage: "conversation",
+        targetLanguage, generationMode, success: true,
       });
-      setDrillAddError(
-        err instanceof Error ? err.message : "ドリルへの追加に失敗しました",
-      );
+    } catch (error) {
+      setDrillAddError(savedPhrases.length
+        ? "端末には追加しました。未同期のデータは通信回復後に再試行します。"
+        : error instanceof Error ? error.message : "ドリルへの追加に失敗しました");
     } finally {
+      savingRef.current = false;
       setAddingToDrill(false);
     }
   };
@@ -643,6 +558,14 @@ export default function ConversationPage() {
             {selectingForDrill ? "キャンセル" : "ドリルに追加"}
           </button>
         </header>
+        <AccountSyncNotice />
+        {savedIds.length > 0 && (
+          <div role="status" className="mt-3 flex items-center justify-between gap-2 text-sm text-emerald-300">
+            <span>端末のドリルに追加済み</span>
+            <Link href={"/drill?phrases=" + savedIds.join(",")} className="rounded-xl bg-neutral-900 px-3 py-2 font-bold">追加した一言を練習</Link>
+          </div>
+        )}
+        {drillAddError && !selectingForDrill && <p role="alert" className="mt-2 text-sm text-yellow-200">{drillAddError}</p>}
 
         <div className="mt-5 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pb-2">
           {messages.length === 0 ? (
@@ -737,6 +660,7 @@ export default function ConversationPage() {
             <TargetLanguageSelect
               value={targetLanguage}
               onChange={handleTargetLanguageChange}
+              disabled={!languageReady}
               active={speaker === "target"}
             />
           </div>

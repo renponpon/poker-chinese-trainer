@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import AnalyticsTracker from "@/components/AnalyticsTracker";
-import AuthSessionKeeper from "@/components/AuthSessionKeeper";
+import DeviceSafetyGate from "@/components/DeviceSafetyGate";
 import "./globals.css";
 
 const description =
@@ -63,9 +62,7 @@ export default function RootLayout({
   return (
     <html lang="ja">
       <body className="antialiased">
-        <AnalyticsTracker />
-        <AuthSessionKeeper />
-        {children}
+        <DeviceSafetyGate>{children}</DeviceSafetyGate>
       </body>
     </html>
   );

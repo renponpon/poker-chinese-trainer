@@ -11,6 +11,8 @@ export type ValidatedPhraseAddRequest = {
   categoryId: string | null;
   shouldDrill: boolean;
   source: PhraseSource;
+  nuance?: string;
+  previousTargetText?: string;
 };
 
 export class RequestValidationError extends Error {
@@ -27,6 +29,8 @@ const DEFAULT_MAX_INPUT_CHARS = 500;
 const CONVERSATION_MAX_INPUT_CHARS = 300;
 const MAX_OWNER_KEY_CHARS = 80;
 const MAX_NICKNAME_CHARS = 80;
+const MAX_NUANCE_CHARS = 300;
+const MAX_PREVIOUS_TARGET_CHARS = 500;
 const CATEGORY_ID_PATTERN = /^[a-z0-9_-]{1,64}$/i;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -41,6 +45,8 @@ type RawPhraseAddRequest = {
   categoryId?: unknown;
   shouldDrill?: unknown;
   source?: unknown;
+  nuance?: unknown;
+  previousTargetText?: unknown;
 };
 
 export function parseJsonObject(value: unknown): RawPhraseAddRequest {
@@ -71,6 +77,11 @@ export function validatePhraseAddRequest(
         ? raw.shouldDrill
         : parseDirection(direction).targetLanguage !== "ja",
     source,
+    nuance: normalizeOptionalText(raw.nuance, MAX_NUANCE_CHARS),
+    previousTargetText: normalizeOptionalText(
+      raw.previousTargetText,
+      MAX_PREVIOUS_TARGET_CHARS,
+    ),
   };
 }
 

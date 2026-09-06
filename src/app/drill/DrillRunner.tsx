@@ -8,7 +8,6 @@ import {
 } from "@/application/practice/drill-schedule";
 import { recordDrillPracticeResult } from "@/application/practice/record-practice-result";
 import Flashcard from "@/components/Flashcard";
-import { getAuthHeaders } from "@/lib/auth-headers";
 import { ACTIVE_TARGET_LANGUAGE_CODES, getLanguageLabel } from "@/lib/languages";
 import {
   loadLocalSrsItems,
@@ -16,7 +15,6 @@ import {
 } from "@/infrastructure/local/srs-storage";
 import {
   loadLocalPhrases,
-  loadOwnerKey,
 } from "@/infrastructure/local/phrase-storage";
 import {
   getPendingExplanationIds,
@@ -28,21 +26,33 @@ import {
 } from "@/lib/pending-pack-explanations";
 import { primeSpeech } from "@/lib/speech";
 import { recordProductAnalyticsEvent } from "@/lib/product-analytics";
-import { ACCOUNT_PHRASE_DATA_SYNCED_EVENT } from "@/lib/account-phrase-sync";
+import { ACCOUNT_PHRASE_DATA_SYNCED_EVENT, syncPhraseStateToCloud, syncSavedPhrases } from "@/lib/account-phrase-sync";
+import { getPracticeSamples } from "@/lib/starter-phrases";
+import { loadLearningLanguage } from "@/infrastructure/local/learning-language-storage";
+import { useLearningLanguage } from "@/lib/use-learning-language";
+import { useDataOwner } from "@/lib/translation-draft";
 import type { LanguageCode, Phrase, Score, SrsItem } from "@/lib/types";
 import PersonalPhrasePackFlow from "./PersonalPhrasePackFlow";
 
 export default function DrillRunner() {
+  const owner = useDataOwner();
+  return <PracticeSession key={owner} />;
+}
+
+function PracticeSession() {
   const [phrases, setPhrases] = useState<Phrase[]>([]);
   const [items, setItems] = useState<SrsItem[]>([]);
-  const [targetLanguage, setTargetLanguage] = useState<LanguageCode>("zh");
+  const { targetLanguage, setTargetLanguage, languageReady } = useLearningLanguage();
   const [hydrated, setHydrated] = useState(false);
   const [queue, setQueue] = useState<Phrase[]>([]);
   const [completed, setCompleted] = useState(0);
-  const [sessionTotal, setSessionTotal] = useState(0);
   const [cardResetKey, setCardResetKey] = useState(0);
   const [pendingExplanationIds, setPendingExplanationIds] = useState<Set<string>>(new Set());
   const skipNextQueueResetRef = useRef(false);
+  const [focusedIds, setFocusedIds] = useState<string[]>([]);
+  const [sampleMode, setSampleMode] = useState(false);
+  const sessionIdentityRef = useRef("");
+  const completedPhraseIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     primeSpeech();
@@ -50,6 +60,7 @@ export default function DrillRunner() {
     queueMicrotask(() => {
       if (cancelled) return;
       const localPhrases = loadLocalPhrases();
+      setFocusedIds((new URLSearchParams(window.location.search).get("phrases") ?? "").split(",").filter(Boolean).slice(0, 100));
       setPhrases(localPhrases);
       const { items: stored } = syncDrillSchedule({
         phrases: localPhrases,
@@ -57,19 +68,12 @@ export default function DrillRunner() {
         storage: { saveSrsItems: saveLocalSrsItems },
       });
       setItems(stored);
-      const due = selectDueDrillPhrases({
-        phrases: filterPhrasesByTarget(localPhrases, "zh"),
-        items: stored,
-      });
-      const shuffled = [...due].sort(() => Math.random() - 0.5);
-      setQueue(shuffled);
-      setSessionTotal(shuffled.length);
       setPendingExplanationIds(new Set(getPendingExplanationIds()));
       resumePendingPackJobs();
       recordProductAnalyticsEvent({
         eventName: "drill_open",
         sourcePage: "drill",
-        targetLanguage: "zh",
+        targetLanguage: loadLearningLanguage(),
       });
       setHydrated(true);
     });
@@ -79,8 +83,15 @@ export default function DrillRunner() {
   }, []);
 
   useEffect(() => {
-    if (!hydrated) return;
-    if (skipNextQueueResetRef.current) {
+    if (!hydrated || !languageReady) return;
+    const identity = targetLanguage + ":" + focusedIds.join(",") + ":" + sampleMode;
+    const newSession = sessionIdentityRef.current !== identity;
+    if (newSession) {
+      sessionIdentityRef.current = identity;
+      completedPhraseIdsRef.current.clear();
+    }
+    if (sampleMode && !newSession) return;
+    if (skipNextQueueResetRef.current && !newSession) {
       skipNextQueueResetRef.current = false;
       return;
     }
@@ -88,11 +99,24 @@ export default function DrillRunner() {
       phrases: filterPhrasesByTarget(phrases, targetLanguage),
       items,
     });
-    const shuffled = [...due].sort(() => Math.random() - 0.5);
-    setQueue(shuffled);
-    setSessionTotal(shuffled.length);
-    setCompleted(0);
-  }, [hydrated, items, phrases, targetLanguage]);
+    const focused = phrases.filter((phrase) => focusedIds.includes(phrase.id) && !completedPhraseIdsRef.current.has(phrase.id) && phrase.shouldDrill && phrase.targetLanguage === targetLanguage);
+    const shuffled = sampleMode ? getPracticeSamples(targetLanguage)
+      : focusedIds.length ? focused : due.filter((phrase) => !completedPhraseIdsRef.current.has(phrase.id)).sort(() => Math.random() - 0.5);
+    if (newSession) {
+      setQueue(shuffled);
+      setCompleted(0);
+    } else {
+      const currentPhrases = new Map(phrases.filter((phrase) => phrase.shouldDrill && phrase.targetLanguage === targetLanguage).map((phrase) => [phrase.id, phrase]));
+      setQueue((previous) => {
+        const remaining = previous.flatMap((phrase) => {
+          const current = currentPhrases.get(phrase.id);
+          return current && !completedPhraseIdsRef.current.has(phrase.id) ? [current] : [];
+        });
+        const remainingIds = new Set(remaining.map((phrase) => phrase.id));
+        return [...remaining, ...shuffled.filter((phrase) => !remainingIds.has(phrase.id))];
+      });
+    }
+  }, [hydrated, items, phrases, targetLanguage, languageReady, focusedIds, sampleMode]);
 
   useEffect(() => {
     const syncPhrases = () => {
@@ -126,7 +150,7 @@ export default function DrillRunner() {
     };
   }, []);
 
-  const total = sessionTotal;
+  const total = completed + queue.length;
   const current = queue[0] ?? null;
   const drillPhraseCount = useMemo(
     () =>
@@ -139,6 +163,12 @@ export default function DrillRunner() {
 
   const handleScore = (score: Score) => {
     if (!current) return;
+    if (sampleMode) {
+      setQueue((previous) => score === 1 ? [...previous.slice(1), current] : previous.slice(1));
+      if (score !== 1) setCompleted((value) => value + 1);
+      setCardResetKey((value) => value + 1);
+      return;
+    }
     recordProductAnalyticsEvent({
       eventName: "drill_answer",
       sourcePage: "drill",
@@ -158,17 +188,8 @@ export default function DrillRunner() {
     }
     setItems(result.items);
 
-    const ownerKey = loadOwnerKey();
     if (result.updatedItem) {
-      void getAuthHeaders().then((authHeaders) => fetch("/api/srs/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({
-          ownerKey,
-          phrase: current,
-          srsItem: result.updatedItem,
-        }),
-      })).catch((error) => {
+      void syncPhraseStateToCloud(current, result.updatedItem).catch((error) => {
         console.warn("[DrillRunner] SRS cloud sync failed", error);
       });
     }
@@ -180,11 +201,13 @@ export default function DrillRunner() {
     });
     setCardResetKey((key) => key + 1);
     if (score !== 1) {
+      completedPhraseIdsRef.current.add(current.id);
       setCompleted((c) => c + 1);
     }
   };
 
   const handlePackSaved = (newPhrases: Phrase[]) => {
+    void syncSavedPhrases(newPhrases).catch((error) => console.warn("[DrillRunner] 端末に保存済み・同期失敗", error));
     const nextPhrases = [...newPhrases, ...phrases];
     setPhrases(nextPhrases);
     const { items: nextItems } = syncDrillSchedule({
@@ -200,7 +223,7 @@ export default function DrillRunner() {
     setPendingExplanationIds(new Set(getPendingExplanationIds()));
   };
 
-  if (!hydrated) {
+  if (!hydrated || !languageReady) {
     return (
       <div className="flex min-h-[300px] items-center justify-center text-sm text-neutral-500">
         読み込み中...
@@ -208,7 +231,7 @@ export default function DrillRunner() {
     );
   }
 
-  if (phrases.length === 0) {
+  if (phrases.length === 0 && !sampleMode) {
     return (
       <div className="flex flex-col items-center gap-4 rounded-3xl bg-neutral-900/70 p-10 text-center">
         <div className="text-lg font-semibold text-neutral-200">
@@ -218,6 +241,8 @@ export default function DrillRunner() {
           翻訳すると、保存したフレーズをあとで練習できます。
         </div>
         <div className="flex flex-wrap justify-center gap-2">
+          <Link href="/" className="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-neutral-950">自分の一言を追加</Link>
+          <button type="button" onClick={() => setSampleMode(true)} className="rounded-xl bg-neutral-900 px-5 py-3 text-sm text-neutral-200">サンプルで試す</button>
           <PersonalPhrasePackFlow
             phrases={phrases}
             targetLanguage={targetLanguage}
@@ -234,7 +259,7 @@ export default function DrillRunner() {
     );
   }
 
-  if (drillPhraseCount === 0) {
+  if (drillPhraseCount === 0 && !sampleMode) {
     return (
       <div className="flex flex-col items-center gap-4 rounded-3xl bg-neutral-900/70 p-10 text-center">
         {showLanguageTabs && (
@@ -277,12 +302,13 @@ export default function DrillRunner() {
         )}
         <div className="text-3xl">🎉</div>
         <div className="text-lg font-semibold text-neutral-200">
-          今日のドリル完了
+          {sampleMode ? "サンプルの練習完了" : focusedIds.length ? "追加した一言の練習完了" : "今日のドリル完了"}
         </div>
         <div className="text-sm text-neutral-400">
           {completed} 件をレビューしました。お疲れさま。
         </div>
         <div className="mt-2 flex gap-2">
+          {(sampleMode || focusedIds.length > 0) && <Link href="/drill" onClick={() => { setSampleMode(false); setFocusedIds([]); }} className="rounded-xl bg-neutral-900 px-4 py-3 text-sm text-neutral-200">通常のドリルへ</Link>}
           <PersonalPhrasePackFlow
             phrases={phrases}
             targetLanguage={targetLanguage}
@@ -304,15 +330,17 @@ export default function DrillRunner() {
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden overscroll-none pb-[180px] sm:pb-0">
       <div className="shrink-0 touch-none">
         <div className="flex h-12 items-center justify-between gap-3">
-          <h1 className="min-w-0 text-2xl font-extrabold leading-none text-neutral-100">
-            {getLanguageLabel(targetLanguage)}ドリル
+          <h1 className="min-w-0 text-lg font-extrabold leading-none text-neutral-100">
+            {sampleMode ? "サンプル" : getLanguageLabel(targetLanguage) + "ドリル"}
           </h1>
           <div className="flex h-10 items-center gap-3">
+            <Link href="/" className="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-bold text-neutral-950">追加</Link>
             <div className="flex w-[60px] justify-end">
               <PersonalPhrasePackFlow
                 phrases={phrases}
                 targetLanguage={targetLanguage}
                 onSaved={handlePackSaved}
+                buttonLabel="例文"
                 buttonClassName="rounded-xl bg-neutral-900 px-3 py-2 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
               />
             </div>
@@ -368,6 +396,8 @@ function LanguageTabs({
           key={language}
           type="button"
           onClick={() => onChange(language)}
+          aria-pressed={value === language}
+          title="翻訳・ドリル・保存・会話で共通の学習言語"
           className={`rounded-xl px-3 py-2 text-sm font-bold transition ${
             value === language
               ? "bg-emerald-500 text-neutral-950"

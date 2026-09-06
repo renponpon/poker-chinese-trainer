@@ -12,6 +12,7 @@ type TargetLanguageSelectProps = {
   onChange: (language: LanguageCode) => void;
   active?: boolean;
   className?: string;
+  disabled?: boolean;
 };
 
 export default function TargetLanguageSelect({
@@ -19,6 +20,7 @@ export default function TargetLanguageSelect({
   onChange,
   active = false,
   className,
+  disabled = false,
 }: TargetLanguageSelectProps) {
   return (
     <div
@@ -32,8 +34,10 @@ export default function TargetLanguageSelect({
     >
       <select
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value as LanguageCode)}
         aria-label="翻訳先言語"
+        title="翻訳・ドリル・保存・会話で共通の学習言語"
         className="h-10 w-full cursor-pointer appearance-none rounded-xl bg-transparent px-3 pr-8 text-center text-base font-bold text-inherit outline-none [text-align-last:center]"
       >
         {ACTIVE_TARGET_LANGUAGE_CODES.map((language) => (

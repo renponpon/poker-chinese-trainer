@@ -304,3 +304,25 @@ ${explanationSections}
 }`;
 }
 
+export function buildQualityRefinementPrompt(
+  direction: PhraseDirection,
+  input: { nuance: string; previousTargetText?: string },
+): string {
+  return `${buildQualityPrompt(direction)}
+
+今回は前回の翻訳結果を、ユーザーが補足したニュアンスに合わせて作り直してください。
+
+追加ルール:
+- 翻訳対象は元の Input のままにする
+- ユーザーの補足文自体を訳文へ付け足さない
+- 補足は、丁寧さ・意図・感情・相手との関係・使用場面を判断する材料として使う
+- 元の意味を保ちながら、補足したニュアンスが自然に伝わる表現を1つ返す
+- 前回訳は比較材料にとどめ、必要なら語彙や文全体を組み直す
+
+前回の翻訳:
+${JSON.stringify(input.previousTargetText ?? "")}
+
+ユーザーの補足:
+${JSON.stringify(input.nuance)}`;
+}
+

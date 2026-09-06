@@ -1,11 +1,11 @@
 import { getAuthHeaders } from "@/lib/auth-headers";
 import {
   loadLocalPhrases,
-  loadNickname,
-  loadOwnerKey,
   updateLocalPhrase,
 } from "@/infrastructure/local/phrase-storage";
 import type { Phrase } from "@/lib/types";
+import { currentDataOwner } from "@/infrastructure/local/account-cache-storage";
+import { syncSavedPhrases } from "./account-phrase-sync";
 
 export const PHRASE_UPDATED_EVENT = "phrabit-phrases-updated";
 export const PENDING_EXPLANATIONS_CHANGED_EVENT = "phrabit-pending-explanations-changed";
@@ -13,6 +13,7 @@ export const PENDING_EXPLANATIONS_CHANGED_EVENT = "phrabit-pending-explanations-
 const SESSION_KEY = "phrabit-pending-pack-jobs-v1";
 
 type PendingPackJob = {
+  dataOwner?: string;
   packRequestId: string;
   phrases: Phrase[];
 };
@@ -80,7 +81,7 @@ export function enqueuePackExplanationJob(job: PendingPackJob) {
   }
 
   const jobs = loadJobs();
-  jobs.push(job);
+  jobs.push({ ...job, dataOwner: currentDataOwner() });
   saveJobs(jobs);
   emitPendingChanged();
   void processQueue();
@@ -104,7 +105,7 @@ async function processQueue() {
       if (!job) break;
 
       await runJob(job);
-      saveJobs(jobs.slice(1));
+      saveJobs(loadJobs().filter((pending) => pending.packRequestId !== job.packRequestId || pending.dataOwner !== job.dataOwner));
     }
   } finally {
     syncPendingIdsFromJobs();
@@ -115,7 +116,9 @@ async function processQueue() {
 
 async function runJob(job: PendingPackJob) {
   try {
+    if (job.dataOwner !== currentDataOwner()) return;
     const authHeaders = await getAuthHeaders();
+    if (job.dataOwner !== currentDataOwner()) return;
     const res = await fetch("/api/phrase/generate-pack/explain", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders },
@@ -142,16 +145,19 @@ async function runJob(job: PendingPackJob) {
     }
 
     const explanationMap = parseExplanationMap(data.explanations);
+    if (job.dataOwner !== currentDataOwner()) return;
     const updatedIds: string[] = [];
     const savedPhrases: Phrase[] = [];
 
     for (const phrase of job.phrases) {
+      const current = loadLocalPhrases().find((item) => item.id === phrase.id);
+      if (!current || current.targetText !== phrase.targetText || current.sourceText !== phrase.sourceText) continue;
       const explanation = explanationMap.get(phrase.id);
       if (!explanation) continue;
       updateLocalPhrase(phrase.id, { explanation });
       pendingIds.delete(phrase.id);
       updatedIds.push(phrase.id);
-      savedPhrases.push({ ...phrase, explanation });
+      savedPhrases.push({ ...current, explanation });
     }
 
     if (updatedIds.length) {
@@ -160,16 +166,7 @@ async function runJob(job: PendingPackJob) {
     }
 
     if (savedPhrases.length) {
-      await fetch("/api/phrase/save-pack", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({
-          ownerKey: loadOwnerKey(),
-          nickname: loadNickname(),
-          phrases: savedPhrases,
-        }),
-        keepalive: true,
-      });
+      await syncSavedPhrases(savedPhrases);
     }
 
     if (updatedIds.length < job.phrases.length) {

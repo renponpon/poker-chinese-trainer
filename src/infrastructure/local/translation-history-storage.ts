@@ -1,4 +1,5 @@
 import type { TranslationHistoryItem } from "../../domain/phrase/phrase";
+import { ensureDeviceBackup } from "./device-backup";
 
 const TRANSLATION_HISTORY_KEY = "phrabit-translation-history-v1";
 const TRANSLATION_HISTORY_LIMIT = 300;
@@ -24,6 +25,7 @@ export function loadLocalTranslationHistory(): TranslationHistoryItem[] {
 
 export function saveLocalTranslationHistory(items: TranslationHistoryItem[]): void {
   if (!isClient()) return;
+  ensureDeviceBackup();
   window.localStorage.setItem(
     TRANSLATION_HISTORY_KEY,
     JSON.stringify(items.slice(0, TRANSLATION_HISTORY_LIMIT)),

@@ -13,7 +13,10 @@ import {
   warmupTranslationProviders,
 } from "@/infrastructure/server/translation-providers";
 import { generateQualityPhraseWithGemini } from "@/infrastructure/server/quality-phrase-generator";
-import { buildQualityPrompt } from "@/infrastructure/server/quality-phrase-prompt";
+import {
+  buildQualityPrompt,
+  buildQualityRefinementPrompt,
+} from "@/infrastructure/server/quality-phrase-prompt";
 import { recordAiUsageEvent } from "@/infrastructure/server/usage-event-recorder";
 import { createId } from "@/lib/id";
 import { buildDirection, isLanguageCode } from "@/lib/languages";
@@ -125,9 +128,11 @@ export async function POST(req: Request) {
     }
 
     validated = measureSync("validate", () => validatePhraseAddRequest(rawRequest));
-    generationMode = measureSync("parseMode", () =>
-      parseGenerationMode((rawBody as { generationMode?: unknown }).generationMode),
-    );
+    generationMode = validated.nuance
+      ? "quality"
+      : measureSync("parseMode", () =>
+          parseGenerationMode((rawBody as { generationMode?: unknown }).generationMode),
+        );
     const persist = measureSync(
       "parsePersist",
       () => (rawBody as { persist?: unknown }).persist !== false,
@@ -331,7 +336,9 @@ async function recordUsage(input: UsageRecordInput) {
     mode: input.generationMode,
     sourcePage: input.validated?.source === "conversation" ? "conversation" : "add",
     direction: input.validated?.direction ?? null,
-    inputChars: input.validated?.inputText.length ?? 0,
+    inputChars:
+      (input.validated?.inputText.length ?? 0) +
+      (input.validated?.nuance?.length ?? 0),
     outputChars: input.outputChars,
     audioDurationMs: null,
     success: input.success,
@@ -374,7 +381,12 @@ function generateWithGemini(validated: ValidatedPhraseAddRequest) {
     model: GEMINI_MODEL,
     direction: validated.direction,
     inputText: validated.inputText,
-    prompt: buildQualityPrompt(validated.direction),
+    prompt: validated.nuance
+      ? buildQualityRefinementPrompt(validated.direction, {
+          nuance: validated.nuance,
+          previousTargetText: validated.previousTargetText,
+        })
+      : buildQualityPrompt(validated.direction),
     createMissingApiKeyError: () =>
       new ApiRouteError("GEMINI_API_KEY is not configured", 500, "missing_gemini_api_key"),
     createEmptyResponseError: () =>

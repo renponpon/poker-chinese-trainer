@@ -53,6 +53,7 @@ type Props = {
   phrases: Phrase[];
   targetLanguage: LanguageCode;
   buttonClassName?: string;
+  buttonLabel?: string;
   onSaved: (phrases: Phrase[]) => void;
 };
 
@@ -79,6 +80,7 @@ export default function PersonalPhrasePackFlow({
   phrases,
   targetLanguage,
   buttonClassName,
+  buttonLabel = "場面別の例文を作る",
   onSaved,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -270,7 +272,7 @@ export default function PersonalPhrasePackFlow({
           "rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-emerald-400"
         }
       >
-        追加
+        {buttonLabel}
       </button>
 
       {open && (

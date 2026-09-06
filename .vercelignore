@@ -1,0 +1,4 @@
+.private-backups/
+.env*
+!.env.local.example
+tmp/
