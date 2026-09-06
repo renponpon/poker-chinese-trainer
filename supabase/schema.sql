@@ -119,6 +119,10 @@ create table if not exists public.product_analytics_events (
       'translation_submit',
       'translation_success',
       'translation_failure',
+      'translation_refine_submit',
+      'translation_refine_success',
+      'translation_refine_failure',
+      'translation_drill_save',
       'drill_open',
       'drill_answer',
       'conversation_drill_save'
