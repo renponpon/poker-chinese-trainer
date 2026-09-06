@@ -15,6 +15,7 @@ export default function AuthSessionKeeper() {
     let currentSession: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"] = null;
     let disposed = false;
     let authRevision = 0;
+    let refreshing = false;
 
     const syncSession = async (session: typeof currentSession) => {
       if (disposed) return;
@@ -45,8 +46,18 @@ export default function AuthSessionKeeper() {
       }, 0);
     });
 
-    const refreshOnFocus = () => {
-      if (currentSession) void syncSession(currentSession);
+    const refreshOnFocus = async () => {
+      if (disposed || refreshing || !currentSession || document.visibilityState !== "visible" || navigator.onLine === false) return;
+      refreshing = true;
+      const revision = authRevision;
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (!disposed && revision === authRevision) await syncSession(data.session);
+      } catch (error) {
+        console.warn("[AuthSessionKeeper] session refresh failed", error);
+      } finally {
+        refreshing = false;
+      }
     };
     const refreshOnVisibility = () => {
       if (document.visibilityState === "visible") refreshOnFocus();
@@ -54,9 +65,11 @@ export default function AuthSessionKeeper() {
     window.addEventListener("focus", refreshOnFocus);
     window.addEventListener("online", refreshOnFocus);
     document.addEventListener("visibilitychange", refreshOnVisibility);
+    const refreshTimer = window.setInterval(() => { void refreshOnFocus(); }, 30_000);
 
     return () => {
       disposed = true;
+      window.clearInterval(refreshTimer);
       data.subscription.unsubscribe();
       window.removeEventListener("focus", refreshOnFocus);
       window.removeEventListener("online", refreshOnFocus);

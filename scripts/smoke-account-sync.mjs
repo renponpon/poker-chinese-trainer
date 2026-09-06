@@ -25,6 +25,7 @@ let failNextWrite = false;
 let networkOffline = false;
 let intercept = null;
 const calls = [];
+const deniedPhraseIds = new Set();
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
 function loadSource(path) {
@@ -63,6 +64,9 @@ globalThis.fetch = async (url, options = {}) => {
   }
   const cloud = backend.get(token);
   if (method === "GET") return Response.json(clone(cloud));
+  if ((method === "PATCH" && deniedPhraseIds.has(body.phrase.id)) || (method === "DELETE" && body.phraseIds.some((id) => deniedPhraseIds.has(id)))) {
+    return Response.json({ error: "permission denied" }, { status: 500 });
+  }
   if (method === "DELETE") {
     cloud.phrases = cloud.phrases.filter((phrase) => !body.phraseIds.includes(phrase.id));
     cloud.srsItems = cloud.srsItems.filter((item) => !body.phraseIds.includes(item.id));
@@ -87,6 +91,15 @@ const srs = loadSource(resolve(root, "infrastructure/local/srs-storage"));
 const cache = loadSource(resolve(root, "infrastructure/local/account-cache-storage"));
 const starters = loadSource(resolve(root, "lib/starter-phrases"));
 const phrase = { ...starters.STARTER_PHRASES[0], explanation: "base" };
+const starterScope = loadSource(resolve(root, "lib/account-starter-ids"));
+const emptySnapshot = { phrases: [], srsItems: [] };
+const starterSnapshot = { phrases: [phrase], srsItems: [] };
+const firstScopedId = (await starterScope.createAccountStarterIdMap("account-a", starterSnapshot, null, emptySnapshot)).get(phrase.id);
+assert.match(firstScopedId, /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+assert.equal((await starterScope.createAccountStarterIdMap("account-a", starterSnapshot, null, emptySnapshot)).get(phrase.id), firstScopedId);
+assert.notEqual((await starterScope.createAccountStarterIdMap("account-b", starterSnapshot, null, emptySnapshot)).get(phrase.id), firstScopedId);
+assert.equal((await starterScope.createAccountStarterIdMap("account-a", starterSnapshot, null, starterSnapshot)).size, 0, "existing owned starter IDs stay unchanged");
+assert.equal((await starterScope.createAccountStarterIdMap("account-a", starterSnapshot, starterSnapshot, emptySnapshot)).size, 0, "known deleted starters must not be recreated under a new ID");
 
 storage.setItem("poker-chinese-local-phrases-v1", JSON.stringify([{ ...phrase, id: "starter-001-really" }]));
 storage.setItem("poker-chinese-srs-v1", JSON.stringify([{
@@ -150,6 +163,7 @@ local.deleteLocalPhraseAndSrs(phrase.id);
 await sync.synchronizeAccountPhraseData(session);
 assert.equal(local.loadLocalPhrases().length, 0);
 
+phrase.id = "10000000-0000-4000-8000-000000000001";
 local.addLocalPhrase(phrase);
 await sync.synchronizeAccountPhraseData(session);
 local.deleteLocalPhraseAndSrs(phrase.id);
@@ -188,6 +202,50 @@ assert.equal(backend.get("token-a").srsItems.find((item) => item.id === offlineP
 assert.equal(backend.get("token-a").srsItems.find((item) => item.id === offlinePhrase.id).nextReviewAt, 12000);
 assert.equal(sync.getAccountSyncStatus(), "同期済み");
 
+const sharedStarter = starters.STARTER_PHRASES[3];
+deniedPhraseIds.add(sharedStarter.id);
+local.addLocalPhrase(sharedStarter);
+srs.saveLocalSrsItems([...srs.loadLocalSrsItems(), { ...review, id: sharedStarter.id, lastReviewedAt: 4000 }]);
+const callsBeforeScoping = calls.length;
+await sync.synchronizeAccountPhraseData(session);
+const scopedId = (await starterScope.createAccountStarterIdMap(session.user.id, { phrases: [sharedStarter], srsItems: [] }, null, emptySnapshot)).get(sharedStarter.id);
+assert.equal(calls.slice(callsBeforeScoping).some((call) => call.method === "PATCH" && call.body.phrase.id === sharedStarter.id), false);
+assert.equal(local.loadLocalPhrases().some((item) => item.id === sharedStarter.id), false);
+assert.equal(backend.get("token-a").srsItems.find((item) => item.id === scopedId).lastReviewedAt, 4000);
+local.addLocalPhrase(sharedStarter);
+srs.saveLocalSrsItems([...srs.loadLocalSrsItems(), { ...review, id: sharedStarter.id, lastReviewedAt: 3500 }]);
+await sync.synchronizeAccountPhraseData(session);
+assert.equal(backend.get("token-a").phrases.filter((item) => item.id === scopedId).length, 1);
+assert.equal(backend.get("token-a").srsItems.find((item) => item.id === scopedId).lastReviewedAt, 4000);
+
+const rejectedPhrase = { ...phrase, id: "10000000-0000-4000-8000-000000000003", explanation: "keep unsent" };
+local.updateLocalPhrase(phrase.id, { explanation: "saved before rejected upload" });
+local.addLocalPhrase(rejectedPhrase);
+deniedPhraseIds.add(rejectedPhrase.id);
+const mobilePhrase = { ...phrase, id: "10000000-0000-4000-8000-000000000004", explanation: "from phone" };
+backend.get("token-a").phrases.push(clone(mobilePhrase));
+backend.get("token-a").srsItems.find((item) => item.id === phrase.id).lastReviewedAt = 5000;
+await assert.rejects(sync.synchronizeAccountPhraseData(session), /permission denied/);
+assert.ok(local.loadLocalPhrases().some((item) => item.id === mobilePhrase.id), "a rejected upload must not block incoming phone phrases");
+assert.equal(srs.loadLocalSrsItems().find((item) => item.id === phrase.id).lastReviewedAt, 5000);
+assert.equal(local.loadLocalPhrases().find((item) => item.id === rejectedPhrase.id).explanation, "keep unsent");
+assert.equal(backend.get("token-a").phrases.find((item) => item.id === phrase.id).explanation, "saved before rejected upload");
+assert.equal(cache.readAccountCheckpoint("account-a").baseline.phrases.find((item) => item.id === phrase.id).explanation, "saved before rejected upload");
+assert.equal(cache.readAccountCheckpoint("account-a").baseline.phrases.some((item) => item.id === rejectedPhrase.id), false);
+await assert.rejects(sync.synchronizeAccountPhraseData(session), /permission denied/);
+assert.ok(local.loadLocalPhrases().some((item) => item.id === mobilePhrase.id));
+deniedPhraseIds.delete(rejectedPhrase.id);
+await sync.synchronizeAccountPhraseData(session);
+assert.equal(backend.get("token-a").phrases.filter((item) => item.id === rejectedPhrase.id).length, 1);
+local.deleteLocalPhraseAndSrs(rejectedPhrase.id);
+deniedPhraseIds.add(rejectedPhrase.id);
+await assert.rejects(sync.synchronizeAccountPhraseData(session), /permission denied/);
+assert.equal(local.loadLocalPhrases().some((item) => item.id === rejectedPhrase.id), false, "failed delete must not restore a removed phrase");
+assert.ok(cache.readAccountCheckpoint("account-a").baseline.phrases.some((item) => item.id === rejectedPhrase.id));
+deniedPhraseIds.delete(rejectedPhrase.id);
+await sync.synchronizeAccountPhraseData(session);
+assert.equal(backend.get("token-a").phrases.some((item) => item.id === rejectedPhrase.id), false);
+
 const accountGate = { method: "GET", entered: Promise.withResolvers(), release: Promise.withResolvers() };
 intercept = accountGate;
 const oldAccountRequest = sync.synchronizeAccountPhraseData(session);
@@ -203,9 +261,9 @@ assert.equal(local.loadLocalPhrases().length, 0);
 assert.equal(backend.get("token-b").phrases.length, 0);
 session = sessionA;
 await sync.synchronizeAccountPhraseData(session);
-assert.equal(local.loadLocalPhrases()[0].id, phrase.id);
+assert.equal(local.loadLocalPhrases().find((item) => item.id === phrase.id).explanation, "saved before rejected upload");
 const callsBeforeRecovery = calls.length;
 storage.setItem("phrabit-device-recovery-v1", "active");
 await assert.rejects(sync.synchronizeAccountPhraseData(session), /復元確認中/);
 assert.equal(calls.length, callsBeforeRecovery);
-console.log("PASS: actual sync coordinator with mocked cloud: legacy starter ID migration with review and original backup preserved, no duplicate cloud phrase, offline edit/delete, network-disconnected addition/review/retry without duplicates, in-flight edit, remote add/delete, conflict preservation, SRS, logout recovery, account-switch cancellation/isolation, recovery blocks cloud requests");
+console.log("PASS: actual sync coordinator with mocked cloud: account-scoped legacy starters, reviews/backups preserved, incoming phrases/reviews survive rejected uploads/deletes, no duplicates, offline retry, in-flight edit, remote add/delete, conflict preservation, logout recovery, account-switch isolation, recovery blocks cloud requests");

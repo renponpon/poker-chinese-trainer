@@ -13,6 +13,7 @@ import {
 } from "@/infrastructure/local/account-cache-storage";
 import type { Phrase, SrsItem } from "@/lib/types";
 import { getBrowserSupabase } from "./supabase";
+import { createAccountStarterIdMap } from "./account-starter-ids";
 
 export const ACCOUNT_PHRASE_DATA_SYNCED_EVENT = "phrabit-account-phrase-data-synced";
 export const ACCOUNT_SYNC_STATUS_EVENT = "phrabit-account-sync-status";
@@ -55,7 +56,7 @@ export async function synchronizeAccountPhraseData(session: Session): Promise<vo
     : Promise.resolve().then(run)
   ).then(() => undefined).catch((error) => {
     if (requestedUser === userId && epoch === sessionEpoch) {
-      setSyncStatus("端末に保存済み・未同期です。通信回復時に再試行します。");
+      setSyncStatus("端末に未同期の変更があります。データを保持して再試行します。");
     }
     throw error;
   }).finally(() => {
@@ -144,6 +145,20 @@ async function performAccountSync(session: Session, epoch: number): Promise<void
   let baseline = readAccountCheckpoint(userId)?.baseline;
   const cloud = completeDrillSchedule(normalizeAccountPhraseSnapshot(await cloudRequest(session.access_token, "GET")));
   assertCurrentAccount(userId, epoch);
+  const starterIdMap = await createAccountStarterIdMap(userId, readLocalSnapshot(), baseline, cloud);
+  assertCurrentAccount(userId, epoch);
+  if (starterIdMap.size) {
+    const latest = readLocalSnapshot();
+    const migrated = mergeAccountPhraseData({
+      phrases: latest.phrases.filter((phrase) => starterIdMap.has(phrase.id)).map((phrase) => ({ ...phrase, id: starterIdMap.get(phrase.id)! })),
+      srsItems: latest.srsItems.filter((item) => starterIdMap.has(item.id)).map((item) => ({ ...item, id: starterIdMap.get(item.id)! })),
+    }, {
+      phrases: latest.phrases.filter((phrase) => !starterIdMap.has(phrase.id)),
+      srsItems: latest.srsItems.filter((item) => !starterIdMap.has(item.id)),
+    });
+    saveLocalPhrases(migrated.phrases);
+    saveLocalSrsItems(migrated.srsItems);
+  }
   const local = readLocalSnapshot();
   if (!baseline) {
     baseline = cloud;
@@ -154,9 +169,17 @@ async function performAccountSync(session: Session, epoch: number): Promise<void
   }
   const before = readLocalSnapshot();
   const plan = reconcileAccountPhraseData(baseline, before, cloud);
-  for (const mutation of plan.mutations) {
+  const deferredIds = new Set<string>();
+  let writeError: unknown;
+  for (const [index, mutation] of plan.mutations.entries()) {
     assertCurrentAccount(userId, epoch);
-    await sendMutation(session.access_token, mutation);
+    try {
+      await sendMutation(session.access_token, mutation);
+    } catch (error) {
+      writeError = error;
+      for (const deferred of plan.mutations.slice(index)) deferredIds.add(deferred.kind === "delete" ? deferred.id : deferred.phrase.id);
+      break;
+    }
   }
   const confirmed = plan.mutations.length
     ? completeDrillSchedule(normalizeAccountPhraseSnapshot(await cloudRequest(session.access_token, "GET")))
@@ -165,17 +188,22 @@ async function performAccountSync(session: Session, epoch: number): Promise<void
   const current = readLocalSnapshot();
   const pending = reconcileAccountPhraseData(before, current, confirmed);
   const conflictIds = new Set([...plan.conflicts, ...pending.conflicts]);
+  const protectedIds = new Set([...conflictIds, ...deferredIds]);
   const result = completeDrillSchedule({
-    phrases: [...pending.snapshot.phrases.filter((phrase) => !conflictIds.has(phrase.id)), ...current.phrases.filter((phrase) => conflictIds.has(phrase.id))],
-    srsItems: [...pending.snapshot.srsItems.filter((item) => !conflictIds.has(item.id)), ...current.srsItems.filter((item) => conflictIds.has(item.id))],
+    phrases: [...pending.snapshot.phrases.filter((phrase) => !protectedIds.has(phrase.id)), ...current.phrases.filter((phrase) => protectedIds.has(phrase.id))],
+    srsItems: [...pending.snapshot.srsItems.filter((item) => !protectedIds.has(item.id)), ...current.srsItems.filter((item) => protectedIds.has(item.id))],
   });
   const nextBaseline = {
-    phrases: [...confirmed.phrases, ...baseline.phrases.filter((phrase) => conflictIds.has(phrase.id) && !confirmed.phrases.some((item) => item.id === phrase.id))],
-    srsItems: confirmed.srsItems,
+    phrases: [...confirmed.phrases.filter((phrase) => !deferredIds.has(phrase.id)), ...baseline.phrases.filter((phrase) => deferredIds.has(phrase.id) || (conflictIds.has(phrase.id) && !confirmed.phrases.some((item) => item.id === phrase.id)))],
+    srsItems: [...confirmed.srsItems.filter((item) => !deferredIds.has(item.id)), ...baseline.srsItems.filter((item) => deferredIds.has(item.id))],
   };
   saveLocalPhrases(result.phrases);
   saveLocalSrsItems(result.srsItems);
   writeAccountCheckpoint(userId, { baseline: nextBaseline, local: result });
+  if (deferredIds.size) {
+    emitAccountPhraseDataSynced();
+    throw writeError;
+  }
   if (pending.mutations.length && activeSync?.userId === userId) activeSync.again = true;
   setSyncStatus(conflictIds.size
     ? "別端末で削除されたフレーズに未同期の変更があります。端末に保持しています。不要なら保存画面で削除してください。"
