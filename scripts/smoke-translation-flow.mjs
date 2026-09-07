@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
 
-const origin = "http://localhost:3010";
+const origin = process.env.PHRABIT_TEST_ORIGIN || "http://localhost:3010";
 const executablePath = [
   chromium.executablePath(),
   "C:/Program Files/Google/Chrome/Application/chrome.exe",
@@ -42,6 +42,7 @@ async function checkFlow(language, width, failCloudSave) {
   const page = await context.newPage();
   const translationRequests = [];
   const saves = [];
+  const analyticsEvents = [];
   const errors = [];
   let releaseRefinement;
   let rejectRefinement = false;
@@ -57,6 +58,10 @@ async function checkFlow(language, width, failCloudSave) {
     if (url.origin !== origin) return route.abort();
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const payload = route.request().postDataJSON();
+    if (url.pathname === "/api/analytics/event") {
+      analyticsEvents.push(payload);
+      return route.fulfill({ json: { ok: true, tracked: true } });
+    }
     if (url.pathname === "/api/phrase/add" && !payload?.warmup) {
       translationRequests.push(payload);
       if (payload.nuance) {
@@ -99,8 +104,30 @@ async function checkFlow(language, width, failCloudSave) {
 
   try {
     await page.goto(origin);
+    await page.getByRole("button", { name: "メニュー", exact: true }).click();
+    await page.getByText("入力データについて", { exact: true }).click();
+    assert.ok(await page.getByText(/翻訳しただけではライブラリやドリルに追加されません/).isVisible());
+    assert.ok(await page.getByText(/ゲストの保存データは、このブラウザ内だけにあります/).isVisible());
+    await page.getByRole("button", { name: "使い方を見る", exact: true }).click();
+    const tutorial = page.getByRole("dialog", { name: "使い方", exact: true });
+    await tutorial.waitFor({ state: "visible" });
+    assert.ok(await tutorial.getByText(/翻訳しただけでは保存されません/).isVisible());
+    for (let step = 0; step < 4; step += 1) {
+      await tutorial.getByRole("button", { name: "次へ", exact: true }).click();
+      const bounds = await tutorial.boundingBox();
+      assert.ok(bounds.y >= 0 && bounds.y + bounds.height <= 900);
+      if (step === 2) {
+        assert.ok(await tutorial.getByText(/覚えたい訳になったら「ドリルに追加」/).isVisible());
+        await page.screenshot({ path: resolve(screenshotDir, `tutorial-${language}-${width}.png`) });
+      }
+    }
+    await tutorial.getByRole("button", { name: "完了", exact: true }).click();
     assert.equal(await page.getByText("現地で訳したフレーズを、次は自分の言葉に。", { exact: true }).count(), 0);
     await page.getByRole("combobox", { name: "翻訳先言語" }).selectOption(language);
+    await page.getByRole("button", { name: "翻訳モード: 通常。タップで切り替え", exact: true }).click();
+    await page.getByRole("button", { name: "翻訳モード: 品質。タップで切り替え", exact: true }).click();
+    assert.ok(await page.getByRole("button", { name: "翻訳モード: 通常。タップで切り替え", exact: true }).isVisible());
+    assert.equal(await page.getByRole("button", { name: /翻訳モード: 速度/ }).count(), 0);
     await page.getByPlaceholder("日本語を入力", { exact: true }).fill("静かにして");
     const sendButton = page.getByRole("button", { name: "送信", exact: true });
     await sendButton.click();
@@ -113,6 +140,7 @@ async function checkFlow(language, width, failCloudSave) {
     assert.equal(saves.length, 0, "翻訳時はクラウド保存しない");
     assert.equal((await savedPhrases(page)).length, 0, "翻訳時はライブラリに追加しない");
     assert.equal(translationRequests[0].persist, false);
+    assert.equal(translationRequests[0].generationMode, "normal");
     assert.equal(translationRequests[0].shouldDrill, false);
 
     const adjustmentButton = page.getByRole("button", { name: "調整", exact: true });
@@ -198,9 +226,14 @@ async function checkFlow(language, width, failCloudSave) {
     await dialog.waitFor({ state: "hidden" });
     assert.equal(await page.evaluate(() => window.testSpeechCalls.length), 1, "調整失敗で再生しない");
     assert.equal(await page.getByText(refinedText, { exact: true }).isVisible(), true, "失敗時は直前の訳を残す");
+    const analyticsResponse = page.waitForResponse((response) => response.url().endsWith("/api/analytics/event") && response.request().postDataJSON()?.eventName === "translation_drill_save");
     const cloudResponse = page.waitForResponse((response) => response.url().endsWith("/api/phrase/save-pack"));
     await page.getByRole("button", { name: "ドリルに追加", exact: true }).click();
     await cloudResponse;
+    await analyticsResponse;
+    const savedEvent = analyticsEvents.find((event) => event.eventName === "translation_drill_save");
+    assert.equal(savedEvent.success, true, "端末への追加成功とクラウド同期失敗を混同しない");
+    assert.equal(savedEvent.errorCode, failCloudSave ? "sync_failed" : null);
     if (failCloudSave) {
       await page.getByText("この端末のドリルには追加しましたが、クラウド同期に失敗しました。", { exact: true }).waitFor();
     }

@@ -24,12 +24,12 @@ const steps: TutorialStep[] = [
   {
     target: "[data-tutorial='input-card']",
     title: "入力して送信",
-    body: "一言ずつ入力。\n送信で翻訳、音声で話して入力できます。",
+    body: "現地で言いたかった一言を入力して送信。\n音声でも入力できます。翻訳しただけでは保存されません。",
   },
   {
     target: "[data-tutorial='language-switch'], [data-tutorial='mode-controls']",
     title: "言語とモード",
-    body: "言語、翻訳方向、翻訳モードを切り替えます。\n速度＝速さ重視、通常＝バランス、品質＝自然さ重視。",
+    body: "学びたい言語を選ぶと、翻訳・ドリル・保存・会話に共通で使われます。\n言語と翻訳モードは、あとから変更できます。",
   },
   {
     target: "[data-tutorial='conversation']",
@@ -39,12 +39,12 @@ const steps: TutorialStep[] = [
   {
     target: "[data-tutorial='nav-drill'], [data-tutorial='nav-library']",
     title: "ドリルと保存",
-    body: "覚えたいフレーズはドリルで練習。\n保存ではあとで見返せます。",
+    body: "訳が少し違う時は、結果の「調整」でニュアンスを伝えられます。\n覚えたい訳になったら「ドリルに追加」。追加した一言をすぐ練習でき、別の日にも復習できます。",
   },
   {
     target: "[data-tutorial='login']",
     title: "ログイン",
-    body: "ゲストでも使えます。\nログインすると保存データを同期できます。",
+    body: "ゲストでも使えます。保存先はこのブラウザだけです。\n別の端末でも学ぶ時は、同じアカウントでログインして同期してください。",
   },
 ];
 
@@ -210,7 +210,7 @@ export default function AddTutorial() {
         role="dialog"
         aria-modal="true"
         aria-label="使い方"
-        className="fixed inset-x-4 bottom-[92px] z-[100] mx-auto flex h-[222px] max-w-md flex-col rounded-2xl bg-neutral-900 p-4 shadow-2xl shadow-black/60 sm:bottom-6"
+        className="fixed inset-x-4 bottom-[92px] z-[100] mx-auto flex max-h-[calc(100dvh-120px)] min-h-[222px] max-w-md flex-col overflow-y-auto rounded-2xl bg-neutral-900 p-4 shadow-2xl shadow-black/60 sm:bottom-6"
       >
         <div className="flex items-start justify-between gap-4">
           <div>

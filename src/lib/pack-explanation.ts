@@ -5,7 +5,7 @@ import {
 } from "./explanation-prompt";
 import type { LanguageCode, PhraseDirection, ReadingType } from "./types";
 
-export const PACK_EXPLANATION_GEMINI_MODEL = "gemini-3.1-flash-lite";
+export const PACK_EXPLANATION_GEMINI_MODEL = "gemini-3.5-flash-lite";
 export const PACK_EXPLANATION_BATCH_SIZE = 4;
 const SINGLE_EXPLANATION_MAX_OUTPUT_TOKENS = 4096;
 const BATCH_EXPLANATION_MAX_OUTPUT_TOKENS = 16384;

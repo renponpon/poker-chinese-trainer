@@ -7,7 +7,7 @@ import type { GeneratedPhrase, PhraseDirection } from "@/lib/types";
 
 const AZURE_TRANSLATOR_MODEL = "azure-translator-text-v3";
 const DEEPL_TRANSLATOR_MODEL = "deepl-translate-v2";
-const GEMINI_MODEL = "gemini-3.1-flash-lite";
+const GEMINI_MODEL = "gemini-3.5-flash-lite";
 const WARMUP_TEXT = "warmup";
 
 export type TranslationTiming = Record<string, number | string | null>;

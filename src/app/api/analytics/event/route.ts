@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createId } from "@/lib/id";
+import { normalizeAnalyticsRoute } from "@/lib/product-analytics-route";
 import { isLanguageCode, isSupportedDirection } from "@/lib/languages";
 import { getBearerToken } from "@/infrastructure/server/request-auth";
 import { recordProductAnalyticsEvent } from "@/infrastructure/server/usage-event-recorder";
@@ -112,7 +113,7 @@ function normalizeRoute(value: unknown): string | null {
   if (typeof value !== "string") throw new RequestValidationError("Invalid route");
   const route = value.trim();
   if (!route.startsWith("/")) throw new RequestValidationError("Invalid route");
-  return route.slice(0, 120);
+  return normalizeAnalyticsRoute(route);
 }
 
 function normalizeSourcePage(value: unknown): string | null {

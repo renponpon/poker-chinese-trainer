@@ -59,6 +59,7 @@ import type { LanguageCode, PhraseDirection } from "@/lib/types";
 
 import GenerationModeToggle from "@/components/GenerationModeToggle";
 import {
+  parseGenerationMode,
   type GenerationMode,
 } from "@/lib/generation-mode";
 
@@ -124,7 +125,7 @@ function TranslationPage({ owner }: { owner: string }) {
   );
   const [inputText, setInputText] = useState(restored?.inputText ?? "");
   const [categoryId] = useState<string>("other");
-  const [generationMode, setGenerationMode] = useState<GenerationMode>(restored?.generationMode ?? "normal");
+  const [generationMode, setGenerationMode] = useState<GenerationMode>(() => parseGenerationMode(restored?.generationMode));
   const [loading, setLoading] = useState(false);
   const [nuanceText, setNuanceText] = useState(restored?.nuanceText ?? "");
   const [nuanceDialogOpen, setNuanceDialogOpen] = useState(false);
@@ -496,8 +497,8 @@ function TranslationPage({ owner }: { owner: string }) {
         direction: result.direction,
         targetLanguage: result.targetLanguage,
         generationMode,
-        success: false,
-        errorCode: "save_failed",
+        success: savedLocally,
+        errorCode: savedLocally ? "sync_failed" : "save_failed",
       });
     } finally {
       savingRef.current = false;

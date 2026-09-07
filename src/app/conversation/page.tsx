@@ -117,7 +117,7 @@ function Conversation({ owner }: { owner: string }) {
   const [draft, setDraft] = useState("");
   const { targetLanguage, setTargetLanguage, languageReady } = useLearningLanguage();
   const [speaker, setSpeaker] = useState<Speaker>("ja");
-  const [generationMode, setGenerationMode] = useState<GenerationMode>("speed");
+  const [generationMode, setGenerationMode] = useState<GenerationMode>("normal");
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState<Speaker | null>(null);
   const [error, setError] = useState<string | null>(null);

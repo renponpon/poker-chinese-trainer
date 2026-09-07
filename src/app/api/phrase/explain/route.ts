@@ -24,7 +24,7 @@ import type { PhraseDirection } from "@/lib/types";
 export const runtime = "nodejs";
 
 const ENDPOINT = "/api/phrase/explain";
-const GEMINI_MODEL = "gemini-3.1-flash-lite";
+const GEMINI_MODEL = "gemini-3.5-flash-lite";
 
 class ApiRouteError extends Error {
   constructor(

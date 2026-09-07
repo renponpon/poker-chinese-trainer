@@ -2,12 +2,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { generateTranslation, type TranslationProvider } from "./generate-translation";
 import type { GeneratedPhrase } from "../../lib/types";
+import { cycleGenerationMode, GENERATION_MODE_ORDER, getGenerationModeLabel, parseGenerationMode } from "../../lib/generation-mode";
 
-test("speed mode uses Azure", async () => {
+test("translation modes cycle between normal and quality and migrate legacy values", () => {
+  assert.deepEqual(GENERATION_MODE_ORDER, ["normal", "quality"]);
+  assert.equal(cycleGenerationMode("normal"), "quality");
+  assert.equal(cycleGenerationMode("quality"), "normal");
+  for (const value of ["speed", "fast", undefined, null, "invalid"]) {
+    assert.equal(parseGenerationMode(value), "normal");
+  }
+  assert.equal(parseGenerationMode("full"), "quality");
+  assert.equal(getGenerationModeLabel(parseGenerationMode("speed")), "通常");
+});
+
+test("legacy speed requests use normal mode with DeepL", async () => {
   const calls: TranslationProvider[] = [];
 
   const result = await generateTranslation({
-    mode: "speed",
+    mode: parseGenerationMode("speed"),
     request: { direction: "ja-to-zh", inputText: "hello" },
     providers: {
       azure: async () => {
@@ -25,9 +37,9 @@ test("speed mode uses Azure", async () => {
     },
   });
 
-  assert.equal(result.provider, "azure");
-  assert.equal(result.generated.explanation, "azure");
-  assert.deepEqual(calls, ["azure"]);
+  assert.equal(result.provider, "deepl");
+  assert.equal(result.generated.explanation, "deepl");
+  assert.deepEqual(calls, ["deepl"]);
 });
 
 test("quality mode uses Gemini", async () => {

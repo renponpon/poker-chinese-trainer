@@ -24,7 +24,7 @@ import type { LanguageCode, PhrasePackProfile, PhraseDirection } from "@/lib/typ
 export const runtime = "nodejs";
 
 const ENDPOINT = "/api/phrase/generate-pack";
-const GEMINI_MODEL = "gemini-3.1-flash-lite";
+const GEMINI_MODEL = "gemini-3.5-flash-lite";
 const PHRASE_MAX_OUTPUT_TOKENS = 4096;
 const EXISTING_TARGET_LIMIT = 80;
 const CATEGORY_IDS = new Set([

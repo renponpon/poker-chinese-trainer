@@ -5,10 +5,47 @@ Cursor での開発から Codex + VSCode への引き継ぎ用ドキュメント
 
 ---
 
+## 2026-09-07 速度廃止・Gemini/GPT比較（最新、Previewのみ）
+
+- 2026-09-07、ユーザー判断により品質関連のGemini実行モデルを `gemini-3.5-flash-lite` へローカルで切替。対象は品質翻訳、解説補完、例文パック、パック解説、利用記録のモデル表示。通常のDeepL→Azure fallback、音声、プロンプト、保存データは変更なし。対象ESLint、domain75件、infrastructure23件、Next.js本番ビルド25ページが成功。本番デプロイ・commit/pushは未実施。
+
+- 前回未比較だったGPT-5.6 Lunaを追加し、Gemini 3.5/3.8/Lunaを同一20例×英中で計60件実API生成。全件成功。中央値は2.451秒/2.862秒/7.826秒、p90は2.883秒/3.280秒/9.722秒。token原価は20件で$0.04701/$0.08633/$0.02703（1ドル150円仮定で1,000件約353/647/203円）。主訳の内部意味保持判定は15/20、16/20、18/20、重大ずれは1/20、0/20、0/20。小標本・盲検なしであり、Lunaの遅さを考慮して本番モデルは変更しない。詳細は `translation-provider-evaluation.md` の同日最新節。
+- ユーザーが保護付きPreview比較と「速度はなくそう」を承認。`generation-mode.ts` を通常/品質の2択にし、旧speedはparseで通常へ移行。翻訳画面の復元値もparseし、会話初期値を通常へ変更。直接のspeed→Azure分岐を削除、通常DeepL→障害時Azureは維持。品質はまだGemini3.1Flash-Lite。既存の未コミット案内/計測修正を壊さず、Previewスナップショットへ含めた。DB/キー/本番変更、commit/pushなし。
+- 新Preview `https://poker-chinese-trainer-gdesmlbxl-renponpons-projects.vercel.app` / `dpl_49fxUHusddVKGM9nK1rkvZFTYSC5` はREADY、target Preview、aliasなし。未認証取得はVercelログインへの転送を確認。本番phrabit.comは `dpl_Ce7sCubB6mh1VWdzQE4ZaUYWovz8` / `5677d98` を維持。Googleの新URL許可追加/実機ログインは今回行っていない。Previewを本番へpromoteしない。
+- ビルド内でPreviewの既存キーを使い、同一20例×Gemini3.1/3.5/3.8/GPT5.4nano/miniの100件を実生成、全件成功・再生成0回。キーのローカル取得/表示/再発行なし。DB・保存・ドリル・音声は呼ばず、創作例だけを送信。中央値は順に3.054/2.499/2.812/4.859/3.139秒。token×公式単価の合計$0.25704（150円仮定で約39円、請求実額ではない）。評価用ガード$0.80は月3,000円の強制停止設定ではない。
+- 結論：3.5が3.1より20/20件で速く次の第一候補だが、biweeklyの曖昧性・施錠状況の補完・不適切テンプレ/和訳が残る。GPT nanoは遅くマーカー漏れ、miniは返す→渡すの意味脱落などがあり、今回の条件では切替根拠が弱い。返還の还=háiは共通後処理の未修正問題。100件の主訳、重点25件の解説全文と追加抜粋を確認し、全解説の全面精査/母語話者盲検/一般正答率の確認とはしない。
+- 全訳/読み/解説はPreviewの `/provider-comparison/index.html`、取得済みJSONは `tmp/phrabit-responsive-shots/model-evaluation-results-20260907/results.json`。比較方法/料金/問題例/参照元は `translation-provider-evaluation.md` 先頭。`scripts/provider-evaluation.vercel.json` とビルドラッパーはこのPreviewにだけ明示指定した評価設定。通常buildへ組み込んでおらず、再デプロイ時の有料評価再実行に注意。公開生成テストAPIは作っていない。
+- domain75/infrastructure23件、対象ESLint、ローカル/クラウド25ページビルド、英中360/390/430pxの翻訳/通常⇔品質/明示追加/調整/再生成後自動再生なし、個人フレーズ/会話/通常ドリル、保存API/疑似同期の回帰テスト成功。既存.nextや.envを触らず、Git除外の `tmp/phrabit-responsive-shots/model-evaluation-preview-20260907` にスナップショットを作り検証した。
+- 次は同一呼出内の意味保持/テンプレ指示と共通ピンイン/マーカー処理を限定改善して3.5を再評価し、承認後にモデル切替/本番公開。追加の直列AIレビューを本番に入れない。以下の未実装/キー取得不可は初回比較時点の履歴。
+
+## 2026-09-07 予算回答後の実地検証準備（履歴）
+
+- 翻訳provider実比較を追加（`translation-provider-evaluation.md`先頭）。日本語10文×中国語/英語×現行3モード=本番API60回、全件成功、保存/ドリル/音声なし（使用量ログには入る）。中央値: 速度Azure0.926秒/通常DeepL0.613秒/品質Gemini3.1Flash-Lite3.205秒。通常が同一入力20件中15件で速かった。速度UI廃止・通常/品質2択、Azurefallback維持を提案するが未実装。品質の解説にも否定反転などの問題があり最善とは未判定。中国語还の誤読は3モード共通の後処理で再現。
+- `scripts/compare-translation-providers.mjs`を追加、構文/対象ESLint成功。全生データはGit除外の `tmp/phrabit-responsive-shots/provider-comparison-2026-09-06T16-35-49-718Z/`。新Gemini/DeepL model_type比較は未実行。Previewキーは存在するがsensitiveでCLI読出値が空。全環境復号の試行は安全審査で拒否され実行せず、Preview限定確認へ縮小しても値は取得できなかった。既存キーを変更せず使う検証専用Previewを明示承認後に準備するか、安全な手動キー設定が必要。本番設定・アプリコード・既存.env・学習データ変更、commit/push/deployなし。今回実費はtoken非公開のため未確定。APIの実行を「無課金」「予算上限設定済み」と扱わない。
+
+- 月3,000円（翻訳・解説・音声API）、中国/マカオ/香港/台湾などで中国語・英語圏で英語、両言語を同じ優先度とする回答を正本資料へ反映。優先する1地域を選び直してもらう必要はない。
+- `roadmap.md` 先頭へ費用設定案、担当別の残件、地域/言語の実装差、3操作のスマホ検証、紹介後7日の手順、10入力の意味保持チェックを追加。1,500/2,100/2,400円の運用目安と600円の予備は設定案で、当月実費・共有課金・固定料金は未確認。Google/OpenAIの停止用上限とAzureの通知のみを最新公式資料で区別した。アカウント設定は未実施。
+- 既存の紹介候補へ、シンガポールのトロピックス/SLI（英語）と香港Practical Mandarin（普通話）を追加。公式サイトと公開メールを確認し、宛先・個別冒頭・共通本文・QA/紹介用ref・初回案内・7日後確認を既存資料へ用意。上海中天の対象適合は再確認、窓口は今回未確認。台湾/マカオの窓口探索は未実施。営業送信は0件。
+- この回は文書のみ更新。生成API追加利用、アプリコード変更、DB/課金設定、commit/push/deployは行っていない。前回の未公開案内/計測修正と既知の返却还の解説ピンイン誤りは維持。次は費用管理画面の照合、ピンイン補修、既存修正の公開、実機と問い合わせ受信の残件を進め、宛先・文面の承認後に紹介依頼を送信する。
+
+## 2026-09-07 海外生活者への紹介前チェック（ローカル変更・未公開）
+
+- 「進めて」を受け、案内・計測の補修と公開前検証を実施。本番は引き続き `5677d98`。今回のcommit/push/Preview/本番デプロイやDB変更はしていない。営業送信・Auth設定・料金/上限設定も変更なし。
+- 案内：DataHandlingNoticeを明示追加、タブ内の直前結果一時保持、ゲストはブラウザ内保存、ログイン同期、未同期/データ削除の注意、外部翻訳/音声サービスへの送信、操作計測、誤訳の可能性に合わせて修正。固有名詞を伏せるだけで安全とは言わず、個人情報/機密を入力しない案内にした。AddTutorialも翻訳→任意調整→明示追加→復習、共通言語、ゲストと同期の違いへ更新。自動表示や必須確認は増やさず、長い文が小画面で切れないよう任意チュートリアルの固定高さを可変/最大高さ付きにした。
+- 計測の実不具合：3件のUUIDを含むドリルURLでは末尾refがAPIの120文字制限で切れることを再現。`product-analytics-route.ts` をクライアント/API共通で使い、pathnameと検証済みrefだけを記録。refは英数字/ハイフン/アンダースコア1〜80文字。フレーズID、任意のquery本文やtoken、hashは記録せず、URLを長くしてもrefを先に確保する。ユーザーの実URLや画面遷移は変えない。`translation_drill_save.success` は端末への追加成功とし、同期だけ失敗した場合はsuccess=true/errorCode=sync_failed、本当の追加失敗はfalse/save_failedに分ける。過去のsave_failedは遡及修正しない。
+- 計測検証：`smoke-product-analytics-flow.mjs` で実クライアント→実APIハンドラ→メモリ内Postgresを通し、流入・翻訳・調整・追加・別日ドリル・再追加を合成入力で確認。紹介元保持、同一ブラウザ識別、失敗した追加の集計除外、任意queryの非収集を確認。翌日はテスト時計であり実D1再訪ではない。ゲストは端末単位、異なる端末の同一人物や「自発的だった」という意図まで計測だけで分かるわけではない。匿名本番ブラウザ→実DBでの新しい導線一巡は公開後の残件。
+- 実API品質確認：`check-live-readiness-translations.mjs` で本番のゲストAPIに保存なしで10件（中6/英4、品質5/通常3/速度2）を生成し、必要な後続解説5回も取得。全15リクエストHTTP成功。主訳では今回の主客・否定・数量・期限の明確な逆転は見つからなかったが、これは10件の目視確認で品質保証ではない。生成全文/解説/時間は `tmp/phrabit-responsive-shots/readiness-20260907/translations.json` と `.txt`。学習フレーズの保存/削除/回答なし、AI使用量には検証分が含まれる。通常の主訳0.381〜0.771秒、速度0.967〜1.094秒、品質3.054〜3.674秒、通常/速度の後続解説2.090〜3.171秒。全て日本側の実行環境からの少数回測定で、海外回線や今回の修正前後比較ではない。生成プロンプト/AI呼出回数は変更なし。
+- 品質残件：2番「彼に渡すのではなく、私に返してください。」の主訳/pinyinは適切だったが、解説の还给と関連例で返却を意味する还がháiになった（この意味ではhuán）。現行pinyin-proの変換でも再現する。参考辞書 https://www.zdic.net/hans/%E8%BF%98 。一方「他还给我买了礼物。」の还は「さらに」のháiなので、一律huánへの置換は採用しない。3番の経験の过や物の东西でも軽声の扱いが主表示/解説で不統一。参考 https://zdic.net/hans/%E8%BF%87 。返却と追加の意味を区別する回帰例を揃えてから、追加生成なしの補正方法を検討する。このターンでピンイン変換や既存の学習データは書き換えていない。
+- 問い合わせ：本番 `/api/feedback` に「Codex動作確認」「【動作確認・回答不要】」「readiness-20260907-feedback-01」を含むテストを1件送信、HTTP200/ok:trueを確認。受信側のGoogleフォーム/回答表は接続DriveでPhrabit・要望を検索した範囲では見つからず、実受信・運営通知は未確認。API成功だけを受信確認としない。実利用者のフィードバックに数えない。
+- 費用/対象の残件：翻訳・解説は意図的に日次制限の対象外で、プロセス内の短時間大量利用ブロックのみ。音声の一部は日次制限を使う。厳密な月額予算上限・全体停止スイッチを整備済みとは扱わない。月額API予算と最初の対象国/言語をユーザーへ質問済み。生成時間を増やす同期DBチェックを勝手に追加せず、金額決定後にprovider別の設定/通知/停止手順を具体化する。費用異常時は新たな配信拡大を止め、利用記録とprovider請求を確認して本人へ報告する。キーの失効・上限変更は明示承認後。
+- 回帰確認：domain74/infrastructure23、同期/認証再取得/計測schema/計測flow、対象ESLint、25ページのビルドが成功。固定APIの360/390/430px翻訳で案内全文、チュートリアル、小画面内のボタン、任意調整、手動音声、保存、同期失敗時の正しい計測を確認。390/430px端末バックアップ/復旧停止、英中個人フレーズ導線・会話・通常ドリル・共通言語も成功。360pxチュートリアル画像を目視確認。別distDirでビルドし、テストサーバー停止後にnext.config/tsconfigの一時変更を取り消した。既存の.next ReparsePointやマーケティング差分は維持。
+- 実スマホの残る確認（本番5677d98の同期修正は反映済み）：スマホとPCを一度再読込し同じアカウント/言語で、(1)スマホで自分の一言を翻訳して明示追加→PCの保存画面を表示したまま30秒程度で出る、(2)スマホでその一言に回答→PCの次回復習日/学習状態も変わる、(3)スマホを通信断にして追加済みの一言に回答→オンライン復帰後に回答履歴が反映され、消失/重複がない、を確認する。通信断中に新しい翻訳の生成ができると案内しない。確認中はログアウト/ブラウザデータ削除をしない。Codexの疑似通信断テストと実スマホ確認を区別する。
+
 ## 2026-09-06 本番保留・データ保護の準備
 
 ### 承認後の進捗（2026-09-06）
 
+- 計測修正のcommit/push・連携公開完了（23:47 JST）：`5677d98d326d8c5a8cb0175d2d45deb45db7f7c6` / `Allow analytics for translation refinement and drill saves`。対象はAGENTS/handoff/schema/新migration/スモークテストの5ファイルのみ。local HEADとorigin/mainが一致。Production `dpl_Ce7sCubB6mh1VWdzQE4ZaUYWovz8` / `poker-chinese-trainer-d0rtguqn5-renponpons-projects.vercel.app` がREADY、phrabit.comからの取得でも同ID・SHA・productionを確認した。新Deploymentの確認時error/warningログなし。新しい実翻訳・保存・スマホ同期を今回再テストしたわけではなく、アプリコード/依存関係は前版のまま。前版Productionは `dpl_4EdbxKKczdHmuisDftAVbGobYjij` / 5278045。DBの拡張CHECKは旧アプリとも互換。この公開後記録だけローカルに追記し、追加の文書だけのデプロイは行わない。
 - 計測DBの適用完了（23:43 JST）：「よい」で本番DB適用とcommit/pushの承認を取得。同一SQLを隔離Preview `ozhmqkcajgumifthntne`（migration version `20260906144143`）→本番 `whuatcawoezfrvzplmri`（`20260906144252`）の順に `apply_migration` で適用し成功。本番のMCP生成versionへローカルファイルを `20260906144252_expand_product_analytics_translation_events.sql` として揃え、テスト参照も更新した。CLI生成時の142656名は準備時の履歴。Previewは独立履歴のためversionが異なる。両環境のmigration一覧で同名の適用を照合した。
 - DB上の検証：両DBでトランザクション内の `SET LOCAL ROLE service_role` による4種類のINSERT成功、未知イベントのcheck_violationを確認してROLLBACK。request_idを `codex-analytics-schema-smoke-` で区別し、終了後のテスト行0件。本番は前後914件、Previewは0件を維持。新12項目のCHECKがvalidated、RLS=true、ACLと拒否policyが前後一致。本番の学習テーブル/Auth/Storage/生成/API/UIは変更しない。実利用による4イベントの発生・アプリ経由の成功を今回の合成SQLテストと混同せず、過去に拒否されたイベントは復元されない。
 - 診断：Previewと本番のsecurity advisorsに `auth_leaked_password_protection`（漏洩済みパスワード保護OFF）警告が1件。今回の本番適用前にも同じ警告があり、DDLに伴う新規指摘ではない。Auth設定は承認範囲外のため変更なし。案内は https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection 。以降は修正SQL/新規schema/テスト/AGENTS/handoffのみ選択してcommit/pushする。営業資料・Xログ・告知画像・tsconfigの既存差分を混ぜない。

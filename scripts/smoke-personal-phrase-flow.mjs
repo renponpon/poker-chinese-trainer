@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
 
-const origin = "http://localhost:3010";
+const origin = process.env.PHRABIT_TEST_ORIGIN || "http://localhost:3010";
 const phraseKey = "poker-chinese-local-phrases-v1";
 const srsKey = "poker-chinese-srs-v1";
 const historyKey = "phrabit-translation-history-v1";
@@ -18,11 +18,11 @@ async function setup(language, width) {
   const calls = [];
   const gate = Promise.withResolvers();
   let failExplanation = false;
-  await context.addInitScript((language) => {
-    if (location.origin !== "http://localhost:3010") return;
+  await context.addInitScript(({ language, origin }) => {
+    if (location.origin !== origin) return;
     localStorage.setItem("phrabit:add-tutorial-seen", "1");
     localStorage.setItem("phrabit-learning-language-v1", language);
-  }, language);
+  }, { language, origin });
   await context.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.origin !== origin) return route.abort();
@@ -126,9 +126,13 @@ try {
   const { context, page, gate, calls, errors, fail } = await setup("en", 430);
   try {
     await page.goto(origin + "/conversation");
+    await page.getByRole("button", { name: "翻訳モード: 通常。タップで切り替え", exact: true }).click();
+    await page.getByRole("button", { name: "翻訳モード: 品質。タップで切り替え", exact: true }).click();
+    assert.equal(await page.getByRole("button", { name: /翻訳モード: 速度/ }).count(), 0);
     await page.getByPlaceholder("日本語を入力").fill("袋は要りません");
     await page.getByRole("button", { name: "送信", exact: true }).click();
     await page.getByText("I don't need a bag.", { exact: true }).waitFor();
+    assert.equal(calls.find((call) => call.path === "/api/phrase/add" && !call.body.warmup).body.generationMode, "normal");
     assert.deepEqual(await stored(page, historyKey), [], "unselected conversation must not be persisted");
     assert.deepEqual(await stored(page, phraseKey), []);
     await page.getByRole("button", { name: "ドリルに追加", exact: true }).click();

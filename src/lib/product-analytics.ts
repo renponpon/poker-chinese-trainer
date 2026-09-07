@@ -2,6 +2,7 @@
 
 import { getAuthHeaders } from "./auth-headers";
 import { createId } from "./id";
+import { normalizeAnalyticsRoute, normalizeCampaignRef } from "./product-analytics-route";
 import type { LanguageCode, PhraseDirection, Score } from "./types";
 
 type ProductEventName =
@@ -89,9 +90,7 @@ function getAnalyticsRoute(route?: string): string {
     route && route === window.location.pathname && window.location.search
       ? `${route}${window.location.search}`
       : currentRoute;
-  const campaignRef = getCampaignRef();
-  if (!campaignRef || routeWithSearch.includes("ref=")) return routeWithSearch;
-  return `${routeWithSearch}${routeWithSearch.includes("?") ? "&" : "?"}ref=${encodeURIComponent(campaignRef)}`;
+  return normalizeAnalyticsRoute(routeWithSearch, getCampaignRef());
 }
 
 function getCampaignRef(): string | null {
@@ -105,7 +104,7 @@ function getCampaignRef(): string | null {
   }
 
   try {
-    return window.localStorage.getItem(CAMPAIGN_REF_KEY);
+    return normalizeCampaignRef(window.localStorage.getItem(CAMPAIGN_REF_KEY));
   } catch {
     return null;
   }
@@ -113,9 +112,7 @@ function getCampaignRef(): string | null {
 
 function getCurrentCampaignRef(): string | null {
   const params = new URLSearchParams(window.location.search);
-  const ref = params.get("ref");
-  const normalizedRef = ref?.trim().slice(0, 80);
-  return normalizedRef || null;
+  return normalizeCampaignRef(params.get("ref"));
 }
 
 function getSourcePage(pathname: string): ProductAnalyticsEvent["sourcePage"] {

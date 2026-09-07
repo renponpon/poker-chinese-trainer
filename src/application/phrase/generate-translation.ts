@@ -40,11 +40,6 @@ export async function generateTranslation(
   input: GenerateTranslationInput,
 ): Promise<GenerateTranslationResult> {
   switch (input.mode) {
-    case "speed":
-      return {
-        generated: await input.providers.azure(input.request),
-        provider: "azure",
-      };
     case "quality":
       return {
         generated: await input.providers.gemini(input.request),

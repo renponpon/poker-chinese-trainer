@@ -1,9 +1,9 @@
-export type GenerationMode = "speed" | "normal" | "quality";
+export type GenerationMode = "normal" | "quality";
 
-export const GENERATION_MODE_ORDER: GenerationMode[] = ["speed", "normal", "quality"];
+export const GENERATION_MODE_ORDER: GenerationMode[] = ["normal", "quality"];
 
 export function parseGenerationMode(value: unknown): GenerationMode {
-  if (value === "speed" || value === "normal" || value === "quality") {
+  if (value === "normal" || value === "quality") {
     return value;
   }
   if (value === "fast") return "normal";
@@ -13,8 +13,6 @@ export function parseGenerationMode(value: unknown): GenerationMode {
 
 export function getGenerationModeLabel(mode: GenerationMode): string {
   switch (mode) {
-    case "speed":
-      return "速度";
     case "normal":
       return "通常";
     case "quality":
@@ -32,8 +30,6 @@ export function getGenerationModeTitle(mode: GenerationMode, readingLabel = "ピ
     ? `${readingLabel}・解説は後から`
     : "解説は後から";
   switch (mode) {
-    case "speed":
-      return `Azureで最速翻訳（${followUp}）`;
     case "normal":
       return `DeepLで翻訳（${followUp}）`;
     case "quality":

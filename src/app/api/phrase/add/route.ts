@@ -41,7 +41,7 @@ import type { LanguageCode } from "@/lib/types";
 export const runtime = "nodejs";
 
 const ENDPOINT = "/api/phrase/add";
-const GEMINI_MODEL = "gemini-3.1-flash-lite";
+const GEMINI_MODEL = "gemini-3.5-flash-lite";
 type UsageRecordInput = {
   requestId: string;
   actor: RequestActor;
