@@ -5,7 +5,23 @@ Cursor での開発から Codex + VSCode への引き継ぎ用ドキュメント
 
 ---
 
-## 2026-09-07 速度廃止・Gemini/GPT比較（最新、Previewのみ）
+## 2026-09-07 ロードマップ実行開始（最新・ローカル修正）
+
+- 本番c457ed6で隔離ゲスト英中の翻訳/明示追加/ドリルGood完了、英語は再生成まで実操作。ref付きtranslation_success/translation_drill_save/drill_answer各1件（英語refine_success1）を本番 `whuatcawoezfrvzplmri` の計測DB読取で確認。実利用・アカウント同期の成功人数には含めない。本人ログインのブラウザではQA page_viewだけで保存しなかった。DBの既存学習データや認証設定は変更なし。
+- `src/lib/chinese-pinyin.ts` に限定的な読み補修。還の一律置換ではなく、検証で出た単独還给/请还给我/我现在还给你等の簡体字短文形に限定してhuán。háiの「还给我买书」や不但〜还などは回帰で維持。袋子→dài zi、说得再/很+慢/快/清楚の得→deも補修。本番で発見した誤りを対象にし、全多音字・任意の複雑な返還文の網羅は主張しない。本文/構造化例文/マーカー語句で共通処理を使う。旧保存済みの読みは移行しない。
+- `src/lib/chinese-pinyin.test.ts` 21件を追加し、既存infrastructure runnerにlib testsを含めた。domain75/infrastructure+lib44件、対象ESLint、25ページbuild成功。ローカル5,000回の平均0.027ms/例、追加API呼出なし。前版との速度比較や本番新コードの検証ではない。新しいcommit/push/deployは未実施。
+- `beachhead-outreach-templates.md` に英中各2先の個別全文を用意。トロピックス/SLI/Practical Mandarinは公開メール再確認。中天の公式窓口は不明、既存候補コラボの一般問い合わせフォームを公式サイトで確認し4先目に採用。無料体験申込は使わない。送信名義・返信先と宛先/本文承認は残り、外部送信0件。台湾・マカオの窓口探索は未実施。
+- 実画面8枚と英語40秒スライドを `tmp/phrabit-responsive-shots/outreach-20260907/index.html` に保存。録画はffmpeg不足で失敗し動画はない。中国語は修正前の得=déを含む検証版と明記し、修正公開後に撮り直す。外部公開・画像アップロードなし。
+- AI Studioの利用/請求画面を読取。Default Gemini Projectの月額枠「￥64 / -」、前払い移行/クレジット購入が必要との警告あり。課金アカウントの他サービス共有とPhrabitの紐付けは未確定なので、移行・購入・上限変更はしていない。本人へ専用/共有と営業送信名義を非同期質問。課金画面を本人引継ぎ用に残す。総API月額3,000円の強制停止は未完了。詳細額・範囲はroadmap最新節に区別して記載。
+- Driveの対象名/回答シート検索ではPhrabit問い合わせ回答表を特定できなかった。既存API受付成功に対する受信確認が残る。無関係な回答表は開かない。実スマホ同期・通信復帰、問い合わせ受信確認、課金対応、修正公開の後に最初の紹介依頼を行う。長期目標の利益額/期限は未回答でも作業を止めない。
+
+## 2026-09-07 本番更新後のロードマップ整理（履歴）
+
+- 直前ターンで `c457ed6` をcommit/pushし、Production `dpl_2ksFARBQmyLvM5XhUP2xgquCYzEf` / `poker-chinese-trainer-4g7ep2soa-renponpons-projects.vercel.app` がREADY、phrabit.comへのalias完了。保存なし本番1件でHTTP200、provider=gemini、model=gemini-3.5-flash-lite、解説ありを確認。直近1時間・main・productionのerrorログ検索は該当なし。全実機/全機能の無不具合を意味しない。
+- ロードマップ依頼に対し、既存のビジョン・利益目的・海外生活者対象・基本無料/追加枠候補・英中同優先・月3,000円予算を再確認。`roadmap.md` 先頭に、限定確認→紹介→別日利用→購入→更新/利益→拡大の順序・分担・判定条件を追加した。目標月間利益/期限、1万人の累計/月間定義は未確定。古い資料の未公開状態や売上レンジは履歴として区別する。
+- この依頼では文書のみ更新。新しい利用集計、営業送信、料金公開、予定済みタスク変更、commit/push/deployは行っていない。紹介候補のうちトロピックス/Practical Mandarinの公式対象案内を再確認したが、紹介同意や提携は未成立。
+
+## 2026-09-07 速度廃止・Gemini/GPT比較（公開前の履歴）
 
 - 2026-09-07、ユーザー判断により品質関連のGemini実行モデルを `gemini-3.5-flash-lite` へローカルで切替。対象は品質翻訳、解説補完、例文パック、パック解説、利用記録のモデル表示。通常のDeepL→Azure fallback、音声、プロンプト、保存データは変更なし。対象ESLint、domain75件、infrastructure23件、Next.js本番ビルド25ページが成功。本番デプロイ・commit/pushは未実施。
 

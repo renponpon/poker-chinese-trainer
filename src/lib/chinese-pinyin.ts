@@ -50,6 +50,33 @@ export function hasChineseText(value: string): boolean {
 export function toMandarinPinyin(value: string): string {
   if (!hasChineseText(value)) return "";
 
+  const readingOverrides = new Map<number, string>();
+  if (value.trim() === "还给") readingOverrides.set(value.indexOf("还"), "huán");
+  for (const match of value.matchAll(
+    /(?:^\s*|(?:^|[，。！？；,.!?;]\s*)(?:请(?:你|您)?(?:直接)?|(?:那)?我(?:现在|马上|已经)|这个请(?:直接)?))还给[我你您他她它]们?(?:了)?(?:吧|吗)?(?=\s*(?:$|[，。！？；,.!?;]))/g,
+  )) {
+    readingOverrides.set(match.index + match[0].indexOf("还给"), "huán");
+  }
+
+  for (const match of value.matchAll(/袋子|说得(?:再|很)?(?:慢|快|清楚)/g)) {
+    readingOverrides.set(match.index + 1, match[0] === "袋子" ? "zi" : "de");
+  }
+
+  if (readingOverrides.size > 0) {
+    let sourceOffset = 0;
+    const converted = pinyin(value, {
+      type: "all",
+      toneType: "symbol",
+      toneSandhi: false,
+      nonZh: "consecutive",
+    }).map((syllable) => {
+      const reading = readingOverrides.get(sourceOffset) ?? syllable.result;
+      sourceOffset += syllable.origin.length;
+      return reading;
+    }).join(" ");
+    return normalizePinyinText(converted);
+  }
+
   const converted = pinyin(value, {
     toneType: "symbol",
     toneSandhi: false,

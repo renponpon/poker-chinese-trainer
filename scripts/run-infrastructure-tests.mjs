@@ -8,8 +8,8 @@ const workspace = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const outDir = mkdtempSync(join(tmpdir(), "phrabit-infrastructure-tests-"));
 const tscEntry = join(workspace, "node_modules", "typescript", "bin", "tsc");
 
-const sourceFiles = findFiles(join(workspace, "src", "infrastructure"), (file) =>
-  file.endsWith(".test.ts"),
+const sourceFiles = ["infrastructure", "lib"].flatMap((directory) =>
+  findFiles(join(workspace, "src", directory), (file) => file.endsWith(".test.ts")),
 );
 
 try {

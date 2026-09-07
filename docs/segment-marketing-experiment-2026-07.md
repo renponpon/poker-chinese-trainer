@@ -10,7 +10,7 @@
 | School of Language International / 英語 | [在住者向け英会話・日本人スタッフ](https://www.language-int.com/ja/school-of-language-international-%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6/) | [公式問い合わせ](https://www.language-int.com/ja/contact-us-2/)に `slicourse@gmail.com`。採用用メールとは区別 | `partner_sli_sg_202609` / 未接触 |
 | Practical Mandarin Learning Center / 中国語 | [香港在住の日本人・家族向け中国語](https://www.practicalmandarin.com/index.php?a=lists&c=index&catid=29&m=content) | [公式Contact Us](https://www.practicalmandarin.com/index.php?a=lists&c=index&catid=8&m=content)に `info@practicalmandarin.com` | `partner_practical_hk_202609` / 未接触 |
 
-最初の打診候補は英語のトロピックス/SLI、中国語のPractical Mandarin/既存の中天上海校。中天の対象適合はトップページで再確認したが、営業用窓口はこの回で未確認。台湾・マカオの紹介窓口も未確認であり、発見済みとはしない。最初の2件ずつという作業目安は、未確認窓口への送信や配信依頼の承認を意味しない。
+最初の打診候補は英語のトロピックス/SLI、中国語のPractical Mandarin/コラボラーニングセンターへ具体化した。中天の対象適合はトップページで再確認したが、一次情報の営業窓口が未確認のため保留する。コラボは[公式トップ](https://www.collabo-china.com/)で上海駐在員・家族向けを、[一般問い合わせ](https://www.collabo-china.com/otoiawase)で日本語の問い合わせフォームを9月7日に確認した。無料体験申込へ営業文を送らない。refは `qa_collabo_sh_202609` / `partner_collabo_sh_202609`。台湾・マカオの紹介窓口は未確認。4先とも未接触で、窓口の存在は提携同意や動作確認の証明ではない。
 
 紹介URLは `https://phrabit.com/?ref=partner_tropics_sg_202609` のように上記refを付ける。担当者の技術確認は `qa_tropics_sg_202609` など別refで行い、利用者への配信リンクと分ける。refだけで画面の学習言語は切り替わらないため、初回案内で英語/中国語を選んでもらう。紹介者から利用者の個人情報やフレーズ本文を回収しない。
 
