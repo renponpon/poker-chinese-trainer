@@ -57,6 +57,11 @@ export function toMandarinPinyin(value: string): string {
   )) {
     readingOverrides.set(match.index + match[0].indexOf("还给"), "huán");
   }
+  for (const match of value.matchAll(
+    /(?:请(?:你|您)?)?[把将][^，。！？；,.!?;]{1,24}?还给(?:了)?[我你您他她它]们?(?:了)?/g,
+  )) {
+    readingOverrides.set(match.index + match[0].indexOf("还给"), "huán");
+  }
 
   for (const match of value.matchAll(/袋子|说得(?:再|很)?(?:慢|快|清楚)/g)) {
     readingOverrides.set(match.index + 1, match[0] === "袋子" ? "zi" : "de");
