@@ -92,11 +92,12 @@ export function toMandarinPinyin(value: string): string {
 }
 
 export function addMandarinPinyinToMarkedChineseTerms(value: string): string {
-  return normalizeExistingInlinePinyin(value).replace(/{{\s*([^{}]+?)\s*}}/g, (_match, term) => {
+  const normalized = normalizeExistingInlinePinyin(value).replace(/{{\s*([^{}]+?)\s*}}/g, (_match, term) => {
     const text = term.trim();
     if (!hasChineseText(text)) return text;
     return addPinyinToInlineChineseTerm(text);
   });
+  return normalizeReturnDecompositionPinyin(normalized);
 }
 
 export function overwriteStructuredSectionPinyin(value: unknown): unknown {
@@ -147,6 +148,14 @@ function normalizeExistingInlinePinyin(value: string): string {
     if (JAPANESE_EXPLANATION_TERMS.has(trimmedText)) return trimmedText;
     return addPinyinToInlineChineseTerm(trimmedText);
   });
+}
+
+function normalizeReturnDecompositionPinyin(value: string): string {
+  if (!/还给[^（(\n]*[（(]huán gěi\b/.test(value)) return value;
+  return value.replace(
+    /还[（(]hái[）)](?=\s*(?:と|[+＋])\s*给(?:[我你您他她它]们?)?\s*[（(])/g,
+    "还(huán)",
+  );
 }
 
 function addPinyinToInlineChineseTerm(value: string): string {

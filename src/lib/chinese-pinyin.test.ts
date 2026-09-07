@@ -55,6 +55,21 @@ test("inline terms use the same correction without absorbing Japanese prefixes",
     "動詞还给(huán gěi) と 还给(huán gěi)");
 });
 
+test("return decomposition uses huán while preserving true additive contrasts", () => {
+  assert.equal(
+    addMandarinPinyinToMarkedChineseTerms(
+      "还给我(huán gěi wǒ)は还(hái)と给我(gěi wǒ)が組み合わさった表現です。",
+    ),
+    "还给我(huán gěi wǒ)は还(huán)と给我(gěi wǒ)が組み合わさった表現です。",
+  );
+  assert.equal(
+    addMandarinPinyinToMarkedChineseTerms(
+      "还(hái)は『さらに』、还给(huán gěi)は『返す』を表します。",
+    ),
+    "还(hái)は『さらに』、还给(huán gěi)は『返す』を表します。",
+  );
+});
+
 test("structured examples preserve fields and replace both readings", () => {
   assert.deepEqual(overwriteStructuredSectionPinyin([
     { heading: "返答", examples: [{ phrase: "我现在还给你。", translation: "今返します。", reading: "wrong", pinyin: "wrong" }] },
