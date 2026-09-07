@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   addMandarinPinyinToMarkedChineseTerms,
+  completeMandarinPinyinForTemplateBullet,
   overwriteStructuredSectionPinyin,
   toMandarinPinyin,
 } from "./chinese-pinyin";
@@ -67,6 +68,25 @@ test("return decomposition uses huán while preserving true additive contrasts",
       "还(hái)は『さらに』、还给(huán gěi)は『返す』を表します。",
     ),
     "还(hái)は『さらに』、还给(huán gěi)は『返す』を表します。",
+  );
+});
+
+test("template bullets fill missing clause readings without touching Japanese prose", () => {
+  assert.equal(
+    completeMandarinPinyinForTemplateBullet(
+      "把它交给我(bǎ tā jiāo gěi wǒ)、请再说慢一点。",
+    ),
+    "把它交给我(bǎ tā jiāo gěi wǒ)、请再说慢一点(qǐng zài shuō màn yī diǎn)。",
+  );
+  assert.equal(
+    completeMandarinPinyinForTemplateBullet(
+      "把它还给我、请再大声一点(qǐng zài dà shēng yī diǎn)。",
+    ),
+    "把它还给我(bǎ tā huán gěi wǒ)、请再大声一点(qǐng zài dà shēng yī diǎn)。",
+  );
+  assert.equal(
+    completeMandarinPinyinForTemplateBullet("把(bǎ)の後に対象を置きます。"),
+    "把(bǎ)の後に対象を置きます。",
   );
 });
 

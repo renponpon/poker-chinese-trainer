@@ -13,13 +13,14 @@ test("structured explanation corrects return readings in bullets and templates",
     {
       heading: "入れ替えテンプレ",
       bullets: [
-        "把手机还给我(bǎ shǒu jī hái gěi wǒ)のように使えます。",
+        "把手机还给我、请再大声一点(qǐng zài dà shēng yī diǎn)。",
       ],
     },
   ]);
 
   assert.match(result, /还给我\(huán gěi wǒ\)は还\(huán\)と给我\(gěi wǒ\)/);
   assert.match(result, /把手机还给我\(bǎ shǒu jī huán gěi wǒ\)/);
+  assert.match(result, /请再大声一点\(qǐng zài dà shēng yī diǎn\)/);
   assert.doesNotMatch(result, /还\(hái\)と给我/);
   assert.doesNotMatch(result, /hái gěi/);
 });

@@ -100,6 +100,25 @@ export function addMandarinPinyinToMarkedChineseTerms(value: string): string {
   return normalizeReturnDecompositionPinyin(normalized);
 }
 
+export function completeMandarinPinyinForTemplateBullet(value: string): string {
+  const normalized = addMandarinPinyinToMarkedChineseTerms(value);
+  return normalized
+    .split(/([，、；。！？,;!?]\s*)/)
+    .map((part) => {
+      if (!hasChineseText(part)) return part;
+      if (/[ぁ-ゖァ-ヺー]/.test(part)) return part;
+      if (/[（(][A-Za-zÀ-ỹüÜǖǘǚǜńňḿ\s,.;:?!'-]+[）)]/.test(part)) return part;
+
+      const match = part.match(/^(\s*)(.*?)(\s*)$/s);
+      const phrase = match?.[2]?.trim() ?? "";
+      if (!phrase) return part;
+      const reading = toMandarinPinyin(phrase);
+      if (!reading) return part;
+      return `${match?.[1] ?? ""}${phrase}(${reading})${match?.[3] ?? ""}`;
+    })
+    .join("");
+}
+
 export function overwriteStructuredSectionPinyin(value: unknown): unknown {
   if (!Array.isArray(value)) return value;
 

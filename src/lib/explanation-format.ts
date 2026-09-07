@@ -1,5 +1,6 @@
 import {
   addMandarinPinyinToMarkedChineseTerms,
+  completeMandarinPinyinForTemplateBullet,
   hasChineseText,
   toMandarinPinyin,
 } from "./chinese-pinyin";
@@ -264,7 +265,13 @@ function parseStructuredExplanationSections(value: unknown): StructuredExplanati
     const heading = normalizeHeadingLabel(readTextField(item, ["heading", "title", "section"]));
     if (!heading) continue;
 
-    const bullets = parseStructuredBullets(item).slice(0, 2);
+    const bullets = parseStructuredBullets(item)
+      .map((bullet) =>
+        heading === "入れ替えテンプレ"
+          ? completeMandarinPinyinForTemplateBullet(bullet)
+          : bullet,
+      )
+      .slice(0, 2);
     const examples = parseStructuredExamples(item.examples).slice(0, 2);
     if (bullets.length === 0 && examples.length === 0) continue;
 
