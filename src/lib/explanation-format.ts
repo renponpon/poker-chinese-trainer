@@ -153,6 +153,7 @@ function formatExamplePairs(examples: ExamplePair[]): string[] {
 }
 
 function getExampleReading(example: ExamplePair): string | undefined {
+  if (/[ぁ-ゖァ-ヺー]/.test(example.phrase)) return undefined;
   if (hasChineseText(example.phrase)) {
     return toMandarinPinyin(example.phrase) || undefined;
   }
@@ -269,7 +270,7 @@ function parseStructuredExplanationSections(value: unknown): StructuredExplanati
       .map((bullet) =>
         heading === "入れ替えテンプレ"
           ? completeMandarinPinyinForTemplateBullet(bullet)
-          : bullet,
+          : addMandarinPinyinToMarkedChineseTerms(bullet),
       )
       .slice(0, 2);
     const examples = parseStructuredExamples(item.examples).slice(0, 2);
@@ -396,9 +397,9 @@ function readTextField(record: Record<string, unknown>, keys: string[]): string 
 }
 
 function cleanBulletText(value: string): string {
-  return addMandarinPinyinToMarkedChineseTerms(stripLeadingSeparator(value.trim())
+  return stripLeadingSeparator(value.trim())
     .replace(/^[-・]\s*/, "")
-    .trim());
+    .trim();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -406,20 +407,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function splitReadableLine(line: string): string[] {
-  const bulletMatch = line.match(/^([-・]\s*)(.+)$/);
-  const prefix = bulletMatch?.[1] ?? "";
-  const body = bulletMatch?.[2] ?? line;
+  if (/^[-・]\s*.+$/.test(line)) return [line];
+  if (line.includes("「") && line.includes("」")) return [line];
+  if (line.length <= MAX_LINE_CHARS) return [line];
 
-  if (body.includes("「") && body.includes("」")) return [line];
-  if (body.length <= MAX_LINE_CHARS) return [line];
-
-  const sentences = body
+  const sentences = line
     .match(/[^。！？]+(?:[。！？]+[)）\]】」』]*)?/g)
     ?.map((sentence) => stripLeadingSeparator(sentence.trim()))
     .filter(Boolean);
 
   if (!sentences || sentences.length <= 1) return [line];
-  return sentences.map((sentence) => `${prefix}${sentence}`);
+  return sentences;
 }
 
 function splitTranslationPairLine(line: string): string[] | null {

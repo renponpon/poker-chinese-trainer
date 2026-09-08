@@ -5,6 +5,15 @@ Cursor での開発から Codex + VSCode への引き継ぎ用ドキュメント
 
 ---
 
+## 2026-09-09 承認済み最小リリースの内容と検証
+
+- 本人の「よい」で8ファイルのcommit/push、Preview確認後の本番反映を承認。変更はpackage/lock（Next・eslint-config-next 16.3.4等の依存更新）、practice-scheduleとテスト（長期Good/Perfectの14→45→120→180日進行）、chinese-pinyin/explanation-formatと各テスト（返却还・只住/只需要の限定補正、日本語への誤ピンイン除外、テンプレの節別読みと箇条書き維持）。学習5テーブルの一括移行はしない。
+- 独立候補は本番fd97b804…＋8ファイル。他の281ファイルのhash一致、domain79/infrastructure・lib90の計169テスト、lint/型検査/25ページbuild成功。保存18件を候補の実parserへ無料再生して本文/主訳/例文/和訳/項目数/冪等性を確認、追加API生成なし。
+- Preview `https://poker-chinese-trainer-i78jam5mb-renponpons-projects.vercel.app`（`dpl_3exbfXv9TB7BE5SERbzDyE4yNMoQ`）がREADY、25ページbuild成功。既存の隔離Preview設定を使用し本番設定をコピーしていない。360/390px中国語・430px英語でニュアンス調整、失敗再試行、勝手な自動再生なし、明示保存、SRS作成、同期失敗時の端末保存、横はみ出しなし・pageerrorなしを検証。API/音声はテスト応答へ置換し、実際の有料生成・クラウド保存・実機音声・ログイン同期を再試験したものではない。CUAでもPreviewの翻訳/ドリル空状態/保存画面を確認。
+- 直前退避は2026-09-09 00:56:55 JST、本番whuatcawoezfrvzplmriの学習5テーブル641行（166/145/166/164/0）。`.private-backups/learning-20260909-005655-owner.dpapi`、668614 bytes、復号内容SHA256 `C31AF962FA8AF53C3E972F1FBC5E80EFD0C603377CFE1B29DBA3735440C79E40`。平文ファイルなし、DPAPI本人ユーザー限定、PGliteメモリーDBで全行JSONB一致と所有関係を復元確認。本番書込みなし。Auth/Storage/未同期端末データは対象外。全体復元は退避後の他ユーザー更新も戻すため自動実行しない。
+- 公開前の本番/GitHub mainはfd97b804c0517d57c7ebf78000466ef8130cfefbで一致。コード戻し先は `dpl_31enETULqZGgb8kKNMtvtRVTJxHS`（`poker-chinese-trainer-f8nmqiogf-renponpons-projects.vercel.app`）。コードrollbackは新たな学習回答データを巻き戻す操作ではない。
+- モデル/プロンプト/Schema/予算ガード/DDL/通信中止UI/提供条件画面/営業資料の実験はこのcommitへ含めずローカルに保持。既存の実験Previewをpromoteしない。mainへpush後、本番用環境変数での自動build→READY/alias/SHA/画面を確認する。Preview DBを使うbuildの本番promoteは行わない。意味誤りや未知の多音字を全解決したリリースではない。
+
 ## 2026-09-07 ロードマップ第1段階完了（最新・本番公開）
 
 - 本番c457ed6で隔離ゲスト英中の翻訳/明示追加/ドリルGood完了、英語は再生成まで実操作。ref付きtranslation_success/translation_drill_save/drill_answer各1件（英語refine_success1）を本番 `whuatcawoezfrvzplmri` の計測DB読取で確認。実利用・アカウント同期の成功人数には含めない。本人ログインのブラウザではQA page_viewだけで保存しなかった。DBの既存学習データや認証設定は変更なし。

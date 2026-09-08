@@ -95,15 +95,16 @@ export function recordPracticeResult(
       status = "learning";
       intervalDays = 1;
     } else {
-      const idx = MAINTENANCE_STEPS_DAYS.indexOf(intervalDays);
-      const nextIdx = idx >= 0 ? idx + 1 : MAINTENANCE_STEPS_DAYS.length - 1;
-      if (nextIdx >= MAINTENANCE_STEPS_DAYS.length) {
+      const nextIdx = MAINTENANCE_STEPS_DAYS.findIndex((days) => days > item.intervalDays);
+      if (nextIdx === -1) {
         intervalDays = MASTERED_AFTER_INTERVAL_DAYS;
         status = "mastered";
       } else {
         intervalDays = MAINTENANCE_STEPS_DAYS[nextIdx];
       }
     }
+  } else if (status === "mastered") {
+    intervalDays = MASTERED_AFTER_INTERVAL_DAYS;
   }
 
   return {

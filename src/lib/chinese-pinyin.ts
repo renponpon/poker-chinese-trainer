@@ -53,9 +53,9 @@ export function toMandarinPinyin(value: string): string {
   const readingOverrides = new Map<number, string>();
   if (value.trim() === "还给") readingOverrides.set(value.indexOf("还"), "huán");
   for (const match of value.matchAll(
-    /(?:^\s*|(?:^|[，。！？；,.!?;]\s*)(?:请(?:你|您)?(?:直接)?|(?:那)?我(?:现在|马上|已经)|这个请(?:直接)?))还给[我你您他她它]们?(?:了)?(?:吧|吗)?(?=\s*(?:$|[，。！？；,.!?;]))/g,
+    /(?:^\s*|(?:^|[，。！？；,.!?;]\s*)(?:请(?:你|您)?(?:直接)?|(?:那)?我(?:现在|马上|已经)|(?:那)?(?:我们?)?(?:这就|现在|马上|立刻|立即)|这个请(?:直接)?))还(?:给)?[我你您他她它]们?(?:了)?(?:吧|吗)?(?=\s*(?:$|[，。！？；,.!?;]))/g,
   )) {
-    readingOverrides.set(match.index + match[0].indexOf("还给"), "huán");
+    readingOverrides.set(match.index + match[0].indexOf("还"), "huán");
   }
   for (const match of value.matchAll(
     /(?:请(?:你|您)?)?[把将][^，。！？；,.!?;]{1,24}?还给(?:了)?[我你您他她它]们?(?:了)?/g,
@@ -65,6 +65,10 @@ export function toMandarinPinyin(value: string): string {
 
   for (const match of value.matchAll(/袋子|说得(?:再|很)?(?:慢|快|清楚)/g)) {
     readingOverrides.set(match.index + 1, match[0] === "袋子" ? "zi" : "de");
+  }
+
+  for (const match of value.matchAll(/(?:^\s*|[，。！？；,.!?;]\s*|[我你您他她它]们?|(?:而)?不是)只(?=住|需要)/g)) {
+    readingOverrides.set(match.index + match[0].lastIndexOf("只"), "zhǐ");
   }
 
   if (readingOverrides.size > 0) {
@@ -101,7 +105,12 @@ export function addMandarinPinyinToMarkedChineseTerms(value: string): string {
 }
 
 export function completeMandarinPinyinForTemplateBullet(value: string): string {
-  const normalized = addMandarinPinyinToMarkedChineseTerms(value);
+  const markedClauses = value.replace(/{{\s*([^{}]+?)\s*}}/g, (_match, term: string) =>
+    term.split(/([，、；。！？,;!?]\s*)/)
+      .map((part) => hasChineseText(part) ? `{{${part}}}` : part)
+      .join(""),
+  );
+  const normalized = addMandarinPinyinToMarkedChineseTerms(markedClauses);
   return normalized
     .split(/([，、；。！？,;!?]\s*)/)
     .map((part) => {
@@ -111,7 +120,7 @@ export function completeMandarinPinyinForTemplateBullet(value: string): string {
 
       const match = part.match(/^(\s*)(.*?)(\s*)$/s);
       const phrase = match?.[2]?.trim() ?? "";
-      if (!phrase) return part;
+      if (!phrase || isJapaneseExplanationText(phrase)) return part;
       const reading = toMandarinPinyin(phrase);
       if (!reading) return part;
       return `${match?.[1] ?? ""}${phrase}(${reading})${match?.[3] ?? ""}`;
@@ -132,6 +141,7 @@ export function overwriteStructuredSectionPinyin(value: unknown): unknown {
       examples: examples.map((example) => {
         if (!isRecord(example)) return example;
         const phrase = readTextField(example, ["phrase", "text", "targetText", "chinese", "sourceText"]);
+        if (/[ぁ-ゖァ-ヺー]/.test(phrase)) return { ...example, reading: "", pinyin: "" };
         if (!hasChineseText(phrase)) return example;
         const reading = toMandarinPinyin(phrase);
         return {
@@ -164,7 +174,7 @@ function normalizeExistingInlinePinyin(value: string): string {
     const trimmedText = text.trim();
     const trimmedInner = inner.trim();
     if (!PINYIN_LIKE_RE.test(trimmedInner)) return match;
-    if (JAPANESE_EXPLANATION_TERMS.has(trimmedText)) return trimmedText;
+    if (isJapaneseExplanationText(trimmedText)) return trimmedText;
     return addPinyinToInlineChineseTerm(trimmedText);
   });
 }
@@ -179,8 +189,15 @@ function normalizeReturnDecompositionPinyin(value: string): string {
 
 function addPinyinToInlineChineseTerm(value: string): string {
   const { prefix, term } = splitJapaneseExplanationPrefix(value.trim());
+  if (isJapaneseExplanationText(term)) return `${prefix}${term}`;
   const reading = toMandarinPinyin(term);
   return reading ? `${prefix}${term}(${reading})` : value;
+}
+
+function isJapaneseExplanationText(value: string): boolean {
+  return /[ぁ-ゖァ-ヺー]/.test(value)
+    || JAPANESE_EXPLANATION_TERMS.has(value)
+    || /^[一二三四五六七八九十百千万\d]+泊(?:[一二三四五六七八九十百千万\d]+日)?$/.test(value);
 }
 
 function splitJapaneseExplanationPrefix(value: string): { prefix: string; term: string } {
