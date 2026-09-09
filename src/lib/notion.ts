@@ -14,7 +14,10 @@ import { isSupportedDirection, parseDirection } from "./languages";
 const apiKey = process.env.NOTION_API_KEY;
 const databaseId = process.env.NOTION_DATABASE_ID;
 
-const notion = apiKey ? new Client({ auth: apiKey }) : null;
+const notion = apiKey ? new Client({
+  auth: apiKey,
+  fetch: (url, init) => fetch(url, { ...init, cache: "no-store" }),
+}) : null;
 
 type NotionRichText = { plain_text?: string; text?: { content?: string } };
 type NotionProperty = {

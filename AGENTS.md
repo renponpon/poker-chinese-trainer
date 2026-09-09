@@ -67,6 +67,8 @@ Phrabit は、単なる翻訳アプリでも中国語総合教材でもなく、
 
 ## 現フェーズの優先度
 
+- 2026-09-09 Notion通信の限定公開承認（最新）：本人の「よい」でnotion.ts/test.tsだけのcommit→Preview確認→本番反映を承認。本番8afb6e4のarchiveへ2ファイルのみ重ね、残288ファイル一致・環境値コピーなし。独立候補176テスト/対象lint/型検査/25ページbuild、Preview `4qzqh5gsj` の360/390/430pxテスト応答付きUI確認が成功。標準fetch＋no-storeへの変更で、認証/保存形式/AI/料金/同期設定は維持する。00:56 JST退避641行のメモリーDB復元を再確認（新規snapshotではなくAuth/Storage/端末未同期分は対象外）。戻し先は8afb6e4/`dpl_2cPqLZkMGKRosiSMAZm9Q4H9s3Sd`。実験差分を除外し、main push後に本番SHA/READY/UI/短時間ログを確認する。実Notion更新を伴う警告消失は未確認。詳細はhandoff先頭。
+
 - 2026-09-09 承認済み最小リリース：本人が8ファイル（依存更新・長期SRS・共通pinyin/解説整形とテスト）のcommit/push→Preview確認→本番反映を承認。独立候補169テスト/18件無料再生/25ページbuild、Preview `i78jam5mb` の360/390/430pxテスト応答付きUI検証が成功。モデル/プロンプト/予算設定/認証/同期/保存形式は変更しない。直前の本番学習641行を `learning-20260909-005655-owner.dpapi` に暗号化しメモリーDB復元一致、Auth/Storage/端末未同期分は対象外。実験・予算DDL・待機中止UI等の残差分は公開対象外で保持。main pushは本番自動deployのためPreview合格後に行い、公開後はSHA/READY/本番UIを確認する。詳細はhandoff先頭。
 
 - 2026-09-07ロードマップ実行：GeminiはPhrabit専用の前払いへ移行し、本人が￥800を入金、AI Studio上の自動チャージOFFを確認。中国語の既知の还给/袋子/说得と解説内テンプレの読みを追加API呼出なしで限定補正し、`228a6d3`までcommit/push/deploy済み。domain75件・infrastructure/lib53件・対象lint・25ページbuild、本番品質翻訳、解説、例文、直近errorログなしを確認。英中各2紹介先の個別本文と実画面スライドは用意済みだが未送信。営業には送信者名・返信先と宛先/本文の本人承認が必要。最新の残件はroadmap/handoff先頭を参照する。

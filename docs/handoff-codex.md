@@ -5,6 +5,15 @@ Cursor での開発から Codex + VSCode への引き継ぎ用ドキュメント
 
 ---
 
+## 2026-09-09 Notion通信の限定公開（承認・Preview合格）
+
+- 本人の「よい」が今回2ファイルのcommit、Preview確認後の本番反映を承認。公開基準は本番/GitHub一致の`8afb6e46d2416def4ae0e2bb25d0a6412dd90342`。SDK初期化の標準fetch＋no-storeと新Notion回帰テストのみを変更し、キー/モデル/プロンプト/保存形式/同期/料金設定/DDLは変えない。Node警告を設定で抑止する変更ではない。
+- `../release-candidates/20260909-notion-native`を本番commitのarchiveから作成し、上記2ファイル以外の追跡288ファイルは内容hash一致、環境値コピーなし。固定lockの421依存を既存cacheから導入。独立候補はinfrastructure/lib97＋domain79＝176テスト、対象lint、型検査、25ページbuild成功。全実験入り207テスト/26ページとは別結果。
+- Preview `https://poker-chinese-trainer-4qzqh5gsj-renponpons-projects.vercel.app`（`dpl_EhWNpYsq7URNQywrrMQKDMTM1aUa`）はREADY。隔離ブラウザーの360/390px中国語・430px英語で翻訳、調整dialog/再試行、勝手な再生なし、明示保存、SRS、同期失敗時の端末保存、横はみ出し/pageerrorなしを確認。360pxスクリーンショットも確認。API/音声/クラウド保存はテスト応答であり、有料生成や実Notion更新・実ログイン同期の確認ではない。
+- 9月9日00:56:55 JSTの既存暗号化バックアップ`learning-20260909-005655-owner.dpapi`を本人WindowsユーザーでメモリーDBへ再復元し、641行の全JSONB一致を確認。新規snapshotではなく退避後の変更、Auth/Storage/未同期端末データは含まない。今回の公開では学習データ移行・実データ書換えは行わない。
+- main pushは本番自動deployのためPreview合格後に実行する。PreviewのDB設定を持つ成果物の本番promoteはしない。本番反映後にSHA/READY/alias/画面と短時間ログを確認する。コード戻し先は`8afb6e4`/`dpl_2cPqLZkMGKRosiSMAZm9Q4H9s3Sd`（`hzqmz02bq`）。コードrollbackとデータ復元は別操作。
+- 実際のNotion書込みは試験しないため、公開直後のログが無警告でも該当経路の警告解消実証とは呼ばない。予算ガード、通信中止、品質プロンプト等の未公開実験と長い資料差分は保持し、このcommitへ混ぜない。
+
 ## 2026-09-09 承認済み最小リリースの内容と検証
 
 - 本人の「よい」で8ファイルのcommit/push、Preview確認後の本番反映を承認。変更はpackage/lock（Next・eslint-config-next 16.3.4等の依存更新）、practice-scheduleとテスト（長期Good/Perfectの14→45→120→180日進行）、chinese-pinyin/explanation-formatと各テスト（返却还・只住/只需要の限定補正、日本語への誤ピンイン除外、テンプレの節別読みと箇条書き維持）。学習5テーブルの一括移行はしない。
