@@ -1,3 +1,7 @@
+import { AiBudgetError } from "@/infrastructure/server/ai-budget";
+import { withDeferredBudgetSettlement } from "@/lib/server/with-ai-budget-settlements";
+import { RequestStoppedError } from "@/lib/timed-request";
+
 import { NextResponse } from "next/server";
 import { createId } from "@/lib/id";
 import { getBearerToken } from "@/infrastructure/server/request-auth";
@@ -23,7 +27,9 @@ const ENDPOINT = "/api/speech/transcribe";
 const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
 const MAX_DURATION_MS = 20_000;
 
-export async function POST(req: Request) {
+export const POST = withDeferredBudgetSettlement(handlePost);
+
+async function handlePost(req: Request) {
   const requestId = createId();
   let actor: RequestActor | null = null;
   let inputChars = 0;
@@ -168,6 +174,9 @@ function normalizeRouteError(error: unknown): {
   code: string;
   message: string;
 } {
+  if (error instanceof AiBudgetError || error instanceof RequestStoppedError) {
+    return { status: error.status, code: error.code, message: error.message };
+  }
   if (error instanceof RequestValidationError) {
     return { status: error.status, code: error.code, message: error.message };
   }

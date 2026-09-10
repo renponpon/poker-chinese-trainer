@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { PhraseDirection } from "@/lib/types";
+import type { PhraseDirection } from "../types";
+import { createTimedRequest } from "../timed-request";
 
 export type AiUsageActorType = "guest" | "user";
 
@@ -45,6 +46,28 @@ const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 let adminClient: SupabaseClient | null | undefined;
+const USAGE_TRACKING_TIMEOUT_MS = 8_000;
+
+type UsageCountQuery = PromiseLike<{ count: number | null; error: unknown }> & {
+  abortSignal(signal: AbortSignal): UsageCountQuery;
+  retry(enabled: boolean): UsageCountQuery;
+};
+
+async function readUsageCount(query: UsageCountQuery): Promise<number | null> {
+  try {
+    const { count, error } = await createTimedRequest(USAGE_TRACKING_TIMEOUT_MS).run(
+      async (signal) => await query.abortSignal(signal).retry(false),
+    );
+    if (error || count === null || !Number.isSafeInteger(count) || count < 0) {
+      console.error("[ai_usage_events] usage count unavailable");
+      return null;
+    }
+    return count;
+  } catch {
+    console.error("[ai_usage_events] usage count request failed or timed out");
+    return null;
+  }
+}
 
 function getSupabaseAdmin(): SupabaseClient | null {
   if (adminClient !== undefined) return adminClient;
@@ -111,12 +134,7 @@ export async function countAiUsageToday(params: {
     return null;
   }
 
-  const { count, error } = await query;
-  if (error) {
-    console.error("[ai_usage_events] count failed", error);
-    return null;
-  }
-  return count ?? 0;
+  return readUsageCount(query);
 }
 
 export async function countPhrasePackUsageToday(params: {
@@ -146,12 +164,7 @@ export async function countPhrasePackUsageToday(params: {
     return null;
   }
 
-  const { count, error } = await query;
-  if (error) {
-    console.error("[ai_usage_events] phrase pack count failed", error);
-    return null;
-  }
-  return count ?? 0;
+  return readUsageCount(query);
 }
 
 export async function isValidPhrasePackRequest(params: {
@@ -180,11 +193,7 @@ export async function isValidPhrasePackRequest(params: {
     return false;
   }
 
-  const { count, error } = await query;
-  if (error) {
-    console.error("[ai_usage_events] phrase pack request lookup failed", error);
-    return false;
-  }
+  const count = await readUsageCount(query);
   return (count ?? 0) > 0;
 }
 
@@ -194,7 +203,7 @@ export async function recordAiUsageEvent(
   const supabase = getSupabaseAdmin();
   if (!supabase) return false;
 
-  const { error } = await supabase.from("ai_usage_events").insert({
+  const query = supabase.from("ai_usage_events").insert({
     request_id: input.requestId,
     user_id: input.userId,
     actor_type: input.actorType,
@@ -212,11 +221,19 @@ export async function recordAiUsageEvent(
     error_code: input.errorCode,
     model: input.model,
   });
-  if (error) {
-    console.error("[ai_usage_events] insert failed", error);
+  try {
+    const { error } = await createTimedRequest(USAGE_TRACKING_TIMEOUT_MS).run(
+      async (signal) => await query.abortSignal(signal).retry(false),
+    );
+    if (error) {
+      console.error("[ai_usage_events] insert failed");
+      return false;
+    }
+    return true;
+  } catch {
+    console.error("[ai_usage_events] insert failed or timed out; outcome may be unknown");
     return false;
   }
-  return true;
 }
 
 export async function recordProductAnalyticsEvent(

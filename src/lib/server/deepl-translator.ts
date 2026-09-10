@@ -1,5 +1,6 @@
 import { buildGeneratedPhrase, LANGUAGE_CONFIGS, parseDirection } from "@/lib/languages";
 import type { GeneratedPhrase, PhraseDirection } from "@/lib/types";
+import { reserveAiBudget } from "@/infrastructure/server/ai-budget";
 const DEEPL_TIMEOUT_MS = 8_000;
 const DEEPL_FREE_ENDPOINT = "https://api-free.deepl.com";
 const DEEPL_PRO_ENDPOINT = "https://api.deepl.com";
@@ -32,6 +33,7 @@ export async function translateWithDeepL(input: {
   const { sourceLanguage, targetLanguage } = parseDirection(input.direction);
   const sourceLang = LANGUAGE_CONFIGS[sourceLanguage].deeplSourceCode;
   const targetLang = LANGUAGE_CONFIGS[targetLanguage].deeplTargetCode;
+  await reserveAiBudget("deepl:translate", Math.max(1, Array.from(input.text).length));
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEEPL_TIMEOUT_MS);
 

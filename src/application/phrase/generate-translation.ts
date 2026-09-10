@@ -60,6 +60,7 @@ async function generateNormalTranslation(
         provider: "deepl",
       };
     } catch (error) {
+      if (error instanceof Error && "retryable" in error && error.retryable === false) throw error;
       input.onProviderFallback?.({
         from: "deepl",
         to: "azure",

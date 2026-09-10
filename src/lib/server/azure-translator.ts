@@ -1,6 +1,8 @@
 import { createId } from "@/lib/id";
 import { buildGeneratedPhrase, LANGUAGE_CONFIGS, parseDirection } from "@/lib/languages";
 import type { GeneratedPhrase, PhraseDirection } from "@/lib/types";
+import { reserveAiBudget } from "@/infrastructure/server/ai-budget";
+import { createTimedRequest } from "@/lib/timed-request";
 
 const DEFAULT_ENDPOINT = "https://api.cognitive.microsofttranslator.com";
 const API_VERSION = "3.0";
@@ -62,12 +64,17 @@ async function translateText(input: {
     to: LANGUAGE_CONFIGS[targetLanguage].azureCode,
   });
 
-  const res = await fetch(`${endpoint}/translate?${params.toString()}`, {
-    method: "POST",
-    headers: azureHeaders(key, region),
-    body: JSON.stringify([{ text: input.text }]),
+  await reserveAiBudget("azure:translate", Math.max(1, Array.from(input.text).length));
+  const { res, data } = await createTimedRequest(12_000).run(async (signal) => {
+    const res = await fetch(`${endpoint}/translate?${params.toString()}`, {
+      method: "POST",
+      headers: azureHeaders(key, region),
+      body: JSON.stringify([{ text: input.text }]),
+      signal,
+    });
+    const data = (await res.json().catch(() => null)) as AzureTranslationResponse | null;
+    return { res, data };
   });
-  const data = (await res.json().catch(() => null)) as AzureTranslationResponse | null;
   if (!res.ok) {
     throw new AzureTranslatorError(`Azure Translator error: ${res.status}`);
   }
@@ -92,12 +99,17 @@ export async function transliterateChinesePinyin(chinese: string): Promise<strin
     toScript: "Latn",
   });
 
-  const res = await fetch(`${endpoint}/transliterate?${params.toString()}`, {
-    method: "POST",
-    headers: azureHeaders(key, region),
-    body: JSON.stringify([{ text: chinese }]),
+  await reserveAiBudget("azure:transliterate", Math.max(1, Array.from(chinese).length));
+  const { res, data } = await createTimedRequest(12_000).run(async (signal) => {
+    const res = await fetch(`${endpoint}/transliterate?${params.toString()}`, {
+      method: "POST",
+      headers: azureHeaders(key, region),
+      body: JSON.stringify([{ text: chinese }]),
+      signal,
+    });
+    const data = (await res.json().catch(() => null)) as AzureTransliterationResponse | null;
+    return { res, data };
   });
-  const data = (await res.json().catch(() => null)) as AzureTransliterationResponse | null;
   if (!res.ok) {
     throw new AzureTranslatorError(`Azure Transliteration error: ${res.status}`);
   }

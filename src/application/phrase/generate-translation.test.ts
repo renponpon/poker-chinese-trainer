@@ -151,6 +151,21 @@ test("normal mode reports DeepL failure and falls back to Azure", async () => {
   assert.deepEqual(fallbackEvents, ["deepl->azure"]);
 });
 
+test("a non-retryable budget failure never starts another paid provider", async () => {
+  const error = Object.assign(new Error("budget exhausted"), { retryable: false });
+  let fallbackCalls = 0;
+  await assert.rejects(generateTranslation({
+    mode: "normal",
+    request: { direction: "ja-to-en", inputText: "こんにちは" },
+    providers: {
+      deepl: async () => { throw error; },
+      azure: async () => { fallbackCalls += 1; return makeGeneratedPhrase("azure"); },
+      gemini: async () => { fallbackCalls += 1; return makeGeneratedPhrase("gemini"); },
+    },
+  }), (caught) => caught === error);
+  assert.equal(fallbackCalls, 0);
+});
+
 function makeGeneratedPhrase(explanation: string): GeneratedPhrase {
   return {
     direction: "ja-to-zh",

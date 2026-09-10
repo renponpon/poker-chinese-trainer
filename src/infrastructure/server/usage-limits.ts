@@ -126,7 +126,7 @@ export async function assertWithinDailyAiLimit(actor: RequestActor): Promise<num
   });
 
   if (currentCount === null) {
-    if (process.env.NODE_ENV === "production" && !isUsageTrackingConfigured()) {
+    if (process.env.NODE_ENV === "production" || isUsageTrackingConfigured()) {
       throw new UsageTrackingError();
     }
     console.warn("[usage-limits] Usage tracking is not configured; allowing request in development.");
@@ -212,7 +212,7 @@ export async function assertWithinPhrasePackDailyLimit(actor: RequestActor): Pro
   });
 
   if (currentCount === null) {
-    if (process.env.NODE_ENV === "production" && !isUsageTrackingConfigured()) {
+    if (process.env.NODE_ENV === "production" || isUsageTrackingConfigured()) {
       throw new UsageTrackingError();
     }
     console.warn("[usage-limits] Phrase pack tracking is not configured; allowing request in development.");

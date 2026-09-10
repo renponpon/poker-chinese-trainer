@@ -60,6 +60,7 @@ export async function generatePhrasePack<TCandidate extends PhrasePackCandidate>
       }
       lastError = input.createInsufficientError();
     } catch (error) {
+      if (error instanceof Error && "retryable" in error && error.retryable === false) throw error;
       const normalized = input.normalizeError?.(error) ?? toError(error);
       lastError = normalized;
       input.onAttemptError?.({ attempt, error: normalized, originalError: error });

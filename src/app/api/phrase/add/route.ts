@@ -1,3 +1,7 @@
+import { AiBudgetError } from "@/infrastructure/server/ai-budget";
+import { withDeferredBudgetSettlement } from "@/lib/server/with-ai-budget-settlements";
+import { RequestStoppedError } from "@/lib/timed-request";
+
 import { after, NextResponse } from "next/server";
 import {
   generateTranslation,
@@ -65,7 +69,9 @@ class ApiRouteError extends Error {
   }
 }
 
-export async function POST(req: Request) {
+export const POST = withDeferredBudgetSettlement(handlePost);
+
+async function handlePost(req: Request) {
   const requestId = createId();
   let actor: RequestActor | null = null;
   let validated: ValidatedPhraseAddRequest | null = null;
@@ -399,6 +405,9 @@ function normalizeRouteError(error: unknown): {
   code: string;
   message: string;
 } {
+  if (error instanceof AiBudgetError || error instanceof RequestStoppedError) {
+    return { status: error.status, code: error.code, message: error.message };
+  }
   if (error instanceof RequestValidationError) {
     return { status: error.status, code: error.code, message: error.message };
   }

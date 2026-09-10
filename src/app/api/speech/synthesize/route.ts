@@ -1,3 +1,8 @@
+import { AiBudgetError } from "@/infrastructure/server/ai-budget";
+import { withDeferredBudgetSettlement } from "@/lib/server/with-ai-budget-settlements";
+import { RequestStoppedError } from "@/lib/timed-request";
+import { measureSpeechStage, withSpeechTiming } from "@/infrastructure/server/speech-timing";
+
 import { NextResponse } from "next/server";
 import { createId } from "@/lib/id";
 import { isLanguageCode, LANGUAGE_CONFIGS } from "@/lib/languages";
@@ -27,17 +32,24 @@ type SynthesizeRequest = {
   langCode?: unknown;
 };
 
-export async function POST(req: Request) {
+export const POST = withDeferredBudgetSettlement(handlePost);
+
+function handlePost(req: Request) {
+  return withSpeechTiming(() => executePost(req));
+}
+
+async function executePost(req: Request) {
   const requestId = createId();
   let actor: RequestActor | null = null;
   let inputChars = 0;
 
   try {
     const accessToken = getBearerToken(req);
-    actor = await identifyRequestActor(req, accessToken);
-    await assertWithinDailyAiLimit(actor);
+    actor = await measureSpeechStage("actor", () => identifyRequestActor(req, accessToken));
+    const identifiedActor = actor;
+    await measureSpeechStage("daily_quota", () => assertWithinDailyAiLimit(identifiedActor));
 
-    const body = await parseRequest(req);
+    const body = await measureSpeechStage("request_body", () => parseRequest(req));
     const text = normalizeText(body.text, "text", MAX_TEXT_CHARS);
     const langCode = normalizeLangCode(body.langCode);
     inputChars = text.length;
@@ -133,7 +145,7 @@ async function recordUsage(input: {
   errorCode: string | null;
   model: string;
 }) {
-  await recordAiUsageEvent({
+  await measureSpeechStage("usage_record", () => recordAiUsageEvent({
     requestId: input.requestId,
     userId: input.actor.userId,
     actorType: input.actor.type,
@@ -150,7 +162,7 @@ async function recordUsage(input: {
     success: input.success,
     errorCode: input.errorCode,
     model: input.model,
-  });
+  }));
 }
 
 function normalizeRouteError(error: unknown): {
@@ -158,6 +170,9 @@ function normalizeRouteError(error: unknown): {
   code: string;
   message: string;
 } {
+  if (error instanceof AiBudgetError || error instanceof RequestStoppedError) {
+    return { status: error.status, code: error.code, message: error.message };
+  }
   if (error instanceof RequestValidationError) {
     return { status: error.status, code: error.code, message: error.message };
   }
