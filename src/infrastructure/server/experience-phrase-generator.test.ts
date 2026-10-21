@@ -47,6 +47,24 @@ test("context failure is explicit and has no invented candidate", () => {
   assert.deepEqual(parseExperiencePhraseResponse('{"status":"insufficient_context","sourceText":"","targetText":""}', "zh"), { status: "insufficient_context", mock: false });
 });
 
+test("prompt distinguishes a failed communication attempt from an unidentified goal", () => {
+  assert.match(EXPERIENCE_SYSTEM_INSTRUCTION, /A past failure to ask, request, explain or refuse something already identifies a communication goal/);
+  assert.match(EXPERIENCE_SYSTEM_INSTRUCTION, /Turn that intended message into direct speech/);
+  assert.match(EXPERIENCE_SYSTEM_INSTRUCTION, /Do not require the user to supply the exact wording, a room number, a time/);
+  assert.match(EXPERIENCE_SYSTEM_INSTRUCTION, /ONLY when neither a desired message nor a grounded request or question can be identified/);
+  assert.match(EXPERIENCE_SYSTEM_INSTRUCTION, /Missing optional details or describing an unsuccessful request is not insufficient context/);
+});
+
+for (const targetLanguage of ["en", "zh"] as const) {
+  test(`reported hotel experience reaches the ${targetLanguage} prompt without requiring additional details`, () => {
+    const experienceText = "ホテルに泊まってるときにルームスタッフに部屋の掃除を依頼できなかった";
+    const input = validateExperiencePhraseRequest({ experienceText, targetLanguage });
+    const prompt = buildExperiencePhrasePrompt(input);
+    assert.deepEqual(JSON.parse(prompt.split("入力データ:\n")[1]), { experience: experienceText, previousPhrase: null, nuance: "" });
+    assert.match(prompt, targetLanguage === "zh" ? /中国語（普通話・簡体字）/ : /英語/);
+  });
+}
+
 for (const [name, value] of [
   ["missing", undefined], ["malformed", "{"], ["markdown", '```json\n{"status":"ready"}\n```'],
   ["empty target", JSON.stringify({ status: "ready", sourceText: "お願い。", targetText: "" })],
