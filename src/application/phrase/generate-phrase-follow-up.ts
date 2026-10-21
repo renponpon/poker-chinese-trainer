@@ -123,7 +123,7 @@ export async function generatePhraseFollowUp(
     );
   }
 
-  const { explanation, pinyin } = extractExplainResponse(text);
+  const { explanation, pinyin } = extractExplainResponse(text, input);
   if (needsPinyin && !pinyin) input.onMissingPinyin?.();
 
   return {
@@ -137,7 +137,7 @@ export async function generatePhraseFollowUp(
   };
 }
 
-function extractExplainResponse(text: string): { explanation: string; pinyin?: string } {
+function extractExplainResponse(text: string, input: Pick<GeneratePhraseFollowUpInput, "direction" | "japanese" | "chinese">): { explanation: string; pinyin?: string } {
   const trimmed = text.trim();
   const jsonStart = trimmed.indexOf("{");
   const jsonEnd = trimmed.lastIndexOf("}");
@@ -157,7 +157,7 @@ function extractExplainResponse(text: string): { explanation: string; pinyin?: s
       "empty_explanation",
     );
   }
-  const explanation = formatExplanationForReading(parsed.explanation);
+  const explanation = formatExplanationForReading(parsed.explanation, { direction: input.direction, chineseText: input.chinese, japaneseText: input.japanese });
   const pinyin =
     typeof parsed.pinyin === "string" && parsed.pinyin.trim()
       ? parsed.pinyin.trim()

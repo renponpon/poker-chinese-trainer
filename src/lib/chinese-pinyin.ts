@@ -1,9 +1,17 @@
 import { pinyin } from "pinyin-pro";
+import type { PhraseDirection } from "./types";
+
+export type ExplanationPinyinOptions = {
+  direction?: PhraseDirection;
+  japaneseText?: string;
+  chineseText?: string;
+  markedOnly?: boolean;
+};
 
 const CHINESE_CHARACTER_RE = /[\u3400-\u9fff]/;
 const INLINE_CHINESE_TERM_RE =
-  /([A-Za-z0-9_+\-./]*[\u3400-\u9fff][A-Za-z0-9_+\-./\u3400-\u9fff]*)\s*[（(]([^（）()]+)[）)]/g;
-const PINYIN_LIKE_RE = /^[A-Za-zÀ-ỹüÜǖǘǚǜńňḿ\s,.;:?!'-]+$/;
+  /([A-Za-z0-9_+＋\-/／]*[\u3400-\u9fff][A-Za-z0-9_+＋\-/／\u3400-\u9fff]*)([.…]*)\s*[（(]([^（）()]+)[）)]/g;
+const PINYIN_LIKE_RE = /^[A-Za-zÀ-ỹüÜǖǘǚǜńňḿ0-9\s,.;:?!'…，。！？；：+＋/／-]+$/;
 const JAPANESE_EXPLANATION_PREFIXES = [
   "文末助詞",
   "可能補語",
@@ -41,15 +49,40 @@ const JAPANESE_EXPLANATION_TERMS = new Set([
   "部分",
   "荷物",
   "書類",
+  "例",
+  "完成例",
+  "置換例",
+  "日本語訳",
 ]);
 
 export function hasChineseText(value: string): boolean {
   return CHINESE_CHARACTER_RE.test(value);
 }
 
-export function toMandarinPinyin(value: string): string {
+export function toMandarinPinyin(value: string, context?: string): string {
   if (!hasChineseText(value)) return "";
 
+  if (context && context !== value && /[只得]/.test(value) && context.includes(value)) {
+    const readings = new Set<string>();
+    const syllables = mandarinSyllables(context);
+    for (let matchIndex = context.indexOf(value); matchIndex !== -1; matchIndex = context.indexOf(value, matchIndex + 1)) {
+      let sourceOffset = 0;
+      const matched = syllables.filter((syllable) => {
+        const start = sourceOffset;
+        sourceOffset += syllable.origin.length;
+        return start >= matchIndex && sourceOffset <= matchIndex + value.length;
+      });
+      if (matched.map((syllable) => syllable.origin).join("") === value) {
+        readings.add(normalizePinyinText(matched.map((syllable) => syllable.result).join(" ")));
+      }
+    }
+    if (readings.size === 1) return [...readings][0];
+  }
+
+  return normalizePinyinText(mandarinSyllables(value).map((syllable) => syllable.result).join(" "));
+}
+
+function mandarinSyllables(value: string) {
   const readingOverrides = new Map<number, string>();
   if (value.trim() === "还给") readingOverrides.set(value.indexOf("还"), "huán");
   for (const match of value.matchAll(
@@ -67,68 +100,73 @@ export function toMandarinPinyin(value: string): string {
     readingOverrides.set(match.index + 1, match[0] === "袋子" ? "zi" : "de");
   }
 
-  for (const match of value.matchAll(/(?:^\s*|[，。！？；,.!?;]\s*|[我你您他她它]们?|(?:而)?不是)只(?=住|需要)/g)) {
+  for (const match of value.matchAll(/(?:^\s*|[，。！？；,.!?;]\s*|[我你您他她它]们?|(?:而)?(?:不)?是)只(?=住|需要|想)/g)) {
     readingOverrides.set(match.index + match[0].lastIndexOf("只"), "zhǐ");
   }
 
-  if (readingOverrides.size > 0) {
-    let sourceOffset = 0;
-    const converted = pinyin(value, {
-      type: "all",
-      toneType: "symbol",
-      toneSandhi: false,
-      nonZh: "consecutive",
-    }).map((syllable) => {
-      const reading = readingOverrides.get(sourceOffset) ?? syllable.result;
-      sourceOffset += syllable.origin.length;
-      return reading;
-    }).join(" ");
-    return normalizePinyinText(converted);
+  for (const match of value.matchAll(/(?:^\s*|[，。！？；,.!?;]\s*|[我你您他她它]们?|只是|还是)(?:还|也|都|总)?得(?=先(?!后|後))/g)) {
+    readingOverrides.set(match.index + match[0].lastIndexOf("得"), "děi");
   }
 
-  const converted = pinyin(value, {
+  let sourceOffset = 0;
+  return pinyin(value, {
+    type: "all",
     toneType: "symbol",
     toneSandhi: false,
     nonZh: "consecutive",
+  }).map((syllable) => {
+    const result = readingOverrides.get(sourceOffset) ?? syllable.result;
+    sourceOffset += syllable.origin.length;
+    return { ...syllable, result };
   });
-
-  return normalizePinyinText(converted);
 }
 
-export function addMandarinPinyinToMarkedChineseTerms(value: string): string {
-  const normalized = normalizeExistingInlinePinyin(value).replace(/{{\s*([^{}]+?)\s*}}/g, (_match, term) => {
-    const text = term.trim();
-    if (!hasChineseText(text)) return text;
-    return addPinyinToInlineChineseTerm(text);
-  });
+export function addMandarinPinyinToMarkedChineseTerms(value: string, options: ExplanationPinyinOptions = {}): string {
+  if (!allowsMandarin(options)) {
+    return normalizeExistingInlinePinyin(value.replace(/{{\s*([^{}]+?)\s*}}/g, "$1"), options);
+  }
+  const normalized = markKnownChineseTerms(normalizeExistingInlinePinyin(collapseRepeatedInlinePinyin(value), options), options).replace(
+    /{{\s*([^{}]+?)\s*}}(\s*[（(]([^（）()]+)[）)])?/g,
+    (_match, term: string, annotation: string | undefined, reading: string | undefined) => {
+      const text = term.trim();
+      const suffix = reading && isInlinePinyinReading(reading, text) ? "" : annotation ?? "";
+      return `${addPinyinToInlineChineseTerm(text, options)}${suffix}`;
+    },
+  );
   return normalizeReturnDecompositionPinyin(normalized);
 }
 
-export function completeMandarinPinyinForTemplateBullet(value: string): string {
-  const markedClauses = value.replace(/{{\s*([^{}]+?)\s*}}/g, (_match, term: string) =>
-    term.split(/([，、；。！？,;!?]\s*)/)
-      .map((part) => hasChineseText(part) ? `{{${part}}}` : part)
-      .join(""),
-  );
-  const normalized = addMandarinPinyinToMarkedChineseTerms(markedClauses);
-  return normalized
-    .split(/([，、；。！？,;!?]\s*)/)
+export function completeMandarinPinyinForTemplateBullet(value: string, options: ExplanationPinyinOptions = {}): string {
+  const normalized = addMandarinPinyinToMarkedChineseTerms(value, options);
+  if (options.markedOnly || !allowsMandarin(options)) return normalized;
+  return splitOutsideParentheses(normalized)
     .map((part) => {
       if (!hasChineseText(part)) return part;
       if (/[ぁ-ゖァ-ヺー]/.test(part)) return part;
-      if (/[（(][A-Za-zÀ-ỹüÜǖǘǚǜńňḿ\s,.;:?!'-]+[）)]/.test(part)) return part;
-
-      const match = part.match(/^(\s*)(.*?)(\s*)$/s);
-      const phrase = match?.[2]?.trim() ?? "";
-      if (!phrase || isJapaneseExplanationText(phrase)) return part;
-      const reading = toMandarinPinyin(phrase);
-      if (!reading) return part;
-      return `${match?.[1] ?? ""}${phrase}(${reading})${match?.[3] ?? ""}`;
+      const label = part.match(/^(\s*[\u3400-\u9fff]+[：:]\s*)(.*)$/);
+      return label ? `${label[1]}${addPinyinToInlineChineseTerm(label[2], options)}` : addPinyinToInlineChineseTerm(part, options);
     })
     .join("");
 }
 
-export function overwriteStructuredSectionPinyin(value: unknown): unknown {
+function splitOutsideParentheses(value: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (/[（(]/.test(character)) depth += 1;
+    else if (/[）)]/.test(character)) depth = Math.max(0, depth - 1);
+    else if (depth === 0 && /[，、；。！？,;!?]/.test(character)) {
+      parts.push(value.slice(start, index), character);
+      start = index + 1;
+    }
+  }
+  parts.push(value.slice(start));
+  return parts;
+}
+
+export function overwriteStructuredSectionPinyin(value: unknown, options: ExplanationPinyinOptions = {}): unknown {
   if (!Array.isArray(value)) return value;
 
   return value.map((section) => {
@@ -141,7 +179,7 @@ export function overwriteStructuredSectionPinyin(value: unknown): unknown {
       examples: examples.map((example) => {
         if (!isRecord(example)) return example;
         const phrase = readTextField(example, ["phrase", "text", "targetText", "chinese", "sourceText"]);
-        if (/[ぁ-ゖァ-ヺー]/.test(phrase)) return { ...example, reading: "", pinyin: "" };
+        if (!allowsMandarin(options) || /[ぁ-ゖァ-ヺー]/.test(phrase)) return { ...example, reading: "", pinyin: "" };
         if (!hasChineseText(phrase)) return example;
         const reading = toMandarinPinyin(phrase);
         return {
@@ -169,14 +207,73 @@ function normalizePinyinText(value: string): string {
     .trim();
 }
 
-function normalizeExistingInlinePinyin(value: string): string {
-  return value.replace(INLINE_CHINESE_TERM_RE, (match, text, inner) => {
+function normalizeExistingInlinePinyin(value: string, options: ExplanationPinyinOptions): string {
+  return value.replace(INLINE_CHINESE_TERM_RE, (match, text, ellipsis, inner) => {
     const trimmedText = text.trim();
     const trimmedInner = inner.trim();
-    if (!PINYIN_LIKE_RE.test(trimmedInner)) return match;
-    if (isJapaneseExplanationText(trimmedText)) return trimmedText;
-    return addPinyinToInlineChineseTerm(trimmedText);
+    if (!isInlinePinyinReading(trimmedInner, trimmedText)) return match;
+    if (!allowsMandarin(options)) {
+      return normalizePinyinLetters(trimmedInner) === normalizePinyinLetters(toMandarinPinyin(trimmedText))
+        ? `${trimmedText}${ellipsis}` : match;
+    }
+    return `${addPinyinToInlineChineseTerm(trimmedText, options)}${ellipsis}`;
   });
+}
+
+function allowsMandarin(options: ExplanationPinyinOptions): boolean {
+  return !options.direction || options.direction.split("-to-").includes("zh");
+}
+
+function markKnownChineseTerms(value: string, options: ExplanationPinyinOptions): string {
+  if (!options.chineseText) return value;
+  return value.replace(/{{[^{}]*}}|[（(][^（）()]*[）)]|([A-Za-z0-9_+＋\-/／]*[\u3400-\u9fff][A-Za-z0-9_+＋\-/／\u3400-\u9fff]*)(\s*[（(][^（）()]*[）)])?/g,
+    (match, term: string | undefined, annotation: string | undefined) => {
+      if (!term || annotation || term.length < 2 || !options.chineseText!.includes(term)
+        || options.japaneseText?.includes(term) || isJapaneseExplanationText(term, options)) return match;
+      return `{{${term}}}`;
+    });
+}
+
+function isInlinePinyinReading(value: string, term: string): boolean {
+  if (!PINYIN_LIKE_RE.test(value) || !/[A-Za-zÀ-ỹ]/.test(value)) return false;
+  if (/[À-ỹüÜǖǘǚǜńňḿ]/.test(value)) return true;
+  return normalizePinyinLetters(value) === normalizePinyinLetters(toMandarinPinyin(term));
+}
+
+function normalizePinyinLetters(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/gi, "").toLowerCase();
+}
+
+function collapseRepeatedInlinePinyin(value: string): string {
+  const readingPattern = /[（(]([^（）()]+)[）)]/g;
+  const parts: string[] = [];
+  let start = 0;
+  for (const match of value.matchAll(readingPattern)) {
+    if (match.index < start || !isInlinePinyinReading(match[1], "")) continue;
+    const reading = normalizePinyinLetters(match[1]);
+    let end = match.index + match[0].length;
+    while (end < value.length) {
+      const opening = end + (value.slice(end).match(/^\s*/)?.[0].length ?? 0);
+      if (!/[（(]/.test(value[opening] ?? "")) break;
+      let depth = 1;
+      let closing = opening + 1;
+      for (; closing < value.length && depth > 0; closing += 1) {
+        if (/[（(]/.test(value[closing])) depth += 1;
+        else if (/[）)]/.test(value[closing])) depth -= 1;
+      }
+      if (depth !== 0) break;
+      const inner = value.slice(opening + 1, closing - 1).replace(/[（）()]/g, "");
+      const repeated = normalizePinyinLetters(inner);
+      if (!PINYIN_LIKE_RE.test(inner) || !repeated || repeated.length % reading.length !== 0
+        || reading.repeat(repeated.length / reading.length) !== repeated) break;
+      end = closing;
+    }
+    if (end === match.index + match[0].length) continue;
+    parts.push(value.slice(start, match.index), match[0]);
+    start = end;
+  }
+  parts.push(value.slice(start));
+  return parts.join("");
 }
 
 function normalizeReturnDecompositionPinyin(value: string): string {
@@ -187,16 +284,27 @@ function normalizeReturnDecompositionPinyin(value: string): string {
   );
 }
 
-function addPinyinToInlineChineseTerm(value: string): string {
-  const { prefix, term } = splitJapaneseExplanationPrefix(value.trim());
-  if (isJapaneseExplanationText(term)) return `${prefix}${term}`;
-  const reading = toMandarinPinyin(term);
-  return reading ? `${prefix}${term}(${reading})` : value;
+function addPinyinToInlineChineseTerm(value: string, options: ExplanationPinyinOptions): string {
+  if (/[ぁ-ゖァ-ヺー]/.test(value)) return value;
+  return value.replace(
+    /([A-Za-z0-9_\-/]*[\u3400-\u9fff][A-Za-z0-9_\-/\u3400-\u9fff]*)([.…]*)(\s*[（(]([^（）()]+)[）)])?|[（(][^（）()]*[）)]/g,
+    (match, text: string | undefined, ellipsis: string, annotation: string | undefined, oldReading: string | undefined) => {
+      if (!text) return match;
+      const { prefix, term } = splitJapaneseExplanationPrefix(text);
+      const suffix = oldReading && isInlinePinyinReading(oldReading, text) ? "" : annotation ?? "";
+      if (isJapaneseExplanationText(term, options)) return `${prefix}${term}${ellipsis}${suffix}`;
+      const reading = toMandarinPinyin(term, options.chineseText);
+      return `${prefix}${term}${reading ? `(${reading})` : ""}${ellipsis}${suffix}`;
+    },
+  );
 }
 
-function isJapaneseExplanationText(value: string): boolean {
+function isJapaneseExplanationText(value: string, options: ExplanationPinyinOptions): boolean {
   return /[ぁ-ゖァ-ヺー]/.test(value)
+    || (!!options.japaneseText?.includes(value) && !!options.chineseText && !options.chineseText.includes(value))
     || JAPANESE_EXPLANATION_TERMS.has(value)
+    || JAPANESE_EXPLANATION_PREFIXES.includes(value)
+    || (value === "一部" && !options.chineseText?.includes(value))
     || /^[一二三四五六七八九十百千万\d]+泊(?:[一二三四五六七八九十百千万\d]+日)?$/.test(value);
 }
 

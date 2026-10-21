@@ -1,16 +1,20 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { chromium } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 
 const origin = process.env.PHRABIT_TEST_ORIGIN || "http://localhost:3010";
-const executablePath = [
+const browserName = process.env.PHRABIT_TEST_BROWSER || "chromium";
+const browserType = { chromium, firefox, webkit }[browserName];
+assert.ok(browserType, `Unsupported browser: ${browserName}`);
+const executablePath = browserName === "chromium" ? [
   chromium.executablePath(),
   "C:/Program Files/Google/Chrome/Application/chrome.exe",
   "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
-].find((candidate) => existsSync(candidate));
-const browser = await chromium.launch({ executablePath, headless: true });
-const screenshotDir = resolve("tmp/phrabit-responsive-shots/translation-flow");
+].find((candidate) => existsSync(candidate)) : undefined;
+const browser = await browserType.launch({ executablePath, headless: true });
+const screenshotDir = resolve("tmp/phrabit-responsive-shots/translation-flow", browserName,
+  (process.env.PHRABIT_TEST_TIMEZONE || "Asia/Tokyo").replaceAll("/", "-"));
 mkdirSync(screenshotDir, { recursive: true });
 
 try {
@@ -22,7 +26,11 @@ try {
 }
 
 async function checkFlow(language, width, failCloudSave) {
-  const context = await browser.newContext({ viewport: { width, height: 900 } });
+  const context = await browser.newContext({
+    viewport: { width, height: 900 },
+    timezoneId: process.env.PHRABIT_TEST_TIMEZONE || "Asia/Tokyo",
+    locale: process.env.PHRABIT_TEST_LOCALE || "ja-JP",
+  });
   await context.addInitScript(() => {
     window.testSpeechCalls = [];
     window.SpeechSynthesisUtterance = class {
@@ -161,7 +169,8 @@ async function checkFlow(language, width, failCloudSave) {
     await page.screenshot({ path: resolve(screenshotDir, `${language}-${width}-compact.png`), fullPage: true });
     const nuance = "もっと命令っぽくして。罵倒しないで";
     await page.getByText("使い方・想定返答", { exact: true }).click();
-    await adjustmentButton.click();
+    await adjustmentButton.focus();
+    await adjustmentButton.press("Enter");
     await dialog.waitFor();
     assert.equal(await nuanceInput.evaluate((input) => input === document.activeElement), true);
     assert.equal(await page.evaluate(() => document.body.style.overflow), "hidden");

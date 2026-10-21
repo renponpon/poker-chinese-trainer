@@ -2,6 +2,21 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatExplanationForReading, formatExplanationWithStructuredSections } from "./explanation-format";
 
+test("Chinese context survives structured generation and repeated saved explanation display", () => {
+  const options = { direction: "ja-to-zh" as const, japaneseText: "予約時間だけ30分遅らせたいです。", chineseText: "我只想把预约时间推迟30分钟。", markedOnly: true };
+  const generated = formatExplanationWithStructuredSections("", [
+    { heading: "単語分解と骨組み", bullets: ["{{只}}は限定です。{{一部}}だけを変更します。"] },
+    { heading: "入れ替えテンプレ", bullets: ["{{只想把预约时间推迟30分钟}}（予約時間だけ30分遅らせたい）"] },
+  ], undefined, options);
+  assert.match(generated, /只\(zhǐ\)/);
+  assert.match(generated, /只想把预约时间推迟30分钟\(zhǐ xiǎng bǎ yù yuē shí jiān tuī chí 30 fēn zhōng\)/);
+  assert.doesNotMatch(generated, /一部\(/);
+  for (let pass = 0; pass < 3; pass += 1) {
+    assert.equal(formatExplanationForReading(generated, options), generated);
+    assert.equal(formatExplanationForReading(generated, { ...options, markedOnly: false }), generated);
+  }
+});
+
 test("structured explanation corrects return readings in bullets and templates", () => {
   const result = formatExplanationWithStructuredSections("", [
     {
@@ -103,4 +118,54 @@ test("legacy explicit bullets retain sentence boundaries and all text", () => {
   const result = formatExplanationForReading(`## 使用する場面\n${bullet}`);
   assert.equal(result, `## 使用する場面\n${bullet}`);
   assert.equal(formatExplanationForReading(result), result);
+});
+
+test("all four generated word explanations survive instead of silently keeping only two", () => {
+  const bullets = ["{{所有}}はすべてです。", "{{的}}は修飾をつなぎます。", "{{筹码}}はゲームのチップです。", "数量の範囲を変えません。"];
+  const result = formatExplanationWithStructuredSections("", [{ heading: "単語分解と直訳の構造", bullets, examples: [] }]);
+  assert.equal(result.split("\n").filter((line) => line.startsWith("- ")).length, 4);
+  assert.match(result, /筹码\(chóu mǎ\)はゲームのチップです。/);
+  assert.match(result, /数量の範囲を変えません。/);
+  assert.equal(formatExplanationForReading(result), result);
+});
+
+test("all complete example pairs survive structured generation and repeated display", () => {
+  const examples = [
+    { phrase: "好的。", translation: "わかりました。" },
+    { phrase: "谢谢。", translation: "ありがとうございます。" },
+    { phrase: "没问题。", translation: "問題ありません。" },
+  ];
+  const result = formatExplanationWithStructuredSections("", [{ heading: "相手の想定返答", bullets: [], examples }]);
+  for (const example of examples) {
+    assert.ok(result.includes(example.phrase));
+    assert.ok(result.includes(example.translation));
+  }
+  assert.equal(formatExplanationForReading(result), result);
+});
+
+test("structured templates do not duplicate ellipsis readings or pronounce Japanese slots", () => {
+  const result = formatExplanationWithStructuredSections("", [{
+    heading: "入れ替えテンプレ", bullets: ["{{如果……，就……}}で条件を示します。", "{{所有＋名詞}}、{{不要＋動作}}の形です。"], examples: [],
+  }]);
+  assert.equal(result.match(/rú guǒ/g)?.length, 1);
+  assert.match(result, /所有\(suǒ yǒu\)＋名詞/);
+  assert.match(result, /不要\(bù yào\)＋動作/);
+  assert.doesNotMatch(result, /míng cí|dòng zuò|\([^)]*\(/);
+  assert.equal(formatExplanationForReading(result), result);
+});
+
+test("saved English explanations use direction at display without changing stored text", () => {
+  const original = "## 意味\n- {{部屋}}(bù wū)はroomです。\n\n## 返答するときの例\n了解\nliǎo jiě\n了解";
+  const options = { direction: "en-to-ja" as const };
+  const formatted = formatExplanationForReading(original, options);
+  assert.equal(formatted, "## 意味\n- 部屋はroomです。\n\n## 返答するときの例\n了解\n了解");
+  assert.equal(formatExplanationForReading(formatted, options), formatted);
+  assert.match(original, /bù wū/);
+});
+
+test("strict template formatting uses explicit Chinese spans instead of Han-only label guesses", () => {
+  const result = formatExplanationWithStructuredSections("", [{ heading: "入れ替えテンプレ", bullets: ["完成例：{{今天别跟我说话。}}／今日は話しかけないで。", "補足：置換対象。"] }], undefined, { direction: "ja-to-zh", markedOnly: true });
+  assert.match(result, /完成例：今天别跟我说话\(jīn tiān bié gēn wǒ shuō huà\)/);
+  assert.match(result, /補足：置換対象。/);
+  assert.doesNotMatch(result, /完成例\(|補足\(|置換対象\(/);
 });

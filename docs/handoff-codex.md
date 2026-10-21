@@ -1,5 +1,15 @@
 ﻿# Phrabit 引き継ぎ（2026-05）
 
+## 2026-10-21 出来事入力の公開準備（本人承認済み）
+
+- /add/experience と専用POSTを追加。日本語の出来事から候補1件（短い日本語＋英/中訳/pinyin）を生成し、文字で調整、明示追加したものだけ既存ドリルへ渡す。解説は保存後に同IDへ補完し、失敗しても練習できる。出来事全文はタブ内のみ。
+- サーバーの PHRABIT_EXPERIENCE_ENABLED=1 で有効化、未設定は503。開発mockは明示指定時だけ。本番mock指定は有料経路へ迂回しない。Gemini 3.5 Flash-Lite、native JSON、2048出力token、1要求/自動再送なし、既存の予算予約・日次/短時間上限を共用する。
+- 本番HEAD ef71314から今回分を分離。アプリ17・テスト6・無料検証script5のみ。別モデル比較、音声provider変更、DB migration、営業資料、有料評価runnerは除外。共通pinyin/解説表示は今回の保存/ドリルに必要な修正を含む。
+- 228infra＋81domain、全API模擬の出来事3幅と従来翻訳3幅、SDK/予算mock、lint、Webpack26ページ成功。開発時の初回コンパイル待ちと再生カウンタ不一致は、ビルド済み候補で再確認して全通過。
+- 10件の実APIは全応答/構造適合。モデル応答中央値0.789秒、保守0.598円、比較残209.218円。返金未着省略2件・連続調整のサイズ条件消失1件を含む結果を本人が合格と判断。一般正答率・実画面所要時間とはしない。追加有料比較なし。
+- 直前の学習5テーブルを learning-20261021-experience-owner.dpapi へ本人専用DPAPIで退避し、ローカルDBへ復元・JSONB完全一致。2026-10-21 22:24 JST、saved_phrases194/drill_items192/phrases194/srs_items182/categories0。Auth/Storage/未同期端末は対象外。DB schema/RLS/既存データは変更しない。
+- 本番の復旧先 dpl_342GR7v8NX1ZopHm1gEsT1551azn。Production環境で新規ビルドし、検証DB向けPreviewを昇格しない。公開後に本番SHA/alias/機能有効化と限定スモークを照合する。PokerLiveMemoは停止しない。
+
 Cursor での開発から Codex + VSCode への引き継ぎ用ドキュメント。  
 **新しいセッションでは、まずこのファイルと `AGENTS.md` を読むこと。**
 

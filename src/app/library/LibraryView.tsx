@@ -517,7 +517,7 @@ function LanguageLibrary({ targetLanguage, setTargetLanguage, languageReady }: {
                     </div>
                     <details className="mt-4 rounded-2xl bg-neutral-950/40 p-4 text-sm text-neutral-300">
                       <summary className="cursor-pointer font-bold">使い方・想定返答を見る</summary>
-                      {p.explanation ? <div className="mt-3 whitespace-pre-wrap leading-relaxed">{formatExplanationForReading(p.explanation)}</div>
+                      {p.explanation ? <div className="mt-3 whitespace-pre-wrap leading-relaxed">{formatExplanationForReading(p.explanation, { direction: p.direction, japaneseText: p.japanese, chineseText: p.chinese })}</div>
                         : <button type="button" className="mt-3 rounded-xl bg-neutral-900 px-3 py-2" onClick={() => void completeSavedExplanation(p)}>解説を生成・再試行する</button>}
                     </details>
                     <div className="mt-4 grid grid-cols-1 gap-2 border-t border-neutral-800/70 pt-4 sm:grid-cols-2">

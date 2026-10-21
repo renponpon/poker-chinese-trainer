@@ -93,3 +93,12 @@ test("rejects an empty phrase follow-up request", () => {
       error.status === 400,
   );
 });
+
+test("English follow-up does not render erroneously marked Japanese as Mandarin", async () => {
+  const result = await generatePhraseFollowUp({
+    phraseId: "phrase-english", direction: "ja-to-en", japanese: "鍵だけ", chinese: "", pinyin: "",
+    sourceText: "鍵だけ", targetText: "Only the key",
+    generateText: async () => JSON.stringify({ explanation: "## 単語分解と骨組み\n- {{鍵}}はkeyです。" }),
+  });
+  assert.equal(result.followUp.explanation, "## 単語分解と骨組み\n- 鍵はkeyです。");
+});

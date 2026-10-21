@@ -1,5 +1,7 @@
 # AGENTS.md — Phrabit / Codex 向け常設ルール
 
+- 2026-10-21: 出来事入力を本人受入・公開承認。/add/experience はサーバーの PHRABIT_EXPERIENCE_ENABLED=1 で有効化。Gemini 3.5 Flash-Lite 1要求で日本語の一言と英/中訳、pinyinはローカル、明示追加後に既存解説補完。タブ内の下書きは入力方式/owner別、出来事全文は保存しない。月3,000円内の既存共通予算を維持。別モデル比較/DB変更/音声provider実験は含まない。公開候補は228infra+81domain、全API模擬の6画面幅経路、Webpack26ページを確認。品質の残件を理由に追加比較ループへ戻らない。
+
 このファイルは Codex（VSCode）が作業開始時に読むプロジェクト指示書。  
 プロダクト定義は `docs/product-vision.md`、実装の現状・完了事項は `docs/handoff-codex.md` を参照。
 

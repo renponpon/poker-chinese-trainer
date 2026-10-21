@@ -50,7 +50,7 @@ export default function BottomNav() {
     >
       <div className="mx-auto grid max-w-md grid-cols-3 gap-2">
         {items.map((item) => {
-          const active = item.match.includes(pathname);
+          const active = item.match.includes(pathname) || (item.href === "/" && pathname === "/add/experience");
           const Icon = item.icon;
           return (
             <Link

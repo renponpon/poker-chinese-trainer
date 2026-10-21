@@ -3,6 +3,7 @@ import {
   completeMandarinPinyinForTemplateBullet,
   hasChineseText,
   toMandarinPinyin,
+  type ExplanationPinyinOptions,
 } from "./chinese-pinyin";
 
 const MAX_LINE_CHARS = 58;
@@ -32,7 +33,7 @@ type StructuredExplanationSection = {
   examples: ExamplePair[];
 };
 
-export function formatExplanationForReading(value: string): string {
+export function formatExplanationForReading(value: string, options: ExplanationPinyinOptions = {}): string {
   const normalized = value
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
@@ -73,12 +74,12 @@ export function formatExplanationForReading(value: string): string {
           bodyLines.push(lines[index + 1]);
           index += 1;
         }
-        output.push(...formatExampleSectionLines(bodyLines));
+        output.push(...formatExampleSectionLines(bodyLines, options));
       }
       continue;
     }
 
-    const lineWithPinyin = addMandarinPinyinToMarkedChineseTerms(line);
+    const lineWithPinyin = addMandarinPinyinToMarkedChineseTerms(line, options);
     const translationPairLines = splitTranslationPairLine(lineWithPinyin);
     if (translationPairLines) {
       output.push(...translationPairLines);
@@ -104,16 +105,17 @@ export function formatExplanationWithStructuredSections(
   value: string,
   structuredSections: unknown,
   structuredExampleSections?: unknown,
+  options: ExplanationPinyinOptions = {},
 ): string {
-  const explanationSections = parseStructuredExplanationSections(structuredSections);
+  const explanationSections = parseStructuredExplanationSections(structuredSections, options);
   if (explanationSections.length > 0) {
-    return formatExplanationForReading(buildStructuredExplanation(value, explanationSections));
+    return formatExplanationForReading(buildStructuredExplanation(value, explanationSections, options), options);
   }
 
-  const formatted = formatExplanationForReading(value);
+  const formatted = formatExplanationForReading(value, options);
   const sections = parseStructuredExampleSections(structuredExampleSections);
   if (sections.length === 0) return formatted;
-  return replaceStructuredExampleSections(formatted, sections);
+  return replaceStructuredExampleSections(formatted, sections, options);
 }
 
 function isHeading(line: string): boolean {
@@ -136,23 +138,24 @@ function normalizeHeadingLabel(line: string): string {
     .trim();
 }
 
-function formatExampleSectionLines(lines: string[]): string[] {
-  return formatExamplePairs(extractExamplePairs(lines).slice(0, 2));
+function formatExampleSectionLines(lines: string[], options: ExplanationPinyinOptions): string[] {
+  return formatExamplePairs(extractExamplePairs(lines), options);
 }
 
-function formatExamplePairs(examples: ExamplePair[]): string[] {
+function formatExamplePairs(examples: ExamplePair[], options: ExplanationPinyinOptions): string[] {
   const output: string[] = [];
   for (const example of examples) {
     if (output.length > 0) output.push("");
     output.push(example.phrase);
-    const reading = getExampleReading(example);
+    const reading = getExampleReading(example, options);
     if (reading) output.push(reading);
     output.push(example.translation);
   }
   return output;
 }
 
-function getExampleReading(example: ExamplePair): string | undefined {
+function getExampleReading(example: ExamplePair, options: ExplanationPinyinOptions): string | undefined {
+  if (options.direction && !options.direction.split("-to-").includes("zh")) return undefined;
   if (/[ぁ-ゖァ-ヺー]/.test(example.phrase)) return undefined;
   if (hasChineseText(example.phrase)) {
     return toMandarinPinyin(example.phrase) || undefined;
@@ -166,7 +169,7 @@ function extractExamplePairs(lines: string[]): ExamplePair[] {
     .filter((line) => line && !isCorruptExampleLine(line));
   const pairs: ExamplePair[] = [];
 
-  for (let index = 0; index < contentLines.length && pairs.length < 2; ) {
+  for (let index = 0; index < contentLines.length; ) {
     const current = cleanExamplePhrase(contentLines[index]);
     const parenthetical = splitTrailingParenthetical(current);
 
@@ -247,7 +250,7 @@ function parseStructuredExampleSections(value: unknown): StructuredExampleSectio
     const heading = normalizeHeadingLabel(readTextField(item, ["heading", "title", "section"]));
     if (!heading || !EXAMPLE_HEADING_LABELS.has(heading)) continue;
 
-    const examples = parseStructuredExamples(item.examples).slice(0, 2);
+    const examples = parseStructuredExamples(item.examples);
     if (examples.length === 0) continue;
 
     sections.push({ heading, examples });
@@ -256,7 +259,7 @@ function parseStructuredExampleSections(value: unknown): StructuredExampleSectio
   return sections;
 }
 
-function parseStructuredExplanationSections(value: unknown): StructuredExplanationSection[] {
+function parseStructuredExplanationSections(value: unknown, options: ExplanationPinyinOptions): StructuredExplanationSection[] {
   if (!Array.isArray(value)) return [];
 
   const sections: StructuredExplanationSection[] = [];
@@ -269,11 +272,10 @@ function parseStructuredExplanationSections(value: unknown): StructuredExplanati
     const bullets = parseStructuredBullets(item)
       .map((bullet) =>
         heading === "入れ替えテンプレ"
-          ? completeMandarinPinyinForTemplateBullet(bullet)
-          : addMandarinPinyinToMarkedChineseTerms(bullet),
-      )
-      .slice(0, 2);
-    const examples = parseStructuredExamples(item.examples).slice(0, 2);
+          ? completeMandarinPinyinForTemplateBullet(bullet, options)
+          : addMandarinPinyinToMarkedChineseTerms(bullet, options),
+      );
+    const examples = parseStructuredExamples(item.examples);
     if (bullets.length === 0 && examples.length === 0) continue;
 
     sections.push({ heading, bullets, examples });
@@ -333,6 +335,7 @@ function parseStructuredBullets(record: Record<string, unknown>): string[] {
 function buildStructuredExplanation(
   originalValue: string,
   sections: StructuredExplanationSection[],
+  options: ExplanationPinyinOptions,
 ): string {
   const headingStyle = originalValue.includes("【") && !originalValue.includes("##")
     ? "bracket"
@@ -344,7 +347,7 @@ function buildStructuredExplanation(
     output.push(formatHeading(section.heading, headingStyle));
 
     if (section.examples.length > 0) {
-      output.push(...formatExamplePairs(section.examples));
+      output.push(...formatExamplePairs(section.examples, options));
       continue;
     }
 
@@ -363,6 +366,7 @@ function formatHeading(heading: string, style: "bracket" | "markdown"): string {
 function replaceStructuredExampleSections(
   formatted: string,
   sections: StructuredExampleSection[],
+  options: ExplanationPinyinOptions,
 ): string {
   const sectionByHeading = new Map(sections.map((section) => [section.heading, section]));
   const output: string[] = [];
@@ -379,7 +383,7 @@ function replaceStructuredExampleSections(
     }
 
     output.push(line);
-    output.push(...formatExamplePairs(section.examples));
+    output.push(...formatExamplePairs(section.examples, options));
     while (index + 1 < lines.length && !isHeading(lines[index + 1])) {
       index += 1;
     }

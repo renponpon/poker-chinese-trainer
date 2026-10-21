@@ -277,7 +277,7 @@ export default function Flashcard({
 
             {phrase.explanation ? (
               <div className="mt-4 min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain whitespace-pre-wrap px-1 pb-2 text-left text-base leading-relaxed text-neutral-200">
-                {formatExplanationForReading(phrase.explanation)}
+                {formatExplanationForReading(phrase.explanation, { direction: phrase.direction, japaneseText: phrase.japanese, chineseText: phrase.chinese })}
               </div>
             ) : explanationPending ? (
               <div className="mt-4 px-1 text-sm text-neutral-500">

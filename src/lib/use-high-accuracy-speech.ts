@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getAuthHeaders } from "./auth-headers";
+import { createTimedRequest, RequestStoppedError } from "./timed-request";
 
 type LanguageHint = string;
 type ErrorKind = "unsupported" | "microphone" | "recording" | "transcription";
@@ -25,6 +26,8 @@ export function useHighAccuracySpeech() {
   const timeoutRef = useRef<number | null>(null);
   const startedAtRef = useRef<number>(0);
   const optionsRef = useRef<StartOptions | null>(null);
+  const requestRef = useRef<ReturnType<typeof createTimedRequest> | null>(null);
+  const cancelTranscription = useCallback(() => requestRef.current?.cancel(), []);
 
   const cleanup = useCallback(() => {
     if (timeoutRef.current) {
@@ -57,6 +60,8 @@ export function useHighAccuracySpeech() {
     }
 
     setTranscribing(true);
+    const request = createTimedRequest();
+    requestRef.current = request;
     setError(null);
     setErrorKind(null);
     try {
@@ -67,26 +72,36 @@ export function useHighAccuracySpeech() {
       form.set("sourcePage", options.sourcePage);
       form.set("durationMs", String(durationMs));
 
-      const authHeaders = await getAuthHeaders();
-      const res = await fetch("/api/speech/transcribe", {
-        method: "POST",
-        headers: authHeaders,
-        body: form,
+      const data = await request.run(async (signal) => {
+        const authHeaders = await getAuthHeaders();
+        signal.throwIfAborted();
+        const res = await fetch("/api/speech/transcribe", {
+          method: "POST",
+          headers: authHeaders,
+          body: form,
+          signal,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "音声の文字起こしに失敗しました");
+        return data;
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error ?? "音声の文字起こしに失敗しました");
-      }
+      if (requestRef.current !== request) return;
       const transcript = typeof data.transcript === "string" ? data.transcript.trim() : "";
       if (!transcript) {
         throw new Error("音声を文字起こしできませんでした");
       }
       options.onTranscript(transcript);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "音声の文字起こしに失敗しました");
+      if (requestRef.current !== request) return;
+      setError(err instanceof RequestStoppedError
+        ? "文字起こしの待機を終了しました。再録音するか、手入力で進めてください。サーバー側の処理・料金が取り消されるとは限りません。"
+        : err instanceof Error ? err.message : "音声の文字起こしに失敗しました");
       setErrorKind("transcription");
     } finally {
-      setTranscribing(false);
+      if (requestRef.current === request) {
+        requestRef.current = null;
+        setTranscribing(false);
+      }
     }
   }, [cleanup]);
 
@@ -148,6 +163,9 @@ export function useHighAccuracySpeech() {
 
   useEffect(() => {
     return () => {
+      requestRef.current?.cancel();
+      requestRef.current = null;
+      if (recorderRef.current) recorderRef.current.onstop = null;
       cleanup();
     };
   }, [cleanup]);
@@ -159,6 +177,7 @@ export function useHighAccuracySpeech() {
     errorKind,
     startRecording,
     stopRecording,
+    cancelTranscription,
   };
 }
 
