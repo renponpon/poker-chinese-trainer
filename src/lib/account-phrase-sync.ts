@@ -7,6 +7,7 @@ import type { SavedPhraseSnapshot } from "@/application/phrase/load-saved-phrase
 import { syncDrillSchedule } from "@/application/practice/drill-schedule";
 import { loadLocalPhrases, loadNickname, loadOwnerKey, saveLocalPhrases } from "@/infrastructure/local/phrase-storage";
 import { loadLocalSrsItems, saveLocalSrsItems } from "@/infrastructure/local/srs-storage";
+import { recoverLearningReceipts } from "@/infrastructure/local/learning-days-storage";
 import {
   ACCOUNT_CACHE_OWNER_KEY, checkpointLocalData, currentDataOwner,
   readAccountCheckpoint, writeAccountCheckpoint,
@@ -72,6 +73,7 @@ export function clearOwnedAccountPhraseData(): void {
   sessionEpoch += 1;
   requestedUser = null;
   if (currentDataOwner() !== "guest") {
+    recoverLearningReceipts();
     checkpointLocalData();
     localStorage.removeItem(ACCOUNT_CACHE_OWNER_KEY);
     saveLocalPhrases([]);
@@ -84,6 +86,7 @@ export function clearOwnedAccountPhraseData(): void {
 function activateAccount(userId: string): void {
   const owner = currentDataOwner();
   if (owner === userId) return;
+  recoverLearningReceipts();
   const guest = owner === "guest" ? readLocalSnapshot() : null;
   checkpointLocalData();
   const previous = readAccountCheckpoint(userId);
@@ -101,7 +104,9 @@ function activateAccount(userId: string): void {
 export async function syncPhraseStateToCloud(phrase: Phrase, srsItem: SrsItem | null): Promise<boolean> {
   if (await syncCurrentAccount()) return true;
   if (phrase.shouldDrill && srsItem) {
-    await cloudRequest("", "POST", { phrase, srsItem, ownerKey: loadOwnerKey() }, "/api/srs/sync");
+    const cloudItem = { ...srsItem };
+    delete cloudItem.learningReceipt;
+    await cloudRequest("", "POST", { phrase, srsItem: cloudItem, ownerKey: loadOwnerKey() }, "/api/srs/sync");
   }
   return false;
 }
@@ -141,6 +146,7 @@ export async function syncSavedPhrases(phrases: Phrase[]): Promise<boolean> {
 async function performAccountSync(session: Session, epoch: number): Promise<void> {
   const userId = session.user.id;
   setSyncStatus("端末に保存済み・同期中...");
+  recoverLearningReceipts();
   checkpointLocalData();
   let baseline = readAccountCheckpoint(userId)?.baseline;
   const cloud = completeDrillSchedule(normalizeAccountPhraseSnapshot(await cloudRequest(session.access_token, "GET")));

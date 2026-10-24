@@ -238,15 +238,15 @@ async function checkFlow(language, width, failCloudSave) {
     const analyticsResponse = page.waitForResponse((response) => response.url().endsWith("/api/analytics/event") && response.request().postDataJSON()?.eventName === "translation_drill_save");
     const cloudResponse = page.waitForResponse((response) => response.url().endsWith("/api/phrase/save-pack"));
     await page.getByRole("button", { name: "ドリルに追加", exact: true }).click();
-    await cloudResponse;
-    await analyticsResponse;
+    await Promise.all([cloudResponse, analyticsResponse]);
     const savedEvent = analyticsEvents.find((event) => event.eventName === "translation_drill_save");
     assert.equal(savedEvent.success, true, "端末への追加成功とクラウド同期失敗を混同しない");
-    assert.equal(savedEvent.errorCode, failCloudSave ? "sync_failed" : null);
+    assert.equal(savedEvent.errorCode, null);
+    assert.equal(analyticsEvents.filter((event) => event.eventName === "translation_drill_save").length, 1);
     if (failCloudSave) {
       await page.getByText("この端末のドリルには追加しましたが、クラウド同期に失敗しました。", { exact: true }).waitFor();
     }
-    await page.getByRole("link", { name: "追加した一言を練習", exact: true }).waitFor();
+    await page.getByRole("link", { name: "この一言を1回練習", exact: true }).waitFor();
     assert.equal(await resultMetadata.count(), 0, "追加後もメタ情報を表示しない");
     assert.equal(await page.getByRole("status").getByText("端末のドリルに追加済みです。解説の生成中でも練習できます。", { exact: true }).isVisible(), true, "保存完了の案内は維持する");
     assert.equal(await adjustmentButton.count(), 0, "追加済みの一言の調整可否は変更しない");
@@ -266,6 +266,10 @@ async function checkFlow(language, width, failCloudSave) {
     await page.screenshot({ path: resolve(screenshotDir, `${language}-${width}.png`), fullPage: true });
     assert.equal(await page.evaluate(() => window.testSpeechCalls.length), 1, "保存や再描画で重複再生しない");
     console.log(`PASS ${language}/${width}px: compact actions, nuance dialog/focus/scroll/retained input, success close/error retry, no autoplay, manual speech/stop, explicit save, SRS, ${failCloudSave ? "cloud failure" : "cloud request"}, layout`);
+  } catch (error) {
+    await page.screenshot({ path: resolve(screenshotDir, `${language}-${width}-failure.png`), fullPage: true });
+    console.error(JSON.stringify({ language, width, url: page.url(), saves: saves.length, analytics: analyticsEvents.map((event) => event.eventName), body: (await page.locator("body").innerText()).slice(-1800) }));
+    throw error;
   } finally {
     releaseRefinement();
     await context.close();

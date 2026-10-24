@@ -77,7 +77,7 @@ try {
     assert.equal(url, "/api/analytics/event");
     requests.push(JSON.parse(init.body));
     const pending = api.POST(new Request(`https://phrabit.invalid${url}`, init));
-    pendingRequests.push(pending);
+    pendingRequests.push(pending.then((response) => response.clone()));
     return pending;
   };
   const client = loadSource(resolve(root, "lib/product-analytics"));
@@ -106,6 +106,42 @@ try {
   assert.equal(rows.filter((row) => row.event_name === "translation_drill_save" && row.success).length, 2);
   assert.equal(new Set(rows.filter((row) => row.event_name === "drill_answer" && row.day === "2026-09-08").map((row) => row.session_id)).size, 1);
   assert.equal(new Set(rows.map((row) => row.session_id)).size, 1);
+  window.location = { pathname: "/drill", search: "?phrases=private&practice=once" };
+  client.recordProductAnalyticsEvent({ eventName: "drill_answer", success: true });
+  window.location = { pathname: "/library", search: "?ref=changed_after_event" };
+  callbacks.shift()();
+  await new Promise((finish) => setImmediate(finish));
+  await Promise.all(pendingRequests.splice(0));
+  assert.equal(requests.at(-1).sourcePage, "drill");
+  assert.equal(requests.at(-1).route, `/drill?ref=${campaignRef}`);
+  const originalWarn = console.warn;
+  const warnings = [];
+  let diagnosticRequests = 0;
+  console.warn = (...values) => warnings.push(values);
+  try {
+    for (const responseFactory of [
+      () => Response.json({ error: "sensitive server detail" }, { status: 503 }),
+      () => Response.json({ ok: true, tracked: false }),
+      () => Response.json({ ok: true }),
+      () => new Response("invalid JSON"),
+      () => { throw new Error("sensitive network detail"); },
+      () => Response.json({ ok: true, tracked: true }),
+    ]) {
+      globalThis.fetch = async () => { diagnosticRequests += 1; return responseFactory(); };
+      client.recordProductAnalyticsEvent({ eventName: "drill_answer", success: true });
+      callbacks.shift()();
+      await new Promise((finish) => setImmediate(finish));
+    }
+    assert.equal(diagnosticRequests, 6, "no automatic retry");
+    assert.equal(warnings.length, 5, "only confirmed tracked:true is accepted");
+    assert.doesNotThrow(() => client.recordProductAnalyticsEvent({ eventName: "drill_answer", route: "http://[invalid" }));
+    assert.equal(warnings.length, 6);
+    assert.ok(!JSON.stringify(warnings).includes("sensitive"));
+    assert.equal(callbacks.length, 0);
+  } finally {
+    console.warn = originalWarn;
+  }
+  console.log("PASS: event-time route/source retained; HTTP errors, untracked/missing/invalid JSON, network failure diagnosed without secrets or retries.");
   console.log("PASS: real client → API handler → temporary Postgres; referral survives long drill URL and simulated next-day revisit; failed saves excluded; no phrase IDs or arbitrary query text collected.");
 } finally {
   await database.close();

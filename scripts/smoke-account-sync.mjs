@@ -10,6 +10,8 @@ const nativeRequire = createRequire(resolve("package.json"));
 const modules = new Map();
 const values = new Map();
 const storage = {
+  get length() { return values.size; },
+  key: (index) => [...values.keys()][index] ?? null,
   getItem: (key) => values.get(key) ?? null,
   setItem: (key, value) => values.set(key, String(value)),
   removeItem: (key) => values.delete(key),
@@ -262,6 +264,24 @@ assert.equal(backend.get("token-b").phrases.length, 0);
 session = sessionA;
 await sync.synchronizeAccountPhraseData(session);
 assert.equal(local.loadLocalPhrases().find((item) => item.id === phrase.id).explanation, "saved before rejected upload");
+const receiptId = crypto.randomUUID();
+const receiptItems = srs.loadLocalSrsItems();
+assert.ok(receiptItems.length > 0);
+receiptItems[0].learningReceipt = { version: 1, operationId: receiptId, owner: "guest", occurredAt: "2026-10-24T01:00:00Z", timeZone: "UTC" };
+srs.saveLocalSrsItems(receiptItems);
+const originalSet = storage.setItem;
+storage.setItem = (key, value) => {
+  if (key.includes(":event:")) throw new Error("learning quota");
+  originalSet(key, value);
+};
+assert.throws(() => sync.clearOwnedAccountPhraseData(), /learning quota/);
+assert.equal(cache.currentDataOwner(), "account-a", "cannot partially switch owner before preserving receipt");
+storage.setItem = originalSet;
+const beforeReceiptSync = calls.length;
+await sync.synchronizeAccountPhraseData(session);
+assert.ok(storage.getItem(`phrabit-learning-days-v1:guest:event:${receiptId}`));
+assert.equal(calls.slice(beforeReceiptSync).some((call) => call.method !== "GET"), false, "local receipt alone must not cause cloud SRS writes or a sync loop");
+assert.equal(JSON.stringify(calls).includes("learningReceipt"), false, "local recovery metadata is not sent in phrase requests");
 const callsBeforeRecovery = calls.length;
 storage.setItem("phrabit-device-recovery-v1", "active");
 await assert.rejects(sync.synchronizeAccountPhraseData(session), /復元確認中/);

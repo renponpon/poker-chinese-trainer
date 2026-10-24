@@ -341,6 +341,7 @@ function Conversation({ owner }: { owner: string }) {
     setAddingToDrill(true);
     setDrillAddError(null);
     const savedPhrases: Phrase[] = [];
+    let savedAllLocally = false;
     try {
       for (const message of targets) {
         const history = recordTranslationHistory({
@@ -363,6 +364,11 @@ function Conversation({ owner }: { owner: string }) {
         savedPhrases.push(saved.storedPhrase);
         setMessages((current) => current.map((item) => item.id === message.id ? { ...item, inDrill: true, historyItemId: history.id } : item));
       }
+      savedAllLocally = true;
+      recordProductAnalyticsEvent({
+        eventName: "conversation_drill_save", sourcePage: "conversation",
+        targetLanguage, generationMode, success: true,
+      });
       setSavedIds(savedPhrases.map((phrase) => phrase.id));
       setSelectedIds(new Set());
       setSelectingForDrill(false);
@@ -373,11 +379,12 @@ function Conversation({ owner }: { owner: string }) {
         }
       })();
       await syncSavedPhrases(savedPhrases);
-      recordProductAnalyticsEvent({
-        eventName: "conversation_drill_save", sourcePage: "conversation",
-        targetLanguage, generationMode, success: true,
-      });
     } catch (error) {
+      if (!savedAllLocally) recordProductAnalyticsEvent({
+        eventName: "conversation_drill_save", sourcePage: "conversation",
+        targetLanguage, generationMode, success: false,
+        errorCode: savedPhrases.length ? "partial_save_failed" : "save_failed",
+      });
       setDrillAddError(savedPhrases.length
         ? "端末には追加しました。未同期のデータは通信回復後に再試行します。"
         : error instanceof Error ? error.message : "ドリルへの追加に失敗しました");

@@ -522,7 +522,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
         },
         historyItemId: createId(),
         historySource: "add",
-        savedPhraseSource: "manual",
+        savedPhraseSource: approvedResult.provider === "experience-mock" ? "prototype" : "manual",
         categoryId,
         savedAt: new Date().toISOString(),
         addToDrill: true,
@@ -537,6 +537,14 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
         },
       });
       savedLocally = true;
+      recordProductAnalyticsEvent({
+        eventName: "translation_drill_save",
+        sourcePage: "add",
+        direction: approvedResult.direction,
+        targetLanguage: approvedResult.targetLanguage,
+        generationMode,
+        success: true,
+      });
       setResult({ ...approvedResult, id: saved.storedPhrase.id });
       setDrillAdded(true);
       setAddingToDrill(false);
@@ -547,14 +555,6 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
         void completeSavedExplanation(saved.storedPhrase, task ?? undefined, approvedResult.provider === "experience-mock" ? { sync: false } : undefined);
       }
       if (approvedResult.provider !== "experience-mock") await syncSavedPhrases([saved.storedPhrase]);
-      recordProductAnalyticsEvent({
-        eventName: "translation_drill_save",
-        sourcePage: "add",
-        direction: approvedResult.direction,
-        targetLanguage: approvedResult.targetLanguage,
-        generationMode,
-        success: true,
-      });
     } catch (err) {
       setDrillAddError(
         savedLocally
@@ -563,14 +563,14 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
             ? err.message
             : "ドリルへの追加に失敗しました",
       );
-      recordProductAnalyticsEvent({
+      if (!savedLocally) recordProductAnalyticsEvent({
         eventName: "translation_drill_save",
         sourcePage: "add",
         direction: result.direction,
         targetLanguage: result.targetLanguage,
         generationMode,
-        success: savedLocally,
-        errorCode: savedLocally ? "sync_failed" : "save_failed",
+        success: false,
+        errorCode: "save_failed",
       });
     } finally {
       savingRef.current = false;
@@ -1090,11 +1090,11 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
               </button>
               {drillAdded ? (
                 <Link
-                  href={"/drill?phrases=" + result.id}
+                  href={"/drill?phrases=" + encodeURIComponent(result.id ?? "") + "&practice=once"}
                   onClick={() => setTargetLanguage(result.targetLanguage === "ja" ? result.sourceLanguage : result.targetLanguage)}
                   className="flex-1 rounded-xl bg-emerald-600 px-4 py-3 text-center text-sm font-bold text-white hover:bg-emerald-500"
                 >
-                  追加した一言を練習
+                  この一言を1回練習
                 </Link>
               ) : (
                 <button

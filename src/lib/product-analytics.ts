@@ -38,9 +38,18 @@ const CAMPAIGN_REF_KEY = "phrabit-analytics-campaign-ref-v1";
 export function recordProductAnalyticsEvent(input: ProductAnalyticsEvent): void {
   if (typeof window === "undefined") return;
 
-  window.setTimeout(() => {
-    void sendProductAnalyticsEvent(input);
-  }, 0);
+  try {
+    const event = {
+      ...input,
+      route: getAnalyticsRoute(input.route),
+      sourcePage: input.sourcePage ?? getSourcePage(window.location.pathname),
+    };
+    window.setTimeout(() => {
+      void sendProductAnalyticsEvent(event);
+    }, 0);
+  } catch {
+    console.warn("[product-analytics] event not scheduled", { eventName: input.eventName });
+  }
 }
 
 function getAnalyticsSessionId(): string {
@@ -58,7 +67,7 @@ function getAnalyticsSessionId(): string {
 async function sendProductAnalyticsEvent(input: ProductAnalyticsEvent): Promise<void> {
   try {
     const authHeaders = await getAuthHeaders();
-    await fetch("/api/analytics/event", {
+    const response = await fetch("/api/analytics/event", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -67,8 +76,8 @@ async function sendProductAnalyticsEvent(input: ProductAnalyticsEvent): Promise<
       body: JSON.stringify({
         sessionId: getAnalyticsSessionId(),
         eventName: input.eventName,
-        route: getAnalyticsRoute(input.route),
-        sourcePage: input.sourcePage ?? getSourcePage(window.location.pathname),
+        route: input.route,
+        sourcePage: input.sourcePage,
         direction: input.direction ?? null,
         targetLanguage: input.targetLanguage ?? null,
         generationMode: input.generationMode ?? null,
@@ -79,8 +88,16 @@ async function sendProductAnalyticsEvent(input: ProductAnalyticsEvent): Promise<
       }),
       keepalive: true,
     });
-  } catch (error) {
-    console.warn("[product-analytics] failed to record event", error);
+    if (!response.ok) {
+      console.warn("[product-analytics] event not recorded", { eventName: input.eventName, status: response.status });
+      return;
+    }
+    const result = await response.json();
+    if (result?.ok !== true || result?.tracked !== true) {
+      console.warn("[product-analytics] event not recorded", { eventName: input.eventName, reason: "untracked" });
+    }
+  } catch {
+    console.warn("[product-analytics] event not confirmed", { eventName: input.eventName });
   }
 }
 

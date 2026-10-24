@@ -41,6 +41,7 @@ export type Score = 1 | 2 | 3;
 export type SrsStatus = "new" | "learning" | "review" | "maintenance" | "mastered";
 
 export type SrsItem = {
+  learningReceipt?: import("../domain/practice/learning-days").LearningReceipt;
   id: string;
   status: SrsStatus;
   nextReviewAt: number;

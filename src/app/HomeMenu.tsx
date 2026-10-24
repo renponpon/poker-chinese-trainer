@@ -77,6 +77,7 @@ export default function HomeMenu() {
               翻訳・ドリル・保存・会話にまとめて反映します。各画面で切り替えた言語も、このブラウザで次回から使います。
             </p>
           </div>
+          <Link href="/learning" onClick={() => setOpen(false)} className="mb-2 block rounded-xl bg-neutral-900 px-4 py-4 text-base font-bold text-neutral-200 hover:bg-neutral-800">学習記録</Link>
           <button
             type="button"
             onClick={handleTutorialClick}

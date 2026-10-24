@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import AnalyticsTracker from "./AnalyticsTracker";
 import AuthSessionKeeper from "./AuthSessionKeeper";
+import LearningDaysProvider from "./LearningDaysProvider";
 import { ensureDeviceBackup, DEVICE_BACKUP_KEY, DEVICE_RECOVERY_KEY } from "@/infrastructure/local/device-backup";
 
 export default function DeviceSafetyGate({ children }: { children: ReactNode }) {
@@ -48,5 +49,5 @@ function ProtectedApp({ children }: { children: ReactNode }) {
       </>}
     </main>
   );
-  return <><AnalyticsTracker /><AuthSessionKeeper />{children}</>;
+  return <><AnalyticsTracker /><AuthSessionKeeper /><LearningDaysProvider>{children}</LearningDaysProvider></>;
 }

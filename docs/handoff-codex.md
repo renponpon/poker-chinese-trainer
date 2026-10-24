@@ -1,5 +1,16 @@
 ﻿# Phrabit 引き継ぎ（2026-05）
 
+## 2026-10-24 学習日数・1回練習・計測の公開
+
+- 本人が今回の3項目に限定してcommit/push/本番反映を承認。7ec05dfを基点に公開候補を隔離し、混在するモデル/ピンイン/リハーサル/案内/取消実験は除外する。
+- 今週（月〜日）・連続・累計は英中共通。保存済みの本人フレーズのSRS保存成功で記録し、Badも含む。同日重複なし。サンプル/prototype/翻訳保存のみ/リハーサルは対象外。古いSRSから架空の日付を復元しない。
+- 学習日付は初回同期で固定したIANAタイムゾーンを使う。ゲストとアカウントを分離し、端末receipt・クラウド日付集合を統合する。未同期・部分保存・通信断は保持して再送し、アカウント切替後の旧応答を破棄する。新2表はRLS付き、本人SELECT/INSERTのみ。
+- 保存直後の専用URLはpractice=once付きで1回答終了。Badでも終了するがSRSには記録、通常/従来URLのBad再出題は維持する。
+- 追加/回答計測を端末保存成功時に記録し、クラウド同期失敗を追加失敗や重複成功にしない。送信時のページを固定し、計測API拒否は本文なし診断に残す。
+- Previewでは独立2ブラウザ・実Supabase Auth/APIで8項目合格。合成データ/一時QA APIは削除済み、検証DB停止、PokerLiveMemoは復旧済み。本番公開時は学習5表のDPAPI退避/復元確認→新2表migration→限定commit/push→Production設定でbuild→alias/SHA/画面確認の順。課金APIテストなし。旧7ec05dfのProductionへ戻せるが新表の実績は削除しない。
+- 今回の公開証跡は../release-artifacts/20261024-learning-days-release/。Preview証跡は../release-artifacts/20261024-learning-days-preview/report.html。実機スマホ/Googleログインの再検証とは区別する。
+- 公開候補は他の302既存ファイルをHEADとハッシュ一致で照合。domain86/infra247、同期/計測の一時Postgres、学習日数12項目、1回練習12項目、28ページbuild/lint成功（既存warning1）。開発キャッシュの一過性JSON読込エラーは別の本番相当ビルドで翻訳3幅と学習日数12項目を再検証して成功。最初の本番退避は安全審査で中断したが、本人が全利用者のデータをこのPCの.private-backups/learning-20261024-learning-days-release.dpapiへ暗号化退避することを具体的に追加承認した。非エコー入力・CurrentUser DPAPI・本人限定ACLを使用し、外部共有/平文保存なし。退避/復元確認後にpush/本番DDL/deployへ進む。最終状態は同証跡のrelease-status.jsonを参照。
+
 ## 2026-10-21 出来事入力の公開準備（本人承認済み）
 
 - /add/experience と専用POSTを追加。日本語の出来事から候補1件（短い日本語＋英/中訳/pinyin）を生成し、文字で調整、明示追加したものだけ既存ドリルへ渡す。解説は保存後に同IDへ補完し、失敗しても練習できる。出来事全文はタブ内のみ。
