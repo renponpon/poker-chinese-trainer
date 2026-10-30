@@ -86,7 +86,7 @@ test("recording a practice result updates the next review date", () => {
   assert.equal(reviewed.nextReviewAt, NOW + DAY_MS);
 });
 
-test("removing from drill leaves the saved phrase outside the schedule", () => {
+test("pausing drill preserves the schedule until the phrase itself is deleted", () => {
   const existing = createDrillItem({ phraseId: "saved-phrase-1", now: NOW });
   const result = syncDrillItems(
     [{ phraseId: "saved-phrase-1", isDrillEnabled: false }],
@@ -94,8 +94,9 @@ test("removing from drill leaves the saved phrase outside the schedule", () => {
     NOW,
   );
 
-  assert.equal(result.changed, true);
-  assert.deepEqual(result.items, []);
+  assert.equal(result.changed, false);
+  assert.deepEqual(result.items, [existing]);
+  assert.deepEqual(syncDrillItems([], result.items, NOW).items, []);
 });
 
 test("mastered drill items are not due", () => {

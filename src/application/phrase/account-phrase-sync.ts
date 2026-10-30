@@ -37,7 +37,7 @@ export function normalizeAccountPhraseSnapshot(value: unknown): SavedPhraseSnaps
   const phraseById = new Map(phrases.map((phrase) => [phrase.id, phrase]));
   const srsItems = raw.srsItems
     .map(normalizeSrsItem)
-    .filter((item) => phraseById.get(item.id)?.shouldDrill);
+    .filter((item) => phraseById.has(item.id));
 
   return { phrases, srsItems };
 }

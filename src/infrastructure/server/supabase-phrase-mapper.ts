@@ -27,12 +27,13 @@ export type LegacyPhraseRow = {
   direction: PhraseDirection;
   category_id: string | null;
   should_drill: boolean;
+  drill_priority?: boolean;
   source: PhraseSource;
   used_at: string | null;
   created_at: string;
 };
 
-export type SavedPhraseRow = Omit<LegacyPhraseRow, "should_drill">;
+export type SavedPhraseRow = Omit<LegacyPhraseRow, "should_drill"> & { should_drill?: boolean | null };
 
 export type LegacySrsRow = {
   phrase_id: string;
@@ -84,6 +85,8 @@ export function phraseToSavedPhraseRow(
     audio_url: phrase.audioUrl,
     direction: phrase.direction,
     category_id: phrase.categoryId,
+    should_drill: phrase.shouldDrill,
+    ...(typeof phrase.drillPriority === "boolean" ? { drill_priority: phrase.drillPriority } : {}),
     source: phrase.source,
     used_at: phrase.usedAt,
     created_at: phrase.createdAt,
@@ -154,7 +157,7 @@ export function defaultDrillItemRow(
 
 export function rowToPhrase(
   row: LegacyPhraseRow | SavedPhraseRow,
-  shouldDrill = "should_drill" in row ? row.should_drill : false,
+  shouldDrill = row.should_drill ?? false,
 ): Phrase {
   const { sourceLanguage, targetLanguage } = parseDirection(row.direction);
   return {
@@ -180,6 +183,7 @@ export function rowToPhrase(
     direction: row.direction,
     categoryId: row.category_id,
     shouldDrill,
+    drillPriority: row.drill_priority ?? false,
     source: row.source,
     usedAt: row.used_at,
   };

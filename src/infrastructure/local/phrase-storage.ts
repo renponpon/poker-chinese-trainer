@@ -196,6 +196,7 @@ function normalizePhrase(
     createdAt: input.createdAt ?? new Date().toISOString(),
     direction,
     categoryId,
+    ...(typeof input.drillPriority === "boolean" ? { drillPriority: input.drillPriority } : {}),
     shouldDrill:
       typeof input.shouldDrill === "boolean"
         ? input.shouldDrill

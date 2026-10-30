@@ -5,7 +5,9 @@ import Link from "next/link";
 import { completeSavedExplanation } from "@/lib/saved-phrase-explanation";
 import { deleteSavedPhrases } from "@/application/phrase/delete-saved-phrases";
 import { syncDrillSchedule } from "@/application/practice/drill-schedule";
-import { setPhraseDrillMembership } from "@/application/practice/set-drill-membership";
+import { manageDrillPhrase, type DrillPhraseAction } from "@/application/practice/manage-drill-phrase";
+import { useDataOwner } from "@/lib/translation-draft";
+import { currentDataOwner } from "@/infrastructure/local/account-cache-storage";
 import {
   loadLocalSrsItems,
   saveLocalSrsItems,
@@ -52,10 +54,12 @@ function isUncategorized(categoryId: string | null): boolean {
 }
 
 export default function LibraryView() {
+  const owner = useDataOwner();
   const { targetLanguage, setTargetLanguage, languageReady } = useLearningLanguage();
   return (
     <LanguageLibrary
-      key={targetLanguage}
+      key={`${owner}:${targetLanguage}`}
+      owner={owner}
       targetLanguage={targetLanguage}
       setTargetLanguage={setTargetLanguage}
       languageReady={languageReady}
@@ -63,7 +67,8 @@ export default function LibraryView() {
   );
 }
 
-function LanguageLibrary({ targetLanguage, setTargetLanguage, languageReady }: {
+function LanguageLibrary({ owner, targetLanguage, setTargetLanguage, languageReady }: {
+  owner: string;
   targetLanguage: LanguageCode;
   setTargetLanguage: (language: LanguageCode) => void;
   languageReady: boolean;
@@ -81,6 +86,7 @@ function LanguageLibrary({ targetLanguage, setTargetLanguage, languageReady }: {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [categories, setCategories] = useState<PhraseCategory[]>([]);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     primeSpeech();
@@ -203,26 +209,22 @@ function LanguageLibrary({ targetLanguage, setTargetLanguage, languageReady }: {
     });
   };
 
-  const handleToggleDrill = (phrase: Phrase) => {
-    const result = setPhraseDrillMembership({
-      phrase,
-      enabled: !phrase.shouldDrill,
-      storage: {
-        updatePhrase: updateLocalPhrase,
-        loadSrsItems: loadLocalSrsItems,
-        saveSrsItems: saveLocalSrsItems,
-      },
-    });
-    setPhrases(result.phrases);
-    setItems(result.srsItems);
-    const updatedPhrase = result.phrases.find((item) => item.id === phrase.id);
-    if (updatedPhrase) {
-      void syncPhraseStateToCloud(
-        updatedPhrase,
-        result.srsItems.find((item) => item.id === phrase.id) ?? null,
-      ).catch((error) => {
-        console.warn("[LibraryView] drill membership sync failed", error);
+  const handleDrillAction = (phrase: Phrase, action: DrillPhraseAction) => {
+    if (currentDataOwner() !== owner) return;
+    setActionError(null);
+    try {
+      const result = manageDrillPhrase({ phraseId: phrase.id, action, storage: {
+        loadPhrases: loadLocalPhrases, savePhrases: saveLocalPhrases, updatePhrase: updateLocalPhrase,
+        loadSrsItems: loadLocalSrsItems, saveSrsItems: saveLocalSrsItems,
+      } });
+      setPhrases(result.phrases);
+      setItems(result.srsItems);
+      const updated = result.phrases.find((item) => item.id === phrase.id);
+      if (updated) void syncPhraseStateToCloud(updated, result.srsItems.find((item) => item.id === phrase.id) ?? null).catch(() => {
+        if (currentDataOwner() === owner) setActionError("この端末への変更は保存済みですが、他の端末への同期は未完了です。");
       });
+    } catch {
+      setActionError("変更を完了できませんでした。保存内容を確認して再試行してください。");
     }
   };
 
@@ -316,6 +318,7 @@ function LanguageLibrary({ targetLanguage, setTargetLanguage, languageReady }: {
         </button>
       </div>
 
+      {actionError && <p role="alert" className="text-sm text-amber-200">{actionError}</p>}
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
@@ -539,7 +542,7 @@ function LanguageLibrary({ targetLanguage, setTargetLanguage, languageReady }: {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleToggleDrill(p);
+                          handleDrillAction(p, p.shouldDrill ? "pause" : "resume");
                         }}
                         className={cn(
                           "self-end rounded-xl px-3 py-2.5 text-sm font-bold",
@@ -550,6 +553,12 @@ function LanguageLibrary({ targetLanguage, setTargetLanguage, languageReady }: {
                       >
                         {p.shouldDrill ? "ドリルから外す" : "ドリルに追加"}
                       </button>
+                      <button type="button" aria-pressed={Boolean(p.drillPriority)}
+                        onClick={() => handleDrillAction(p, "toggle-priority")}
+                        className={cn("min-h-11 rounded-xl px-3 py-2.5 text-sm font-bold", p.drillPriority ? "bg-amber-500/15 text-amber-200" : "bg-neutral-950/80 text-neutral-300")}>
+                        優先表示
+                      </button>
+                      <p className="self-center text-xs text-neutral-500">優先表示は復習予定日以降に先に出題します。ドリルから外しても復習記録は残ります。</p>
                     </div>
                   </div>
                 )}

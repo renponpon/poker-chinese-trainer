@@ -19,7 +19,7 @@ export type DeviceBackup = {
 };
 
 function isDataKey(key: string): boolean {
-  return DATA_KEYS.includes(key) || key.startsWith("phrabit-account-checkpoint-v1:") || key.startsWith("phrabit-account-merge-v1:") || key.startsWith("phrabit-learning-days-v1:");
+  return DATA_KEYS.includes(key) || key.startsWith("phrabit-account-checkpoint-v1:") || key.startsWith("phrabit-account-merge-v1:") || key.startsWith("phrabit-learning-days-v1:") || key.startsWith("phrabit-drill-round-v1:") || key.startsWith("phrabit-drill-preferences-v1:");
 }
 
 export function captureDeviceData(storage: Storage = window.localStorage): DeviceBackup {

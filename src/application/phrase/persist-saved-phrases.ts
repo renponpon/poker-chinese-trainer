@@ -93,6 +93,9 @@ function normalizePhrases(value: unknown): Phrase[] {
       throw new PersistSavedPhrasesRequestError("Saved phrase shape is invalid.");
     }
     const phrase = item as Partial<Phrase>;
+    if (phrase.drillPriority !== undefined && typeof phrase.drillPriority !== "boolean") {
+      throw new PersistSavedPhrasesRequestError("Drill priority must be a boolean.");
+    }
     const direction = normalizeDirection(phrase.direction);
     const { sourceLanguage, targetLanguage } = parseDirection(direction);
     const japanese = normalizeOptionalText(phrase.japanese, 500) ?? "";
@@ -123,6 +126,7 @@ function normalizePhrases(value: unknown): Phrase[] {
       direction,
       categoryId: normalizeOptionalText(phrase.categoryId, 64) ?? null,
       shouldDrill: phrase.shouldDrill !== false,
+      ...(typeof phrase.drillPriority === "boolean" ? { drillPriority: phrase.drillPriority } : {}),
       source: normalizeSource(phrase.source),
       usedAt: normalizeOptionalText(phrase.usedAt, 80) ?? null,
     };

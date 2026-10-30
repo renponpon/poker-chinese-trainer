@@ -48,11 +48,9 @@ export function reconcileAccountPhraseData(
     const phrase = { ...(cloudPhrase ?? localPhrase), ...updates } as Phrase;
     const cloudItem = cloudItems.get(id);
     const locallyReviewed = !equal(baseItem, localItem);
-    const item = phrase.shouldDrill
-      ? locallyReviewed && (localItem?.lastReviewedAt ?? -1) >= (cloudItem?.lastReviewedAt ?? -1)
-        ? localItem ?? cloudItem ?? null
-        : cloudItem ?? localItem ?? null
-      : null;
+    const item = locallyReviewed && (localItem?.lastReviewedAt ?? -1) >= (cloudItem?.lastReviewedAt ?? -1)
+      ? localItem ?? cloudItem ?? null
+      : cloudItem ?? localItem ?? null;
     resultPhrases.set(id, phrase);
     if (item) resultItems.set(id, item);
     else resultItems.delete(id);
@@ -62,7 +60,7 @@ export function reconcileAccountPhraseData(
   }
   const snapshot: SavedPhraseSnapshot = {
     phrases: [...resultPhrases.values()],
-    srsItems: [...resultItems.values()].filter((item) => resultPhrases.get(item.id)?.shouldDrill),
+    srsItems: [...resultItems.values()].filter((item) => resultPhrases.has(item.id)),
   };
   return { snapshot, mutations, conflicts };
 }

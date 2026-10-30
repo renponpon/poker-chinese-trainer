@@ -18,18 +18,12 @@ export function mergeAccountPhraseData(
   }
 
   const phrases = [...phraseById.values()]
-    .map((phrase) => ({
-      ...phrase,
-      shouldDrill: phrase.shouldDrill || srsById.has(phrase.id),
-    }))
     .sort((left, right) => toTime(right.createdAt) - toTime(left.createdAt));
-  const drillPhraseIds = new Set(
-    phrases.filter((phrase) => phrase.shouldDrill).map((phrase) => phrase.id),
-  );
+  const savedPhraseIds = new Set(phrases.map((phrase) => phrase.id));
 
   return {
     phrases,
-    srsItems: [...srsById.values()].filter((item) => drillPhraseIds.has(item.id)),
+    srsItems: [...srsById.values()].filter((item) => savedPhraseIds.has(item.id)),
   };
 }
 
@@ -45,7 +39,8 @@ function mergePhrase(local: Phrase, cloud: Phrase): Phrase {
     explanation: longerText(local.explanation, cloud.explanation),
     audioUrl: cloud.audioUrl ?? local.audioUrl,
     categoryId: cloud.categoryId ?? local.categoryId,
-    shouldDrill: local.shouldDrill || cloud.shouldDrill,
+    shouldDrill: cloud.shouldDrill,
+    drillPriority: cloud.drillPriority ?? local.drillPriority,
     usedAt: laterIso(local.usedAt, cloud.usedAt),
   };
 }

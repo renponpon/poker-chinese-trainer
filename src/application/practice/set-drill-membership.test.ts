@@ -39,7 +39,9 @@ test("removing a phrase from drill keeps the saved phrase", () => {
   assert.equal(result.phrases.length, 1);
   assert.equal(result.phrases[0]?.id, "phrase-1");
   assert.equal(result.phrases[0]?.shouldDrill, false);
-  assert.deepEqual(result.srsItems, []);
+  assert.deepEqual(result.srsItems, [makeSrsItem()]);
+  const resumed = addPhraseToDrill({ phrase: result.phrases[0], storage, now: NOW + 86400000 });
+  assert.deepEqual(resumed.srsItems, [makeSrsItem()]);
 });
 
 function createMemoryStorage(

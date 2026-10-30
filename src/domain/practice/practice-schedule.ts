@@ -129,11 +129,7 @@ export function syncDrillItems(
   currentItems: DrillItem[],
   now: number = Date.now(),
 ): DrillItemSyncResult {
-  const drillPhraseIds = new Set(
-    savedPhrases
-      .filter((phrase) => phrase.isDrillEnabled)
-      .map((phrase) => phrase.phraseId),
-  );
+  const savedPhraseIds = new Set(savedPhrases.map((phrase) => phrase.phraseId));
   const existingIds = new Set(currentItems.map((item) => item.phraseId));
   const additions: DrillItem[] = [];
 
@@ -144,7 +140,7 @@ export function syncDrillItems(
   }
 
   const keptItems = currentItems.filter((item) =>
-    drillPhraseIds.has(item.phraseId),
+    savedPhraseIds.has(item.phraseId),
   );
   const items = [...keptItems, ...additions];
   const changed =

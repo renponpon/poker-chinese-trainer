@@ -18,13 +18,13 @@ test("normalizes an account snapshot including a drill item", () => {
   assert.equal(snapshot.srsItems[0]?.id, snapshot.phrases[0]?.id);
 });
 
-test("drops a stale SRS item for a library-only phrase", () => {
+test("preserves a paused phrase's SRS item", () => {
   const snapshot = normalizeAccountPhraseSnapshot({
     phrases: [makePhrase(false)],
     srsItems: [makeSrsItem()],
   });
 
-  assert.equal(snapshot.srsItems.length, 0);
+  assert.equal(snapshot.srsItems.length, 1);
 });
 
 test("normalizes a single phrase state without a schedule", () => {

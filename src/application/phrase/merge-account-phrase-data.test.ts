@@ -28,7 +28,7 @@ test("keeps the most recently reviewed schedule for a shared phrase", () => {
   assert.deepEqual(result.srsItems, [localItem]);
 });
 
-test("preserves drill membership when either device has progress", () => {
+test("retained progress does not reactivate a paused phrase", () => {
   const localPhrase = makePhrase("shared", false);
   const cloudPhrase = makePhrase("shared", false);
 
@@ -37,7 +37,7 @@ test("preserves drill membership when either device has progress", () => {
     { phrases: [cloudPhrase], srsItems: [] },
   );
 
-  assert.equal(result.phrases[0]?.shouldDrill, true);
+  assert.equal(result.phrases[0]?.shouldDrill, false);
   assert.equal(result.srsItems.length, 1);
 });
 

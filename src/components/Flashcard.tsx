@@ -8,12 +8,15 @@ import { LANGUAGE_CONFIGS } from "@/lib/languages";
 import { playSpeechForLang, prefetchSpeechForLang } from "@/lib/speech";
 import type { SpeechPlayOptions } from "@/lib/speech";
 import type { Phrase, Score } from "@/lib/types";
+import type { DrillPhraseAction } from "@/application/practice/manage-drill-phrase";
 
 type FlashcardProps = {
   phrase: Phrase;
   onScore: (score: Score) => void;
   explanationPending?: boolean;
   resetKey?: number;
+  onPhraseAction?: (action: DrillPhraseAction) => void;
+  drillPhraseCount?: number;
 };
 
 const REVEAL_FADE_MS = 200;
@@ -23,6 +26,8 @@ export default function Flashcard({
   onScore,
   explanationPending = false,
   resetKey = 0,
+  onPhraseAction,
+  drillPhraseCount,
 }: FlashcardProps) {
   const [isFlipped, setIsFlipped] = useState(false);
   const [isHidden, setIsHidden] = useState(false);
@@ -31,6 +36,7 @@ export default function Flashcard({
   const revealTimeoutRef = useRef<number | null>(null);
   const fadeInFrameRef = useRef<number | null>(null);
   const isInitialPhraseRef = useRef(true);
+  const actionsRef = useRef<HTMLDetailsElement>(null);
   const promptText = phrase.sourceText || phrase.japanese;
   const answerText = phrase.targetText || phrase.chinese;
   const answerLanguage = phrase.targetLanguage ?? "zh";
@@ -78,6 +84,7 @@ export default function Flashcard({
     queueMicrotask(() => {
       if (cancelled) return;
     setIsFlipped(false);
+    if (actionsRef.current) actionsRef.current.open = false;
 
     if (isInitialPhraseRef.current) {
       isInitialPhraseRef.current = false;
@@ -152,6 +159,7 @@ export default function Flashcard({
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (isAdvancing) return;
+      if (e.target instanceof HTMLElement && e.target.closest("button, input, textarea, select, summary, a, [contenteditable='true']")) return;
       if (e.code === "Space") {
         e.preventDefault();
         handleFlip();
@@ -225,6 +233,28 @@ export default function Flashcard({
 
   return (
     <div className="flex h-full w-full flex-col items-center overscroll-none">
+      {onPhraseAction && <div className="mb-1 flex w-full shrink-0 items-center justify-between gap-2">
+        <button type="button" disabled={isAdvancing} aria-pressed={Boolean(phrase.drillPriority)}
+          onClick={() => onPhraseAction("toggle-priority")}
+          title="復習予定日以降、優先して出題します"
+          className={cn("min-h-8 rounded-lg px-3 text-sm font-bold disabled:opacity-40", phrase.drillPriority ? "bg-amber-500/15 text-amber-200" : "bg-neutral-900 text-neutral-300")}>
+          優先表示
+        </button>
+        {drillPhraseCount !== undefined && <span className="ml-auto whitespace-nowrap text-[11px] text-neutral-400">ドリル対象 {drillPhraseCount}枚</span>}
+        <details ref={actionsRef} className="relative shrink-0">
+          <summary className="flex min-h-8 cursor-pointer list-none items-center rounded-lg bg-neutral-900 px-3 text-sm text-neutral-300">カード設定</summary>
+          <div className="absolute right-0 top-full z-40 mt-1 w-72 max-w-[calc(100vw-3rem)] rounded-xl border border-neutral-700 bg-neutral-900 p-2 shadow-xl">
+            <button type="button" disabled={isAdvancing} onClick={() => { if (actionsRef.current) actionsRef.current.open = false; onPhraseAction("pause"); }}
+              className="min-h-11 w-full rounded-lg px-3 py-2 text-left text-sm text-neutral-200 hover:bg-neutral-800 disabled:opacity-40">
+              ドリルから外す<span className="mt-0.5 block text-xs text-neutral-400">保存フレーズには残します</span>
+            </button>
+            <button type="button" disabled={isAdvancing} onClick={() => { if (actionsRef.current) actionsRef.current.open = false; onPhraseAction("delete"); }}
+              className="min-h-11 w-full rounded-lg px-3 py-2 text-left text-sm text-red-300 hover:bg-neutral-800 disabled:opacity-40">
+              保存からも削除する<span className="mt-0.5 block text-xs text-neutral-400">ドリルと保存フレーズから削除します</span>
+            </button>
+          </div>
+        </details>
+      </div>}
       <div className="relative min-h-0 w-full flex-1 overflow-hidden rounded-[28px] bg-neutral-900">
         <div
           className={cn(

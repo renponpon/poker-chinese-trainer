@@ -39,6 +39,17 @@ test("maps drill membership from a drill item set", () => {
   assert.equal(phrase.shouldDrill, true);
 });
 
+test("priority and explicit paused membership survive a database round trip", () => {
+  for (const drillPriority of [true, false]) {
+    const phrase = { ...makePhrase({ shouldDrill: false }), drillPriority };
+    const saved = { ...makeSavedPhraseRow(), ...phraseToSavedPhraseRow("user-1", phrase) } as SavedPhraseRow;
+    assert.equal(rowToPhrase(saved).shouldDrill, false);
+    assert.equal(rowToPhrase(saved).drillPriority, drillPriority);
+    assert.equal(phraseToLegacyPhraseRow("user-1", phrase).drill_priority, drillPriority);
+  }
+  assert.equal("drill_priority" in phraseToSavedPhraseRow("user-1", makePhrase({ shouldDrill: true })), false);
+});
+
 test("maps a legacy phrase row using should_drill", () => {
   const phrase = rowToPhrase({
     ...makeSavedPhraseRow(),
@@ -55,7 +66,7 @@ test("maps phrase domain objects to saved and legacy rows", () => {
 
   assert.equal(savedRow.user_id, "user-1");
   assert.equal(savedRow.created_at, "2026-07-07T00:00:00.000Z");
-  assert.equal("should_drill" in savedRow, false);
+  assert.equal(savedRow.should_drill, true);
   assert.equal(legacyRow.should_drill, true);
 });
 

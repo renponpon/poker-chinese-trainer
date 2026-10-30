@@ -1,5 +1,16 @@
 ﻿# Phrabit 引き継ぎ（2026-05）
 
+## 2026-10-30：ドリル公開判定合格・本番DDL適用済み
+
+本人が本番反映、検証中だけPokerLiveMemo停止と復旧、全利用者7表の本人限定暗号化バックアップを承認。
+
+- 今回対象：右上「1回あたりのドリル出題数」（5/10/20・無制限・カスタム1〜999、初期5、英中共通、変更は次回）、固定ラウンド/Bad末尾・進捗据置、総数表示、優先表示、外す/保存からも削除。保存・アカウント同期を含む。未公開リハーサル/案内/モデル実験等は除外。
+- 実Preview検証：独立Chrome430/1280px・同一合成アカウントで設定双方向/再読込/オフライン復帰、RLS、優先、外す時のSRS保持、Bad据置、削除同期の7群合格。初回読込前に0件で固定する不具合を発見し、まだ選択したカードがない空ラウンドだけ再構成。進行中/全件除外後には補充しない。単体103+256、UI15群、Webpack29ページ、変更2TSX lint合格。実物スマホではない。
+- 他サービス復旧済み：PokerLiveMemo ACTIVE_HEALTHY、SQL成功/Auth1/public17で開始時と一致。Preview INACTIVE。合成2ユーザーはセッション失効後削除しAuth1/保存3/ドリル3/新設定0を維持。一時QA Preview2件とDPAPI資格情報は削除済み。
+- バックアップ：`.private-backups/learning-20261030-drill-release.dpapi`、2026-10-30 15:24:36 JST取得。7表＝保存194/ドリル192/旧フレーズ194/SRS182/カテゴリ0/学習設定1/学習日1。Windows本人限定DPAPI/ACL、元JSONのUnicode転送一致、メモリ内Postgresで全件一致復元。PTYの文字コード差分を検知した初回コピーは使用せず、ASCII圧縮転送・元データ照合後に暗号化し直した。平文ファイル/外部共有なし。Auth/Storage/未同期端末は対象外。復元は今回artifact内の7表helperを使用（既存汎用helperは5表用）。
+- 本番DDL：local `20261030003436`→remote `20261030065357`、local `20261030020125`→remote `20261030065401`。追加列/新drill_preferences表のみ。旧7表件数、Auth6維持、新設定0、本人RLS3ポリシーを確認。新membershipは旧行nullで従来挙動を保持。旧アプリへ単純rollbackすると対象外の再出題やカスタム設定非対応があるため、列削除ではなく互換修正を優先。
+- 証跡：`../release-artifacts/20261030-drill-controls/` のlive-results.json / backup-verification.json / release-final-*.log / release-manifest.json。課金API0、モデル・翻訳・他の利用者データの編集なし。コミット/Production結果は以後の記録を参照。
+
 ## 2026-10-24 学習日数・1回練習・計測の公開
 
 - 本人が今回の3項目に限定してcommit/push/本番反映を承認。7ec05dfを基点に公開候補を隔離し、混在するモデル/ピンイン/リハーサル/案内/取消実験は除外する。

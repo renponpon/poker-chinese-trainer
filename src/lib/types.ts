@@ -32,6 +32,7 @@ export type Phrase = {
   direction: PhraseDirection;
   categoryId: string | null;
   shouldDrill: boolean;
+  drillPriority?: boolean;
   source: PhraseSource;
   usedAt: string | null;
 };

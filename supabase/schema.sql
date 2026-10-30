@@ -1,5 +1,19 @@
 create extension if not exists "pgcrypto";
 
+create table if not exists public.drill_preferences (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  question_limit integer not null default 5 check (question_limit between 0 and 999)
+);
+alter table public.drill_preferences enable row level security;
+revoke all on public.drill_preferences from public, anon, authenticated;
+grant select, insert, update on public.drill_preferences to authenticated;
+drop policy if exists "drill_preferences_select_own" on public.drill_preferences;
+drop policy if exists "drill_preferences_insert_own" on public.drill_preferences;
+drop policy if exists "drill_preferences_update_own" on public.drill_preferences;
+create policy "drill_preferences_select_own" on public.drill_preferences for select to authenticated using ((select auth.uid()) = user_id);
+create policy "drill_preferences_insert_own" on public.drill_preferences for insert to authenticated with check ((select auth.uid()) = user_id);
+create policy "drill_preferences_update_own" on public.drill_preferences for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+
 create table if not exists public.phrases (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -17,6 +31,7 @@ create table if not exists public.phrases (
   direction text not null check (direction ~ '^[a-z]{2,3}-to-[a-z]{2,3}$'),
   category_id text,
   should_drill boolean not null default true,
+  drill_priority boolean not null default false,
   source text not null default 'manual' check (source in ('manual', 'conversation', 'prototype')),
   used_at timestamptz,
   created_at timestamptz not null default now(),
@@ -52,6 +67,8 @@ create table if not exists public.saved_phrases (
   audio_url text,
   direction text not null check (direction ~ '^[a-z]{2,3}-to-[a-z]{2,3}$'),
   category_id text,
+  should_drill boolean,
+  drill_priority boolean not null default false,
   source text not null default 'manual' check (source in ('manual', 'conversation', 'prototype')),
   used_at timestamptz,
   created_at timestamptz not null default now(),

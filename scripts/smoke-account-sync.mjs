@@ -80,7 +80,7 @@ globalThis.fetch = async (url, options = {}) => {
     if (body.existingOnly && !exists) return Response.json({ error: "deleted" }, { status: 409 });
     cloud.phrases = [...cloud.phrases.filter((phrase) => phrase.id !== body.phrase.id), clone(body.phrase)];
     cloud.srsItems = cloud.srsItems.filter((item) => item.id !== body.phrase.id);
-    if (body.srsItem && body.phrase.shouldDrill) cloud.srsItems.push(clone(body.srsItem));
+    if (body.srsItem) cloud.srsItems.push(clone(body.srsItem));
   } else assert.fail("unexpected method " + method);
   return Response.json({ ok: true });
 };
@@ -121,6 +121,22 @@ assert.equal(cache.currentDataOwner(), "account-a");
 assert.equal(sync.getAccountSyncStatus(), "同期済み");
 assert.equal(AccountSyncNotice({}).props.children, "同期済み", "他の画面の同期済み表示を維持");
 assert.equal(AccountSyncNotice({ hideSyncedStatus: true }), null, "翻訳画面の同期済み表示を省く");
+
+const drillControls = loadSource(resolve(root, "application/practice/manage-drill-phrase"));
+const drillStorage = { loadPhrases: local.loadLocalPhrases, savePhrases: local.saveLocalPhrases, updatePhrase: local.updateLocalPhrase, loadSrsItems: srs.loadLocalSrsItems, saveSrsItems: srs.saveLocalSrsItems };
+drillControls.manageDrillPhrase({ phraseId: phrase.id, action: "toggle-priority", storage: drillStorage });
+drillControls.manageDrillPhrase({ phraseId: phrase.id, action: "pause", storage: drillStorage });
+await sync.syncPhraseStateToCloud(phrase, null);
+assert.equal(backend.get("token-a").phrases[0].drillPriority, true);
+assert.equal(backend.get("token-a").phrases[0].shouldDrill, false);
+assert.equal(backend.get("token-a").srsItems[0].lastReviewedAt, 2000);
+sync.clearOwnedAccountPhraseData();
+await sync.synchronizeAccountPhraseData(session);
+assert.equal(local.loadLocalPhrases()[0].drillPriority, true);
+assert.equal(local.loadLocalPhrases()[0].shouldDrill, false);
+drillControls.manageDrillPhrase({ phraseId: phrase.id, action: "resume", storage: drillStorage });
+await sync.syncPhraseStateToCloud(phrase, null);
+assert.equal(srs.loadLocalSrsItems()[0].lastReviewedAt, 2000);
 
 local.updateLocalPhrase(phrase.id, { explanation: "offline edit" });
 failNextWrite = true;

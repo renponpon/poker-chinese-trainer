@@ -129,7 +129,7 @@ export async function getSupabasePhrasesByUser(accessToken: string): Promise<{
 
     return {
       phrases: ((savedRows ?? []) as SavedPhraseRow[]).map((row) =>
-        rowToPhrase(row, drillItemIds.has(row.id)),
+        rowToPhrase(row, row.should_drill ?? drillItemIds.has(row.id)),
       ),
       srsItems: drillItems,
     };
@@ -186,7 +186,7 @@ export async function upsertSupabaseSrsItem(
 
   const { error: phraseError } = await supabase
     .from("phrases")
-    .update({ should_drill: true })
+    .update({ should_drill: phrase.shouldDrill })
     .eq("id", phrase.id)
     .eq("user_id", userData.user.id);
   if (phraseError) throw phraseError;
@@ -216,7 +216,7 @@ export async function mergeSupabasePhraseSnapshot(
     if (legacyPhraseError) throw legacyPhraseError;
   }
 
-  const scheduledPhrases = phrases.filter((phrase) => phrase.shouldDrill);
+  const scheduledPhrases = phrases.filter((phrase) => phrase.shouldDrill || itemById.has(phrase.id));
   if (scheduledPhrases.length > 0) {
     const drillRows = scheduledPhrases.map((phrase) => {
       const item = itemById.get(phrase.id);
@@ -276,25 +276,12 @@ export async function replaceSupabasePhraseState(
     if (phraseError) throw phraseError;
   }
 
-  if (phrase.shouldDrill) {
+  if (phrase.shouldDrill || srsItem) {
     const item = srsItem ?? rowToSrsItem(defaultDrillItemRow(userId, phrase.id));
     await upsertSupabaseDrillItemRow(supabase, userId, phrase.id, item);
     const { error: srsError } = await supabase
       .from("srs_items")
       .upsert(srsItemToLegacySrsRow(userId, item));
-    if (srsError) throw srsError;
-  } else {
-    const { error: drillError } = await supabase
-      .from("drill_items")
-      .delete()
-      .eq("saved_phrase_id", phrase.id)
-      .eq("user_id", userId);
-    if (drillError && !isMissingRelationError(drillError)) throw drillError;
-    const { error: srsError } = await supabase
-      .from("srs_items")
-      .delete()
-      .eq("phrase_id", phrase.id)
-      .eq("user_id", userId);
     if (srsError) throw srsError;
   }
 
@@ -411,6 +398,6 @@ function isMissingRelationError(error: unknown): boolean {
     maybeError.code === "42P01" ||
     maybeError.code === "PGRST205" ||
     message.includes("Could not find the table") ||
-    (message.includes("relation") && message.includes("does not exist"))
+    /^relation\s.+does not exist/.test(message)
   );
 }

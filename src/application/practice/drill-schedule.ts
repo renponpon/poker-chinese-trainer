@@ -3,6 +3,7 @@ import {
   syncDrillItems,
 } from "../../domain/practice/practice-schedule";
 import type { Phrase, SrsItem, SrsStatus } from "../../lib/types";
+import { learningDayAt, validTimeZone } from "../../domain/practice/learning-days";
 import { drillItemToSrsItem, srsItemToDrillItem } from "./srs-item-adapter";
 
 type PracticePhraseRef = Pick<Phrase, "id" | "shouldDrill">;
@@ -38,7 +39,8 @@ export function syncDrillSchedule(input: {
     };
   }
 
-  const items = synced.items.map(drillItemToSrsItem);
+  const existing = new Map(input.items.map((item) => [item.id, item]));
+  const items = synced.items.map((item) => existing.get(item.phraseId) ?? drillItemToSrsItem(item));
   input.storage?.saveSrsItems(items);
 
   return {
@@ -51,6 +53,7 @@ export function selectDueDrillPhrases(input: {
   phrases: Phrase[];
   items: SrsItem[];
   now?: number;
+  timeZone?: string;
 }): Phrase[] {
   const itemById = new Map(input.items.map((item) => [item.id, item]));
   const due: Phrase[] = [];
@@ -63,7 +66,42 @@ export function selectDueDrillPhrases(input: {
     }
   }
 
-  return due;
+  return orderDrillPhrases({ ...input, phrases: due });
+}
+
+export function orderDrillPhrases(input: {
+  phrases: Phrase[];
+  items: SrsItem[];
+  now?: number;
+  timeZone?: string;
+}): Phrase[] {
+  const now = input.now ?? Date.now();
+  const timeZone = validTimeZone(input.timeZone) ? input.timeZone : "UTC";
+  const today = learningDayAt(now, timeZone);
+  const itemById = new Map(input.items.map((item) => [item.id, item]));
+  const rankById = new Map(input.phrases.map((phrase) => {
+    const item = itemById.get(phrase.id);
+    const reviewedAt = item?.lastReviewedAt;
+    const earlierDay = typeof reviewedAt === "number" && Number.isFinite(reviewedAt)
+      && reviewedAt <= now && learningDayAt(reviewedAt, timeZone) < today;
+    const reviewRank = earlierDay && item?.lastScore === 1 ? 0 : earlierDay && item?.lastScore === 2 ? 1 : 2;
+    return [phrase.id, {
+      priority: phrase.drillPriority ? 0 : 1,
+      reviewRank,
+      reviewedAt: reviewRank < 2 ? reviewedAt ?? 0 : 0,
+      dueAt: item?.nextReviewAt ?? 0,
+    }];
+  }));
+  return [...input.phrases].sort((left, right) => {
+    const leftRank = rankById.get(left.id)!;
+    const rightRank = rankById.get(right.id)!;
+    return leftRank.priority - rightRank.priority
+      || leftRank.reviewRank - rightRank.reviewRank
+      || rightRank.reviewedAt - leftRank.reviewedAt
+      || leftRank.dueAt - rightRank.dueAt
+      || left.createdAt.localeCompare(right.createdAt)
+      || left.id.localeCompare(right.id);
+  });
 }
 
 export type StatusCounts = Record<SrsStatus, number>;
