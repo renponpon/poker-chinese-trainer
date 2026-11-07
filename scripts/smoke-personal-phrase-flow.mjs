@@ -165,15 +165,15 @@ try {
       }))));
     }, phraseKey);
     await normal.page.getByRole("link", { name: "ドリル", exact: true }).click();
-    await normal.page.getByText("0/2 · 0%", { exact: true }).waitFor();
+    await normal.page.getByText("0/2", { exact: true }).waitFor();
     await normal.page.getByText(/^テスト[AB]$/).first().click();
     await normal.page.getByRole("button", { name: /Good/ }).click();
     await normal.page.evaluate(() => window.dispatchEvent(new Event("phrabit-account-phrase-data-synced")));
-    await normal.page.getByText("1/2 · 50%", { exact: true }).waitFor();
+    await normal.page.getByText("1/2", { exact: true }).waitFor();
     await normal.page.getByText(/^テスト[AB]$/).first().click();
     await normal.page.getByRole("button", { name: /Bad/ }).click();
     await normal.page.evaluate(() => window.dispatchEvent(new Event("phrabit-account-phrase-data-synced")));
-    await normal.page.getByText("1/2 · 50%", { exact: true }).waitFor();
+    await normal.page.getByText("1/2", { exact: true }).waitFor();
     await normal.page.getByText(/^テスト[AB]$/).first().click();
     await normal.page.getByRole("button", { name: /Good/ }).click();
     await normal.page.getByText("今日のドリル完了", { exact: true }).waitFor();

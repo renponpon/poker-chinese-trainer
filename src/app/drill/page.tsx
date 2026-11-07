@@ -4,13 +4,13 @@ import DrillRunner from "./DrillRunner";
 
 export default function DrillPage() {
   return (
-    <main className="fixed inset-0 overflow-hidden overscroll-none px-3 pt-8 sm:px-6">
-      <div className="mx-auto flex h-full w-full max-w-4xl flex-col gap-3 overflow-hidden">
-        <AppHeader />
+    <main className="fixed inset-0 flex flex-col overflow-hidden overscroll-none px-3 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-6">
+      <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col gap-1 overflow-hidden">
+        <AppHeader hideSyncedStatus />
 
         <DrillRunner />
       </div>
-      <BottomNav />
+      <BottomNav inFlow />
     </main>
   );
 }

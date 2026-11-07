@@ -13,12 +13,13 @@ export function LearningWeek() {
   </div>;
 }
 
-export default function LearningDaysSummary({ completion = false }: { completion?: boolean }) {
+export default function LearningDaysSummary({ completion = false, issuesOnly = false }: { completion?: boolean; issuesOnly?: boolean }) {
   const { summary, snapshot, error, syncError } = useLearningDays();
   if (error) return <Link href="/learning" className="text-xs text-amber-300">学習記録の保存を確認する ›</Link>;
   if (!summary?.total) {
     return snapshot?.pending ? <Link href="/learning" className="text-xs text-neutral-400">学習日は同期後に確定します ›</Link> : null;
   }
+  if (issuesOnly) return syncError ? <Link href="/learning" className="text-xs text-amber-300">学習記録の同期を確認する ›</Link> : null;
   if (!completion) return <Link href="/learning" className="block text-sm text-neutral-400">今週 {summary.weekly}日{summary.streak >= 2 ? ` · ${summary.streak}日連続` : ""} · 学習記録 ›</Link>;
   return <section aria-label="今回の学習記録" className="w-full max-w-sm space-y-3 rounded-2xl bg-neutral-950/60 p-4 text-left">
     <p className="text-sm font-semibold text-emerald-300">{summary.learnedToday ? "今日の学習を記録しました" : "これまでの学習記録"}</p>

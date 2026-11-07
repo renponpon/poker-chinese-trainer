@@ -16,7 +16,6 @@ type FlashcardProps = {
   explanationPending?: boolean;
   resetKey?: number;
   onPhraseAction?: (action: DrillPhraseAction) => void;
-  drillPhraseCount?: number;
 };
 
 const REVEAL_FADE_MS = 200;
@@ -27,7 +26,6 @@ export default function Flashcard({
   explanationPending = false,
   resetKey = 0,
   onPhraseAction,
-  drillPhraseCount,
 }: FlashcardProps) {
   const [isFlipped, setIsFlipped] = useState(false);
   const [isHidden, setIsHidden] = useState(false);
@@ -240,7 +238,6 @@ export default function Flashcard({
           className={cn("min-h-8 rounded-lg px-3 text-sm font-bold disabled:opacity-40", phrase.drillPriority ? "bg-amber-500/15 text-amber-200" : "bg-neutral-900 text-neutral-300")}>
           優先表示
         </button>
-        {drillPhraseCount !== undefined && <span className="ml-auto whitespace-nowrap text-[11px] text-neutral-400">ドリル対象 {drillPhraseCount}枚</span>}
         <details ref={actionsRef} className="relative shrink-0">
           <summary className="flex min-h-8 cursor-pointer list-none items-center rounded-lg bg-neutral-900 px-3 text-sm text-neutral-300">カード設定</summary>
           <div className="absolute right-0 top-full z-40 mt-1 w-72 max-w-[calc(100vw-3rem)] rounded-xl border border-neutral-700 bg-neutral-900 p-2 shadow-xl">
@@ -281,51 +278,46 @@ export default function Flashcard({
           </div>
 
           <div className="absolute inset-0 flex flex-col rounded-[28px] bg-neutral-900 p-4 backface-hidden rotate-y-180 sm:p-5">
-            <SpeechPlayButton
-              play={playSpeech}
-              onStop={stopAudio}
-              prefetch={prefetchSpeech}
-              variant="icon"
-              className="absolute right-4 top-4 z-10 flex h-10 w-10 touch-none items-center justify-center text-neutral-300 hover:text-emerald-300"
-              playingClassName="text-emerald-300"
-            />
-            <div className="w-full min-w-0 shrink-0 touch-none px-12 text-center">
-              {reading && (
-                <div className="text-lg tracking-wide [overflow-wrap:anywhere] text-neutral-400 sm:text-xl">
-                  {reading}
+            <div key={`${phrase.id}:${resetKey}`} className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain">
+              <div className="relative w-full min-w-0 px-12 text-center">
+                <SpeechPlayButton
+                  play={playSpeech}
+                  onStop={stopAudio}
+                  prefetch={prefetchSpeech}
+                  variant="icon"
+                  className="absolute right-0 top-0 z-10 flex h-10 w-10 touch-none items-center justify-center text-neutral-300 hover:text-emerald-300"
+                  playingClassName="text-emerald-300"
+                />
+                {reading && (
+                  <div className="text-lg tracking-wide [overflow-wrap:anywhere] text-neutral-400 sm:text-xl">
+                    {reading}
+                  </div>
+                )}
+                <div className="mt-2 w-full px-1 text-center text-[34px] font-bold leading-snug [overflow-wrap:anywhere] text-white sm:text-4xl">
+                  {answerText}
                 </div>
-              )}
-              <div className="mt-2 w-full px-1 text-center text-[34px] font-bold leading-snug [overflow-wrap:anywhere] text-white sm:text-4xl">
-                {answerText}
+                {phrase.sourceLanguage === "zh" && (
+                  <div className="mt-3 text-xl font-semibold [overflow-wrap:anywhere] text-emerald-200">
+                    {phrase.sourceText}
+                  </div>
+                )}
               </div>
-              {phrase.sourceLanguage === "zh" && (
-                <div className="mt-3 text-xl font-semibold [overflow-wrap:anywhere] text-emerald-200">
-                  {phrase.sourceText}
-                </div>
-              )}
-            </div>
 
-            {phrase.explanation ? (
-              <div className="mt-4 min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain whitespace-pre-wrap px-1 pb-2 text-left text-base leading-relaxed text-neutral-200">
-                {formatExplanationForReading(phrase.explanation, { direction: phrase.direction, japaneseText: phrase.japanese, chineseText: phrase.chinese })}
-              </div>
-            ) : explanationPending ? (
-              <div className="mt-4 px-1 text-sm text-neutral-500">
-                解説を作成中...
-              </div>
-            ) : null}
+              {phrase.explanation ? (
+                <div className="mt-3 whitespace-pre-wrap px-1 pb-2 text-left text-base leading-relaxed text-neutral-200">
+                  {formatExplanationForReading(phrase.explanation, { direction: phrase.direction, japaneseText: phrase.japanese, chineseText: phrase.chinese })}
+                </div>
+              ) : explanationPending ? (
+                <div className="mt-4 px-1 text-sm text-neutral-500">
+                  解説を作成中...
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
 
-      <div
-        className={cn(
-          "fixed inset-x-0 bottom-[88px] z-30 w-full touch-none bg-neutral-950/95 px-5 pb-3 pt-2 backdrop-blur transition-all duration-300",
-          isFlipped && !isAdvancing
-            ? "translate-y-0 opacity-100"
-            : "pointer-events-none translate-y-full opacity-0",
-        )}
-      >
+      <div hidden={!isFlipped || isAdvancing} className="w-full shrink-0 touch-none pt-1">
         <div className="mx-auto flex w-full max-w-md justify-center gap-2">
           <ScoreButton variant="bad" onClick={() => handleScore(1)}>
             Bad

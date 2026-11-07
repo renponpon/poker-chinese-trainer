@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
 
-const origin = "http://127.0.0.1:3042";
-const output = resolve("../release-artifacts/20261030-drill-controls");
+const origin = `http://127.0.0.1:${Number(process.env.DRILL_TEST_PORT || 3042)}`;
+const output = resolve("../release-artifacts/20261107-drill-layout");
 const phraseKey = "poker-chinese-local-phrases-v1";
 const srsKey = "poker-chinese-srs-v1";
 const now = Date.now();
@@ -20,15 +20,16 @@ const basePhrase = (id, language, overrides = {}) => ({
 });
 const baseItem = (id, overrides = {}) => ({ id, status: "review", intervalDays: 1, consecutiveGood: 1, easeFactor: 2.5, lastScore: 3, lastReviewedAt: now - day, nextReviewAt: now - 1, ...overrides });
 
-async function setup(language, width, ids = ["ordinary", "good", "old-bad", "recent-bad", "priority", "future", "paused", "mastered"], startPath = "/drill") {
+async function setup(language, width, ids = ["ordinary", "good", "old-bad", "recent-bad", "priority", "future", "paused", "mastered"], startPath = "/drill", initialLimit = 5) {
   const phrases = ids.map((id) => basePhrase(id, language, { shouldDrill: id !== "paused", drillPriority: ["priority", "future", "paused", "mastered"].includes(id) }));
   const items = ids.map((id) => baseItem(id, { lastScore: id.includes("bad") ? 1 : id === "good" ? 2 : 3, lastReviewedAt: id === "old-bad" ? now - 3 * day : now - day, nextReviewAt: id === "future" ? now + day : now - 1, status: id === "mastered" ? "mastered" : "review" }));
   const context = await browser.newContext({ viewport: { width, height: width === 360 ? 740 : 850 }, timezoneId: "Asia/Tokyo", serviceWorkers: "block" });
-  await context.addInitScript(({ phrases, items, language, phraseKey, srsKey }) => {
+  await context.addInitScript(({ phrases, items, language, phraseKey, srsKey, initialLimit }) => {
     if (!localStorage.getItem("drill-controls-fixture")) {
       localStorage.setItem(phraseKey, JSON.stringify(phrases));
       localStorage.setItem(srsKey, JSON.stringify(items));
       localStorage.setItem("phrabit-learning-language-v1", language);
+      localStorage.setItem("phrabit-drill-preferences-v1:guest", JSON.stringify({ limit: initialLimit, pendingId: null }));
       localStorage.setItem("phrabit:add-tutorial-seen", "1");
       localStorage.setItem("drill-controls-fixture", "1");
     }
@@ -40,7 +41,7 @@ async function setup(language, width, ids = ["ordinary", "good", "old-bad", "rec
       if (window.failSrsWrite && key === srsKey) throw new DOMException("synthetic SRS failure", "QuotaExceededError");
       return setItem.call(this, key, value);
     };
-  }, { phrases, items, language, phraseKey, srsKey });
+  }, { phrases, items, language, phraseKey, srsKey, initialLimit });
   const events = [];
   await context.route("**/*", async (route) => {
     const url = new URL(route.request().url());
@@ -71,11 +72,33 @@ async function answer(page, id, score) {
   await page.getByRole("button", { name: new RegExp(`^${score}`) }).click();
 }
 try {
+  const example = await setup("zh", 430, Array.from({ length: 94 }, (_, index) => `例-${index}`), "/drill", 10);
+  try {
+    const { page } = example;
+    await page.evaluate(({ phraseKey }) => {
+      const phrases = JSON.parse(localStorage.getItem(phraseKey));
+      Object.assign(phrases[0], { japanese: "サッカー", sourceText: "サッカー", chinese: "足球", targetText: "足球", reading: "zúqiú", explanation: "足球はスポーツのサッカーを指します。\n\n你喜欢踢足球吗？\nサッカーをするのは好きですか？" });
+      localStorage.setItem(phraseKey, JSON.stringify(phrases));
+    }, { phraseKey });
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByText("サッカー", { exact: true }).waitFor();
+    assert.equal((await page.getByLabel("今回の進捗").innerText()).replace(/\s+/g, " "), "本日分 0/10 全94枚");
+    await page.screenshot({ path: resolve(output, "drill-front-430.png") });
+    await page.getByText("タップして確認", { exact: true }).click();
+    await page.getByRole("button", { name: /^Good/ }).waitFor();
+    await page.locator(".preserve-3d.rotate-y-180").evaluate(card => Promise.all(card.getAnimations().map(animation => animation.finished)).then(() => true));
+    await page.screenshot({ path: resolve(output, "drill-answer-430.png") });
+    assert.deepEqual(example.errors, []);
+    results.push("94-card example: 本日分 0/10 全94枚; Chinese front and explanation screens captured");
+  } finally { await example.context.close(); }
   for (const [language, width] of [["en", 430], ["zh", 360], ["zh", 390], ["en", 1280]]) {
     const state = await setup(language, width);
     const { page } = state;
     try {
-      assert.equal(await page.getByText("0/5 · 0%", { exact: true }).isVisible(), true);
+      assert.equal(await page.getByText("0/5", { exact: true }).isVisible(), true);
+      assert.equal((await page.getByLabel("今回の進捗").innerText()).replace(/\s+/g, " "), "本日分 0/5 全7枚");
+      assert.equal(await page.getByRole("link", { name: /^(＋ ?)?追加$/ }).count(), 0);
+      assert.equal(await page.getByText(/^ドリル対象 \d+枚$|\d+%$/).count(), 0);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       const priorityButton = page.getByRole("button", { name: "優先表示", exact: true });
       const cardSettings = page.getByText("カード設定", { exact: true });
@@ -163,6 +186,7 @@ try {
     await current(practice.page, "first");
     await answer(practice.page, "first", "Perfect");
     await practice.page.getByText("今回の2問が完了しました", { exact: true }).waitFor();
+    assert.equal(await practice.page.getByRole("link", { name: "＋ 追加" }).getAttribute("href"), "/");
     assert.equal(practice.events.filter((event) => event.eventName === "drill_answer" && event.success).length, 3);
     await practice.page.goto(origin + "/drill?phrases=first&practice=once", { waitUntil: "networkidle" });
     await current(practice.page, "first");
@@ -175,8 +199,8 @@ try {
     const state = await setup(language, width, ids);
     const { page } = state;
     try {
-      await page.getByText("0/5 · 0%", { exact: true }).waitFor();
-      await page.getByText("ドリル対象 14枚", { exact: true }).waitFor();
+      await page.getByText("0/5", { exact: true }).waitFor();
+      await page.getByText("全14枚", { exact: true }).waitFor();
       await page.getByRole("button", { name: "メニュー", exact: true }).click();
       await page.getByRole("heading", { name: "1回あたりのドリル出題数", exact: true }).waitFor();
       await page.getByRole("button", { name: "10問", exact: true }).click();
@@ -184,32 +208,33 @@ try {
       await page.screenshot({ path: resolve(output, `round-settings-${language}-${width}.png`), fullPage: true });
       await page.keyboard.press("Escape");
       assert.equal(await page.getByRole("dialog").count(), 0);
-      await page.getByText("0/5 · 0%", { exact: true }).waitFor();
+      await page.getByText("0/5", { exact: true }).waitFor();
       for (const id of ids.slice(0, 5)) await answer(page, id, "Bad");
       await current(page, ids[0]);
-      await page.getByText("0/5 · 0%", { exact: true }).waitFor();
+      await page.getByText("0/5", { exact: true }).waitFor();
       await page.reload({ waitUntil: "networkidle" });
       await current(page, ids[0]);
       for (const id of ids.slice(0, 4)) await answer(page, id, "Good");
       await current(page, ids[4]);
-      await page.getByText("4/5 · 80%", { exact: true }).waitFor();
+      await page.getByText("4/5", { exact: true }).waitFor();
       await answer(page, ids[4], "Bad");
       await current(page, ids[4]);
-      await page.getByText("4/5 · 80%", { exact: true }).waitFor();
+      await page.getByText("4/5", { exact: true }).waitFor();
       await page.goto(origin + "/library", { waitUntil: "networkidle" });
       await page.goto(origin + "/drill", { waitUntil: "networkidle" });
       await current(page, ids[4]);
-      await page.getByText("4/5 · 80%", { exact: true }).waitFor();
+      await page.getByText("4/5", { exact: true }).waitFor();
       await answer(page, ids[4], "Perfect");
       await page.getByRole("heading", { name: "今回の5問が完了しました" }).waitFor();
+      assert.equal(await page.getByRole("link", { name: "＋ 追加" }).isVisible(), true);
       await page.getByRole("button", { name: "あと7問", exact: true }).click();
-      await page.getByText("0/7 · 0%", { exact: true }).waitFor();
+      await page.getByText("0/7", { exact: true }).waitFor();
       await current(page, ids[5]);
-      await page.getByText("ドリル対象 14枚", { exact: true }).waitFor();
+      await page.getByText("全14枚", { exact: true }).waitFor();
       await page.screenshot({ path: resolve(output, `round-${language}-${width}.png`), fullPage: true });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       assert.deepEqual(state.errors, []);
-      results.push(`${language}/${width}: 5→10 next-round setting, frozen 5, all Bad stays 0%, final Bad stays 80%, tab/reload resume, 7 remaining, total unchanged`);
+      results.push(`${language}/${width}: 5→10 next-round setting, frozen 5, all Bad stays 0/5, final Bad stays 4/5, tab/reload resume, 7 remaining, total unchanged`);
     } finally { await state.context.close(); }
   }
   const recovery = await setup("en", 390, Array.from({ length: 25 }, (_, index) => `card-${String(index).padStart(2, "0")}`));
@@ -217,12 +242,12 @@ try {
     for (const limit of [10, 20]) {
       await recovery.page.evaluate((limit) => { localStorage.setItem("phrabit-drill-preferences-v1:guest", JSON.stringify({ limit, pendingId: null })); localStorage.removeItem("phrabit-drill-round-v1:guest:en"); }, limit);
       await recovery.page.reload({ waitUntil: "networkidle" });
-      await recovery.page.getByText(`0/${limit} · 0%`, { exact: true }).waitFor();
+      await recovery.page.getByText(`0/${limit}`, { exact: true }).waitFor();
     }
     await recovery.page.evaluate(() => { window.failSrsWrite = true; });
     await answer(recovery.page, "card-00", "Good");
     await recovery.page.getByRole("alert").filter({ hasText: "練習を保存できませんでした" }).waitFor();
-    await recovery.page.getByText("0/20 · 0%", { exact: true }).waitFor();
+    await recovery.page.getByText("0/20", { exact: true }).waitFor();
     await recovery.page.evaluate(() => { window.failSrsWrite = false; window.failRoundWrite = true; });
     await answer(recovery.page, "card-00", "Good");
     await current(recovery.page, "card-01");
@@ -230,7 +255,7 @@ try {
     const saved = await snapshot(recovery.page);
     await recovery.page.reload({ waitUntil: "networkidle" });
     await current(recovery.page, "card-01");
-    await recovery.page.getByText("1/20 · 5%", { exact: true }).waitFor();
+    await recovery.page.getByText("1/20", { exact: true }).waitFor();
     assert.deepEqual((await snapshot(recovery.page)).items, saved.items);
     const chinesePhrases = Array.from({ length: 3 }, (_, index) => basePhrase(`zh-${index}`, "zh"));
     await recovery.page.evaluate(({ chinesePhrases, chineseItems, phraseKey, srsKey }) => {
@@ -239,8 +264,8 @@ try {
       window.dispatchEvent(new Event("phrabit-account-phrase-data-synced"));
     }, { chinesePhrases, chineseItems: chinesePhrases.map((phrase) => baseItem(phrase.id)), phraseKey, srsKey });
     await recovery.page.getByRole("button", { name: "中国語", exact: true }).click();
-    await recovery.page.getByText("0/3 · 0%", { exact: true }).waitFor();
-    await recovery.page.getByText("ドリル対象 3枚", { exact: true }).waitFor();
+    await recovery.page.getByText("0/3", { exact: true }).waitFor();
+    await recovery.page.getByText("全3枚", { exact: true }).waitFor();
     await recovery.page.getByRole("button", { name: "メニュー", exact: true }).click();
     assert.equal(await recovery.page.getByRole("button", { name: "20問", exact: true }).getAttribute("aria-pressed"), "true");
     await recovery.page.keyboard.press("Escape");
@@ -248,8 +273,8 @@ try {
     await current(recovery.page, "zh-1");
     await recovery.page.getByRole("button", { name: "英語", exact: true }).click();
     await current(recovery.page, "card-01");
-    await recovery.page.getByText("1/20 · 5%", { exact: true }).waitFor();
-    await recovery.page.getByText("ドリル対象 25枚", { exact: true }).waitFor();
+    await recovery.page.getByText("1/20", { exact: true }).waitFor();
+    await recovery.page.getByText("全25枚", { exact: true }).waitFor();
     await recovery.page.evaluate(({ srsKey }) => {
       const items = JSON.parse(localStorage.getItem(srsKey));
       const item = items.find((item) => item.id === "card-01");
@@ -257,14 +282,14 @@ try {
       localStorage.setItem(srsKey, JSON.stringify(items)); window.dispatchEvent(new Event("phrabit-account-phrase-data-synced"));
     }, { srsKey });
     await current(recovery.page, "card-02");
-    await recovery.page.getByText("2/20 · 10%", { exact: true }).waitFor();
+    await recovery.page.getByText("2/20", { exact: true }).waitFor();
     await recovery.page.evaluate(({ phraseKey }) => {
       const phrases = JSON.parse(localStorage.getItem(phraseKey)).filter((phrase) => phrase.id !== "card-02");
       localStorage.setItem(phraseKey, JSON.stringify(phrases)); window.dispatchEvent(new Event("phrabit-account-phrase-data-synced"));
     }, { phraseKey });
     await current(recovery.page, "card-03");
-    await recovery.page.getByText("2/19 · 11%", { exact: true }).waitFor();
-    await recovery.page.getByText("ドリル対象 24枚", { exact: true }).waitFor();
+    await recovery.page.getByText("2/19", { exact: true }).waitFor();
+    await recovery.page.getByText("全24枚", { exact: true }).waitFor();
     results.push("10/20 persisted; failed SRS leaves progress unchanged; lost round write recovers from SRS without regrading");
     results.push("shared language preference, independent language rounds/counts, remote Good completes once and remote removal shrinks total without refilling");
   } finally { await recovery.context.close(); }
@@ -292,28 +317,28 @@ try {
       await page.screenshot({ path: resolve(output, `menu-custom-${language}-${width}.png`), fullPage: true });
       await page.keyboard.press("Escape");
       await page.goto(origin + "/drill", { waitUntil: "networkidle" });
-      await page.getByText("0/7 · 0%", { exact: true }).waitFor();
-      await page.getByText("ドリル対象 29枚", { exact: true }).waitFor();
+      await page.getByText("0/7", { exact: true }).waitFor();
+      await page.getByText("全29枚", { exact: true }).waitFor();
       await page.getByRole("button", { name: "メニュー", exact: true }).click();
       await page.getByRole("button", { name: "無制限", exact: true }).click();
       await page.screenshot({ path: resolve(output, `menu-unlimited-${language}-${width}.png`), fullPage: true });
       await page.keyboard.press("Escape");
-      await page.getByText("0/7 · 0%", { exact: true }).waitFor();
+      await page.getByText("0/7", { exact: true }).waitFor();
       await answer(page, ids[0], "Bad");
       await current(page, ids[1]);
-      await page.getByText("0/7 · 0%", { exact: true }).waitFor();
+      await page.getByText("0/7", { exact: true }).waitFor();
       await page.reload({ waitUntil: "networkidle" });
       await current(page, ids[1]);
       for (const id of [...ids.slice(1, 7), ids[0]]) await answer(page, id, "Good");
       await page.getByRole("heading", { name: "今回の7問が完了しました" }).waitFor();
       await page.getByRole("button", { name: "あと20問", exact: true }).click();
-      await page.getByText("0/20 · 0%", { exact: true }).waitFor();
+      await page.getByText("0/20", { exact: true }).waitFor();
       assert.equal(await page.evaluate((language) => JSON.parse(localStorage.getItem(`phrabit-drill-round-v1:guest:${language}`)).limit, language), 0);
       await answer(page, ids[7], "Bad");
       await current(page, ids[8]);
       await page.reload({ waitUntil: "networkidle" });
       await current(page, ids[8]);
-      await page.getByText("0/20 · 0%", { exact: true }).waitFor();
+      await page.getByText("0/20", { exact: true }).waitFor();
       await page.getByRole("button", { name: "メニュー", exact: true }).click();
       assert.equal(await page.getByRole("button", { name: "無制限", exact: true }).getAttribute("aria-pressed"), "true");
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -332,7 +357,7 @@ try {
       window.dispatchEvent(new Event("phrabit-account-phrase-data-synced"));
     }, { phrase, item, phraseKey, srsKey });
     await current(lateCloud.page, phrase.id);
-    await lateCloud.page.getByText("0/1 · 0%", { exact: true }).waitFor();
+    await lateCloud.page.getByText("0/1", { exact: true }).waitFor();
     await lateCloud.page.getByText("カード設定", { exact: true }).click();
     await lateCloud.page.getByRole("button", { name: /^ドリルから外す/ }).click();
     await lateCloud.page.evaluate(({ phrase, item, phraseKey, srsKey }) => {
@@ -342,6 +367,7 @@ try {
       window.dispatchEvent(new Event("phrabit-account-phrase-data-synced"));
     }, { phrase, item, phraseKey, srsKey });
     await lateCloud.page.getByRole("heading", { name: "今回の対象カードはありません", exact: true }).waitFor();
+    assert.equal(await lateCloud.page.getByRole("link", { name: "＋ 追加" }).isVisible(), true);
     assert.equal(await lateCloud.page.getByText("確認用 another", { exact: true }).count(), 0);
     assert.deepEqual(lateCloud.errors, []);
     results.push("late initial sync starts an empty round, but removing all selected cards does not refill it");
@@ -352,7 +378,7 @@ try {
     await sample.page.getByRole("button", { name: "メニュー", exact: true }).click();
     await sample.page.getByRole("button", { name: "無制限", exact: true }).click();
     await sample.page.keyboard.press("Escape");
-    await sample.page.getByText("0/2 · 0%", { exact: true }).waitFor();
+    await sample.page.getByText("0/2", { exact: true }).waitFor();
     results.push("sample has global menu settings but remains two cards and does not create a normal round");
   } finally { await sample.context.close(); }
   writeFileSync(resolve(output, "browser-results.json"), JSON.stringify({ results, paidApiCalls: 0, productionChanges: 0, externalRequestsBlocked: true }, null, 2));

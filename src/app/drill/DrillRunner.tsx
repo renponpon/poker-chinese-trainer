@@ -263,6 +263,12 @@ function PracticeSession({ owner, focusedIds, oneAnswerMode }: { owner: string; 
     [phrases, targetLanguage],
   );
   const showLanguageTabs = ACTIVE_TARGET_LANGUAGE_CODES.length > 1;
+  const progress = (
+    <div aria-label="今回の進捗" className="inline-flex flex-wrap items-baseline gap-x-2 text-sm tabular-nums text-neutral-200">
+      <span>{countedMode ? "本日分" : oneAnswerMode ? "この一言を1回練習" : sampleMode ? "サンプル" : "選択分"} <span>{completed}/{total}</span></span>
+      {!sampleMode && <span className="text-xs text-neutral-400">全{drillPhraseCount}枚</span>}
+    </div>
+  );
 
   const handleScore = (score: Score) => {
     if (!activeSessionRef.current || !current || currentPhraseIdRef.current !== current.id || currentDataOwner() !== owner || lastScoredCardRef.current === cardResetKey) return;
@@ -525,10 +531,10 @@ function PracticeSession({ owner, focusedIds, oneAnswerMode }: { owner: string; 
       {messages}
       {showLanguageTabs && <LanguageTabs value={targetLanguage} onChange={setTargetLanguage} />}
       <h1 className="text-lg font-semibold">{completed ? `今回の${completed}問が完了しました` : "今回の対象カードはありません"}</h1>
-      <p className="text-xs text-neutral-400">ドリル対象 {drillPhraseCount}枚</p>
+      {total > 0 ? progress : <p className="text-xs text-neutral-400">全{drillPhraseCount}枚</p>}
       {!completed && !remaining.length && <p className="text-sm text-neutral-400">復習予定が来たら、また練習できます。</p>}
       {completed > 0 && <LearningDaysSummary completion />}
-      <div className="flex flex-wrap justify-center gap-2"><Link href="/" className="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-neutral-950">終了</Link>
+      <div className="flex flex-wrap justify-center gap-2"><AddPhraseLink />
         {remaining.length > 0 && <button type="button" onClick={startNextRound} className="rounded-xl bg-neutral-800 px-4 py-3 text-sm">{completed ? nextCount === remaining.length ? "あと" : "もう" : ""}{nextCount}問{completed ? "" : "を始める"}</button>}
       </div>
       <PersonalPhrasePackFlow phrases={phrases} targetLanguage={targetLanguage} onSaved={handlePackSaved} buttonLabel="例文を作る" />
@@ -553,7 +559,7 @@ function PracticeSession({ owner, focusedIds, oneAnswerMode }: { owner: string; 
           {completed} 件をレビューしました。お疲れさま。
         </div>
         {!sampleMode && recordedLearning && <LearningDaysSummary completion />}
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2 flex flex-wrap justify-center gap-2">
           {(sampleMode || focusedIds.length > 0) && <Link href="/drill" onClick={() => setSampleMode(false)} className="rounded-xl bg-neutral-900 px-4 py-3 text-sm text-neutral-200">通常のドリルへ</Link>}
           <PersonalPhrasePackFlow
             phrases={phrases}
@@ -561,41 +567,19 @@ function PracticeSession({ owner, focusedIds, oneAnswerMode }: { owner: string; 
             onSaved={handlePackSaved}
             buttonClassName="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-neutral-950 hover:bg-emerald-400"
           />
-          <Link
-            href="/"
-            className="rounded-xl bg-neutral-950/80 px-5 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-800"
-          >
-            翻訳へ
-          </Link>
+          <AddPhraseLink />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden overscroll-none pb-[180px] sm:pb-0">
-      <div className="shrink-0 touch-none">
-        {!sampleMode && <LearningDaysSummary />}
-        <div className="flex h-12 items-center justify-between gap-2">
-          <h1 className="min-w-0 text-base font-extrabold leading-tight text-neutral-100">
-            {oneAnswerMode ? "この一言を1回練習" : sampleMode ? "サンプル" : getLanguageLabel(targetLanguage) + "ドリル"}
-          </h1>
-          <div className="flex h-10 items-center gap-2">
-            {!oneAnswerMode && <Link href="/" className="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-bold text-neutral-950">追加</Link>}
-            {!oneAnswerMode && !countedMode && <div className="flex w-[60px] justify-end">
-              <PersonalPhrasePackFlow
-                phrases={phrases}
-                targetLanguage={targetLanguage}
-                onSaved={handlePackSaved}
-                buttonLabel="例文"
-                buttonClassName="rounded-xl bg-neutral-900 px-3 py-2 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
-              />
-            </div>}
-            <div aria-label="今回の進捗" className="whitespace-nowrap text-right text-xs leading-none text-neutral-400">
-              {completed}/{total} · {total > 0 ? Math.round((completed / total) * 100) : 0}%
-            </div>
-          </div>
-        </div>
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden overscroll-none">
+      <h1 className="sr-only">{oneAnswerMode ? "この一言を1回練習" : sampleMode ? "サンプル" : "ドリル"}</h1>
+      {!sampleMode && <LearningDaysSummary issuesOnly />}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-2">
+        {showLanguageTabs && <LanguageTabs value={targetLanguage} onChange={setTargetLanguage} />}
+        {progress}
       </div>
 
       <div className="h-1.5 w-full shrink-0 touch-none overflow-hidden rounded-full bg-neutral-900">
@@ -604,12 +588,6 @@ function PracticeSession({ owner, focusedIds, oneAnswerMode }: { owner: string; 
           style={{ width: `${total > 0 ? (completed / total) * 100 : 0}%` }}
         />
       </div>
-      {showLanguageTabs && (
-        <LanguageTabs
-          value={targetLanguage}
-          onChange={setTargetLanguage}
-        />
-      )}
 
       {messages}
       <div className="min-h-0 flex-1">
@@ -622,7 +600,6 @@ function PracticeSession({ owner, focusedIds, oneAnswerMode }: { owner: string; 
             pendingExplanationIds.has(current.id) || isExplanationPending(current.id)
           }
           onPhraseAction={sampleMode ? undefined : handlePhraseAction}
-          drillPhraseCount={sampleMode ? undefined : drillPhraseCount}
         />
       </div>
     </div>
@@ -633,6 +610,10 @@ function filterPhrasesByTarget(phrases: Phrase[], targetLanguage: LanguageCode):
   return phrases.filter((phrase) => phrase.targetLanguage === targetLanguage);
 }
 
+function AddPhraseLink() {
+  return <Link href="/" className="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-neutral-950">＋ 追加</Link>;
+}
+
 function LanguageTabs({
   value,
   onChange,
@@ -641,7 +622,7 @@ function LanguageTabs({
   onChange: (value: LanguageCode) => void;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div role="group" aria-label="学習言語" className="inline-flex shrink-0 gap-0.5">
       {ACTIVE_TARGET_LANGUAGE_CODES.map((language) => (
         <button
           key={language}
@@ -649,13 +630,9 @@ function LanguageTabs({
           onClick={() => onChange(language)}
           aria-pressed={value === language}
           title="翻訳・ドリル・保存・会話で共通の学習言語"
-          className={`rounded-xl px-3 py-2 text-sm font-bold transition ${
-            value === language
-              ? "bg-emerald-500 text-neutral-950"
-              : "bg-neutral-900 text-neutral-300 hover:bg-neutral-800"
-          }`}
+          className="min-h-[44px] min-w-[44px] text-sm font-bold"
         >
-          {getLanguageLabel(language)}
+          <span className={`block rounded-lg px-2.5 py-1 ${value === language ? "bg-emerald-500 text-neutral-950" : "bg-neutral-900 text-neutral-300"}`}>{getLanguageLabel(language)}</span>
         </button>
       ))}
     </div>

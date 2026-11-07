@@ -68,7 +68,7 @@ async function assertCounts(page, expected) {
 try {
   for (const [width, language] of [[344,"zh"],[360,"en"],[390,"zh"],[430,"en"],[768,"zh"],[1280,"en"]]) {
     const state = await setup({ width, language, history: ["2026-10-22", "2026-10-23"] });
-    await state.page.getByRole("link", { name: /今週 2日.*2日連続/ }).waitFor();
+    assert.equal(await state.page.getByRole("link", { name: /今週 2日.*2日連続/ }).count(), 0);
     await answer(state.page);
     await state.page.getByRole("heading", { name: "1回練習しました", exact: true }).waitFor();
     await state.page.getByRole("link", { name: /今週 3日.*3日連続.*累計 3日/ }).waitFor();
@@ -119,8 +119,13 @@ try {
   }
   for (const sample of [false,true]) {
     const state = await setup({ empty: sample, prototype: !sample });
-    if (sample) await state.page.getByRole("button", { name: "サンプルで試す" }).click();
-    await answer(state.page, "Good");
+    if (sample) {
+      await state.page.getByRole("button", { name: "サンプルで試す" }).click();
+      await answer(state.page, "Good");
+    } else {
+      await state.page.getByText("中国語のドリル対象がありません", { exact: true }).waitFor();
+      assert.equal(await state.page.getByLabel("今回の進捗").count(), 0);
+    }
     await state.page.goto(`${origin}/learning`, { waitUntil: "networkidle" });
     assert.equal(await state.page.locator("dd").count(), 0);
     await state.context.close();

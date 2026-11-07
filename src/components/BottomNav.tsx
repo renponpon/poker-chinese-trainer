@@ -10,7 +10,7 @@ const items = [
   { href: "/library", label: "保存", icon: LibraryIcon, match: ["/library"], tutorial: "nav-library" },
 ];
 
-export default function BottomNav() {
+export default function BottomNav({ inFlow = false }: { inFlow?: boolean } = {}) {
   const pathname = usePathname();
   const [inputFocused, setInputFocused] = useState(false);
 
@@ -44,7 +44,7 @@ export default function BottomNav() {
 
   return (
     <nav
-      className={`fixed inset-x-0 bottom-0 z-40 bg-neutral-950/95 px-4 py-3 backdrop-blur transition-transform duration-200 ${
+      className={`${inFlow ? "relative shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3" : "fixed inset-x-0 bottom-0 py-3"} z-40 bg-neutral-950/95 px-4 backdrop-blur transition-transform duration-200 ${
         inputFocused ? "pointer-events-none translate-y-full" : "translate-y-0"
       }`}
     >

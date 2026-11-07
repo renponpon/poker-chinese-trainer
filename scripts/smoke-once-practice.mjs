@@ -241,26 +241,26 @@ try {
         window.dispatchEvent(new Event("phrabit-account-phrase-data-synced"));
       }, { phraseKey, srsKey });
       await normal.page.waitForTimeout(200);
-      assert.equal(await normal.page.getByText("0/1 · 0%", { exact: true }).isVisible(), true, "once excludes unrelated due phrases");
+      assert.equal(await normal.page.getByText("0/1", { exact: true }).isVisible(), true, "once excludes unrelated due phrases");
       const query = routeType === "normal" ? "" : `?phrases=${phraseId}${routeType === "multiple" ? ",unrelated-phrase" : ""}`;
       await normal.page.goto(origin + "/drill" + query);
       const count = routeType === "focused" ? 1 : 2;
-      await normal.page.getByText(`0/${count} · 0%`, { exact: true }).waitFor();
+      await normal.page.getByText(`0/${count}`, { exact: true }).waitFor();
       await answer(normal.page, 1);
       await waitUntil(() => normal.events.some((event) => event.eventName === "drill_answer"), "normal Bad persists");
       await normal.page.evaluate(() => window.dispatchEvent(new Event("phrabit-account-phrase-data-synced")));
       await normal.page.waitForTimeout(300);
-      assert.equal(await normal.page.getByText(`0/${count} · 0%`, { exact: true }).isVisible(), true);
+      assert.equal(await normal.page.getByText(`0/${count}`, { exact: true }).isVisible(), true);
       await answer(normal.page, 2);
       if (count === 2) {
-        await normal.page.getByText("1/2 · 50%", { exact: true }).waitFor();
+        await normal.page.getByText("1/2", { exact: true }).waitFor();
         await answer(normal.page, 3);
       }
       await normal.page.getByText(routeType === "normal" ? "今日のドリル完了" : "追加した一言の練習完了", { exact: true }).waitFor();
       assert.equal(await normal.page.getByRole("heading", { name: "1回練習しました" }).count(), 0);
       if (routeType !== "normal") {
         await normal.page.getByRole("link", { name: "通常のドリルへ", exact: true }).click();
-        await normal.page.getByText(routeType === "focused" ? "0/1 · 0%" : "今日のドリル完了", { exact: true }).waitFor();
+        await normal.page.getByText(routeType === "focused" ? "0/1" : "今日のドリル完了", { exact: true }).waitFor();
       }
       assert.deepEqual(normal.errors, []);
       results.push(`${routeType}: Bad requeue + background sync + full completion retained; once ignores unrelated due items`);
@@ -284,7 +284,7 @@ try {
     await link.click();
     await answer(conversation.page, 1);
     await waitUntil(() => conversation.events.some((event) => event.eventName === "drill_answer"), "conversation Bad persists");
-    assert.equal(await conversation.page.getByText("0/1 · 0%", { exact: true }).isVisible(), true);
+    assert.equal(await conversation.page.getByText("0/1", { exact: true }).isVisible(), true);
     assert.deepEqual(conversation.errors, []);
     results.push("conversation: local success before slow/failed sync counted once; existing practice mode unchanged");
   } finally { conversation.gate.resolve(); await conversation.context.close(); }
