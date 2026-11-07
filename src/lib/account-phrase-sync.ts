@@ -19,14 +19,18 @@ import { createAccountStarterIdMap } from "./account-starter-ids";
 export const ACCOUNT_PHRASE_DATA_SYNCED_EVENT = "phrabit-account-phrase-data-synced";
 export const ACCOUNT_SYNC_STATUS_EVENT = "phrabit-account-sync-status";
 let syncStatus = "";
+let syncStatusTransient = false;
 let sessionEpoch = 0;
 let requestedUser: string | null = null;
 let activeSync: { userId: string; promise: Promise<void>; again: boolean } | null = null;
 
 export function getAccountSyncStatus(): string { return syncStatus; }
 
-function setSyncStatus(message: string): void {
+export function getAccountSyncNotice(): string { return syncStatusTransient ? "" : syncStatus; }
+
+function setSyncStatus(message: string, transient = false): void {
   syncStatus = message;
+  syncStatusTransient = transient;
   window.dispatchEvent(new Event(ACCOUNT_SYNC_STATUS_EVENT));
 }
 
@@ -145,7 +149,7 @@ export async function syncSavedPhrases(phrases: Phrase[]): Promise<boolean> {
 
 async function performAccountSync(session: Session, epoch: number): Promise<void> {
   const userId = session.user.id;
-  setSyncStatus("端末に保存済み・同期中...");
+  setSyncStatus("端末に保存済み・同期中...", true);
   recoverLearningReceipts();
   checkpointLocalData();
   let baseline = readAccountCheckpoint(userId)?.baseline;
@@ -211,9 +215,13 @@ async function performAccountSync(session: Session, epoch: number): Promise<void
     throw writeError;
   }
   if (pending.mutations.length && activeSync?.userId === userId) activeSync.again = true;
-  setSyncStatus(conflictIds.size
-    ? "別端末で削除されたフレーズに未同期の変更があります。端末に保持しています。不要なら保存画面で削除してください。"
-    : pending.mutations.length ? "端末に保存済み・変更を同期中..." : "同期済み");
+  if (conflictIds.size) {
+    setSyncStatus("別端末で削除されたフレーズに未同期の変更があります。端末に保持しています。不要なら保存画面で削除してください。");
+  } else if (pending.mutations.length) {
+    setSyncStatus("端末に保存済み・変更を同期中...", true);
+  } else {
+    setSyncStatus("同期済み");
+  }
   emitAccountPhraseDataSynced();
 }
 

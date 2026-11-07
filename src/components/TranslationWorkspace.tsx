@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { saveGeneratedTranslation } from "@/application/phrase/save-generated-translation";
 import AddTutorial from "@/components/AddTutorial";
-import AppHeader from "@/components/AppHeader";
 import BottomNav from "@/components/BottomNav";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { formatExplanationForReading } from "@/lib/explanation-format";
@@ -807,13 +806,11 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
 
   return (
     <main
-      className={`min-h-screen px-5 pt-8 transition-[padding] duration-200 ${
+      className={`min-h-0 flex-1 overflow-y-auto px-5 pt-1 transition-[padding-bottom] duration-200 ${
         inputFocused ? "pb-4" : "pb-28"
       }`}
     >
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
-        <AppHeader hideSyncedStatus />
-
         <nav aria-label="入力方法" className="flex gap-2 text-sm">
           <Link href="/add" aria-current={!experienceMode ? "page" : undefined} className={`rounded-full px-4 py-2 ${!experienceMode ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-900"}`}>そのまま翻訳</Link>
           <Link href="/add/experience" aria-current={experienceMode ? "page" : undefined} className={`rounded-full px-4 py-2 ${experienceMode ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-900"}`}>出来事から</Link>

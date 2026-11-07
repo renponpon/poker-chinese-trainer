@@ -87,6 +87,15 @@ globalThis.fetch = async (url, options = {}) => {
 
 const sync = loadSource(resolve(root, "lib/account-phrase-sync"));
 const AccountSyncNotice = loadSource(resolve(root, "components/AccountSyncNotice.tsx")).default;
+const transientNotices = [];
+const transientStates = new Set();
+window.addEventListener(sync.ACCOUNT_SYNC_STATUS_EVENT, () => {
+  if (sync.getAccountSyncStatus().includes("同期中")) {
+    transientStates.add(sync.getAccountSyncStatus());
+    transientNotices.push(AccountSyncNotice({}));
+    transientNotices.push(AccountSyncNotice({ hideSyncedStatus: true }));
+  }
+});
 assert.equal(AccountSyncNotice({ hideSyncedStatus: true }), null);
 const local = loadSource(resolve(root, "infrastructure/local/phrase-storage"));
 const srs = loadSource(resolve(root, "infrastructure/local/srs-storage"));
@@ -177,6 +186,9 @@ await sync.synchronizeAccountPhraseData(session);
 assert.equal(local.loadLocalPhrases()[0].explanation, "keep local conflict");
 assert.equal(calls.filter((call) => call.method === "PATCH").length, writesBefore);
 assert.match(sync.getAccountSyncStatus(), /別端末で削除/);
+assert.match(AccountSyncNotice({ hideSyncedStatus: true }).props.children, /別端末で削除/);
+assert.ok(transientNotices.length > 0 && transientNotices.every(notice => notice === null), "正常な同期中は表示行を作らない");
+assert.deepEqual(transientStates, new Set(["端末に保存済み・同期中...", "端末に保存済み・変更を同期中..."]));
 local.deleteLocalPhraseAndSrs(phrase.id);
 await sync.synchronizeAccountPhraseData(session);
 assert.equal(local.loadLocalPhrases().length, 0);

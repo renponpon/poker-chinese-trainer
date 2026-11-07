@@ -105,12 +105,12 @@ export default function AuthButton() {
   };
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="relative min-w-0">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         data-tutorial="login"
-        className="rounded-full bg-neutral-900 px-4 py-2 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
+        className="block max-w-full truncate rounded-full bg-neutral-900 px-4 py-2 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
       >
         {user ? user.email?.split("@")[0] : "ログイン"}
       </button>

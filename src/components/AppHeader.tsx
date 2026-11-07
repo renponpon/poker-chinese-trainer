@@ -5,8 +5,8 @@ import AccountSyncNotice from "./AccountSyncNotice";
 export default function AppHeader({ hideSyncedStatus = false }: { hideSyncedStatus?: boolean }) {
   return (
     <div className="flex flex-col gap-1">
-      <header className="flex items-center justify-between">
-        <div className="flex items-baseline gap-2">
+      <header className="flex min-h-11 items-center justify-between gap-2">
+        <div className="flex shrink-0 items-baseline gap-2 whitespace-nowrap">
           <span className="text-xl font-extrabold tracking-tight text-neutral-100">
             Phrabit
           </span>
@@ -14,7 +14,7 @@ export default function AppHeader({ hideSyncedStatus = false }: { hideSyncedStat
             フレービット
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center justify-end gap-2">
           <AuthButton />
           <HomeMenu />
         </div>

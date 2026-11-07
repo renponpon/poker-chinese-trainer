@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import DeviceSafetyGate from "@/components/DeviceSafetyGate";
+import MainTabFrame from "@/components/MainTabFrame";
 import "./globals.css";
 
 const description =
@@ -62,7 +63,7 @@ export default function RootLayout({
   return (
     <html lang="ja">
       <body className="antialiased">
-        <DeviceSafetyGate>{children}</DeviceSafetyGate>
+        <DeviceSafetyGate><MainTabFrame>{children}</MainTabFrame></DeviceSafetyGate>
       </body>
     </html>
   );
