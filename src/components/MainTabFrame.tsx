@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import AppHeader from "./AppHeader";
 
-const mainTabPaths = new Set(["/", "/add", "/add/experience", "/drill", "/library"]);
+const mainTabPaths = new Set(["/", "/add", "/drill", "/library"]);
 
 export default function MainTabFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();

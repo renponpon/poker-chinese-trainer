@@ -51,7 +51,6 @@ import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
 import { recordProductAnalyticsEvent } from "@/lib/product-analytics";
 import { createTimedRequest, fetchJsonWithDeadline } from "@/lib/timed-request";
 import { toStudyPhraseFields } from "@/lib/study-phrase";
-import { EXPERIENCE_CONTEXT_HINT, EXPERIENCE_INPUT_MAX_CHARS, EXPERIENCE_MOCK_EXAMPLES, readExperiencePhraseResponse, type TranslationInputKind } from "@/lib/experience-phrase";
 import {
   TRANSLATION_WARMUP_DELAY_MS,
   triggerTranslationWarmup,
@@ -109,22 +108,15 @@ declare global {
   }
 }
 
-export default function TranslationWorkspace({ inputKind = "translation", mockMode = false, experienceEnabled = false }: { inputKind?: TranslationInputKind; mockMode?: boolean; experienceEnabled?: boolean }) {
+export default function TranslationWorkspace() {
   const owner = useDataOwner();
-  const { targetLanguage, languageReady } = useLearningLanguage();
-  if (inputKind === "experience" && !languageReady) return <main className="p-8 text-neutral-400">準備中...</main>;
-  return <TranslationPage key={owner + ":" + inputKind + (inputKind === "experience" ? ":" + targetLanguage : "")} owner={owner} inputKind={inputKind} mockMode={mockMode} experienceEnabled={experienceEnabled} draftLanguage={targetLanguage} />;
+  return <TranslationPage key={owner} owner={owner} />;
 }
 
-function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftLanguage }: { owner: string; inputKind: TranslationInputKind; mockMode: boolean; experienceEnabled: boolean; draftLanguage: LanguageCode }) {
-  const experienceMode = inputKind === "experience";
-  const [restored] = useState(() => {
-    const draft = loadTranslationDraft(owner, inputKind);
-    return experienceMode && draft?.result && draft.result.targetLanguage !== draftLanguage
-      ? { ...draft, result: null, requestId: null, drillAdded: false, nuanceText: "" } : draft;
-  });
+function TranslationPage({ owner }: { owner: string }) {
+  const [restored] = useState(() => loadTranslationDraft(owner));
   const { targetLanguage, setTargetLanguage, languageReady } = useLearningLanguage();
-  const [reverseTranslation, setReverseTranslation] = useState(experienceMode ? false : restored?.reverseTranslation ?? false);
+  const [reverseTranslation, setReverseTranslation] = useState(restored?.reverseTranslation ?? false);
   const direction = useMemo(
     () => reverseTranslation
       ? buildDirection(targetLanguage, "ja")
@@ -133,9 +125,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
   );
   const [inputText, setInputText] = useState(restored?.inputText ?? "");
   const [categoryId] = useState<string>("other");
-  const [generationMode, setGenerationMode] = useState<GenerationMode>(() => experienceMode ? "quality" : parseGenerationMode(restored?.generationMode));
-  const [contextHint, setContextHint] = useState<string | null>(null);
-  const [resultExperienceText, setResultExperienceText] = useState(restored?.resultExperienceText ?? "");
+  const [generationMode, setGenerationMode] = useState<GenerationMode>(() => parseGenerationMode(restored?.generationMode));
   const [loading, setLoading] = useState(false);
   const [nuanceText, setNuanceText] = useState(restored?.nuanceText ?? "");
   const [nuanceDialogOpen, setNuanceDialogOpen] = useState(false);
@@ -165,14 +155,9 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
     pendingRequestRef.current = null;
   }, []);
   const nuanceDialogRef = useRef<HTMLDialogElement | null>(null);
-  const resultCardRef = useRef<HTMLDivElement | null>(null);
   const explanationPromiseRef = useRef<Promise<Result> | null>(getDraftExplanation(restored?.result?.id ?? null));
   const inputStartRecordedRef = useRef(false);
   const highAccuracySpeech = useHighAccuracySpeech();
-
-  useEffect(() => {
-    if (experienceMode && result?.id) resultCardRef.current?.scrollIntoView({ block: "start" });
-  }, [experienceMode, result?.id]);
 
   useEffect(() => {
     const dialog = nuanceDialogRef.current;
@@ -191,13 +176,12 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
     saveTranslationDraft(owner, {
       inputText, reverseTranslation, generationMode, result, nuanceText, drillAdded,
       requestId: activePhraseIdRef.current,
-      resultExperienceText,
-    }, inputKind);
-  }, [owner, inputKind, inputText, reverseTranslation, generationMode, result, nuanceText, drillAdded, resultExperienceText]);
+    });
+  }, [owner, inputText, reverseTranslation, generationMode, result, nuanceText, drillAdded]);
 
   useEffect(() => {
     const refresh = () => {
-      const draft = loadTranslationDraft(owner, inputKind);
+      const draft = loadTranslationDraft(owner);
       if (draft?.result?.id === activePhraseIdRef.current) {
         setResult(draft.result);
         setExplanationLoading(false);
@@ -213,7 +197,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
       window.removeEventListener(TRANSLATION_DRAFT_CHANGED_EVENT, refresh);
       window.removeEventListener("phrabit-account-phrase-data-synced", refreshSaved);
     };
-  }, [owner, inputKind]);
+  }, [owner]);
 
   useEffect(() => {
     return () => {
@@ -225,22 +209,17 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
   }, []);
 
   useEffect(() => {
-    if (!languageReady || experienceMode) return;
+    if (!languageReady) return;
     const timer = window.setTimeout(
       () => triggerTranslationWarmup(targetLanguage),
       TRANSLATION_WARMUP_DELAY_MS,
     );
     return () => window.clearTimeout(timer);
-  }, [targetLanguage, languageReady, experienceMode]);
+  }, [targetLanguage, languageReady]);
 
   const handleGenerate = async () => {
     const trimmed = inputText.trim();
     if (!languageReady || !trimmed || loading || refining || addingToDrill || pendingRequestRef.current) return;
-    if (experienceMode && trimmed.length > EXPERIENCE_INPUT_MAX_CHARS) {
-      setError(`出来事は${EXPERIENCE_INPUT_MAX_CHARS}文字以内で入力してください。`);
-      return;
-    }
-    const previousPhraseId = activePhraseIdRef.current;
     const request = createTimedRequest();
     pendingRequestRef.current = request;
     recordProductAnalyticsEvent({
@@ -253,16 +232,15 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
     });
     setLoading(true);
     setError(null);
-    setContextHint(null);
     setNuanceText("");
     setNuanceDialogOpen(false);
     setRefinementError(null);
     setDrillAddError(null);
-    if (!experienceMode) setDrillAdded(false);
+    setDrillAdded(false);
     setExplanationError(null);
     setExplanationLoading(false);
     explanationPromiseRef.current = null;
-    if (!experienceMode) setResult(null);
+    setResult(null);
     try {
       primeSpeech();
       const phraseId = createId();
@@ -270,11 +248,11 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
       const { data, authHeaders } = await request.run(async (signal) => {
         const authHeaders = await getAuthHeaders();
         signal.throwIfAborted();
-        const res = await fetch(experienceMode ? "/api/phrase/from-experience" : "/api/phrase/add", {
+        const res = await fetch("/api/phrase/add", {
           method: "POST",
           signal,
           headers: { "Content-Type": "application/json", ...authHeaders },
-          body: JSON.stringify(experienceMode ? { experienceText: trimmed, targetLanguage, nuance: "", previousPhrase: null } : {
+          body: JSON.stringify({
             direction,
             text: trimmed,
             ownerKey,
@@ -291,18 +269,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
         return { data, authHeaders };
       });
       if (pendingRequestRef.current !== request) return;
-      let nextResult: Result;
-      if (experienceMode) {
-        const response = readExperiencePhraseResponse(data, targetLanguage);
-        if (response.status === "insufficient_context") {
-          activePhraseIdRef.current = previousPhraseId;
-          setContextHint(EXPERIENCE_CONTEXT_HINT);
-          return;
-        }
-        nextResult = { ...response.phrase, id: phraseId, provider: response.mock ? "experience-mock" : "gemini" };
-        setResultExperienceText(trimmed);
-        setDrillAdded(false);
-      } else nextResult = { ...(data as Result), id: phraseId };
+      const nextResult = { ...(data as Result), id: phraseId };
       recordProductAnalyticsEvent({
         eventName: "translation_success",
         sourcePage: "add",
@@ -314,7 +281,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
       });
       setResult(nextResult);
       setLoading(false);
-      if (!experienceMode && !nextResult.explanation?.trim()) {
+      if (!nextResult.explanation?.trim()) {
         setExplanationError(null);
         const explanationPromise = generateExplanation(nextResult, authHeaders);
         explanationPromiseRef.current = explanationPromise;
@@ -329,7 +296,6 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
       }
     } catch (err) {
       if (pendingRequestRef.current !== request) return;
-      if (experienceMode) activePhraseIdRef.current = previousPhraseId;
       recordProductAnalyticsEvent({
         eventName: "translation_failure",
         sourcePage: "add",
@@ -423,16 +389,11 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
       const data = await request.run(async (signal) => {
         const authHeaders = await getAuthHeaders();
         signal.throwIfAborted();
-        const res = await fetch(experienceMode ? "/api/phrase/from-experience" : "/api/phrase/add", {
+        const res = await fetch("/api/phrase/add", {
           method: "POST",
           signal,
           headers: { "Content-Type": "application/json", ...authHeaders },
-          body: JSON.stringify(experienceMode ? {
-            experienceText: resultExperienceText,
-            targetLanguage: result.targetLanguage,
-            nuance,
-            previousPhrase: { sourceText: result.sourceText, targetText: result.targetText },
-          } : {
+          body: JSON.stringify({
             direction: result.direction,
             text: result.sourceText,
             nuance,
@@ -452,12 +413,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
       });
       if (pendingRequestRef.current !== request) return;
       if (activePhraseIdRef.current !== phraseId) return;
-      let refinedResult: Result;
-      if (experienceMode) {
-        const response = readExperiencePhraseResponse(data, targetLanguage);
-        if (response.status !== "ready") throw new Error(EXPERIENCE_CONTEXT_HINT);
-        refinedResult = { ...response.phrase, id: phraseId, provider: response.mock ? "experience-mock" : "gemini" };
-      } else refinedResult = { ...(data as Result), id: phraseId };
+      const refinedResult = { ...(data as Result), id: phraseId };
       setResult(refinedResult);
       setNuanceText("");
       setNuanceDialogOpen(false);
@@ -499,10 +455,6 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
   const handleAddToDrill = async () => {
     if (!result || loading || refining || addingToDrill || drillAdded || savingRef.current) return;
     if (currentDataOwner() !== owner) return;
-    if (result.provider === "experience-mock" && owner !== "guest") {
-      setDrillAddError("サンプルの保存は、未ログインの検証用ブラウザでお試しください。");
-      return;
-    }
     savingRef.current = true;
     setAddingToDrill(true);
     setDrillAddError(null);
@@ -521,7 +473,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
         },
         historyItemId: createId(),
         historySource: "add",
-        savedPhraseSource: approvedResult.provider === "experience-mock" ? "prototype" : "manual",
+        savedPhraseSource: "manual",
         categoryId,
         savedAt: new Date().toISOString(),
         addToDrill: true,
@@ -548,12 +500,9 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
       setDrillAdded(true);
       setAddingToDrill(false);
       if (!approvedResult.explanation.trim()) {
-        const task = approvedResult.provider === "experience-mock"
-          ? Promise.resolve({ ...approvedResult, explanation: "動作確認用の解説です。実際のAI解説は生成していません。\nこの一言を、次に同じ場面で言う練習ができます。" })
-          : explanationPromiseRef.current;
-        void completeSavedExplanation(saved.storedPhrase, task ?? undefined, approvedResult.provider === "experience-mock" ? { sync: false } : undefined);
+        void completeSavedExplanation(saved.storedPhrase, explanationPromiseRef.current ?? undefined);
       }
-      if (approvedResult.provider !== "experience-mock") await syncSavedPhrases([saved.storedPhrase]);
+      await syncSavedPhrases([saved.storedPhrase]);
     } catch (err) {
       setDrillAddError(
         savedLocally
@@ -578,14 +527,6 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
   };
 
   const handleNext = () => {
-    if (experienceMode) {
-      pendingRequestRef.current?.cancel();
-      pendingRequestRef.current = null;
-      setLoading(false);
-      setRefining(false);
-      setResultExperienceText("");
-      setContextHint(null);
-    }
     setInputText("");
     inputStartRecordedRef.current = false;
     setResult(null);
@@ -612,7 +553,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
   };
 
   const handleHighAccuracyVoiceInput = () => {
-    if (!experienceMode) triggerTranslationWarmup(targetLanguage);
+    triggerTranslationWarmup(targetLanguage);
     setSpeechError(null);
     setNeedsMicrophonePermission(false);
     if (listening) {
@@ -628,14 +569,6 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
   };
 
   const handleInputTextChange = (value: string) => {
-    if (experienceMode) {
-      pendingRequestRef.current?.cancel();
-      pendingRequestRef.current = null;
-      activePhraseIdRef.current = result?.id ?? null;
-      setLoading(false);
-      setRefining(false);
-      setContextHint(null);
-    }
     setInputText(value);
     if (!inputStartRecordedRef.current && value.trim()) {
       inputStartRecordedRef.current = true;
@@ -651,7 +584,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
   };
 
   const handleVoiceInput = () => {
-    if (!experienceMode) triggerTranslationWarmup(targetLanguage);
+    triggerTranslationWarmup(targetLanguage);
     setSpeechError(null);
     setNeedsMicrophonePermission(false);
 
@@ -811,31 +744,14 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
       }`}
     >
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
-        <nav aria-label="入力方法" className="flex gap-2 text-sm">
-          <Link href="/add" aria-current={!experienceMode ? "page" : undefined} className={`rounded-full px-4 py-2 ${!experienceMode ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-900"}`}>そのまま翻訳</Link>
-          <Link href="/add/experience" aria-current={experienceMode ? "page" : undefined} className={`rounded-full px-4 py-2 ${experienceMode ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-900"}`}>出来事から</Link>
-        </nav>
-
-        {experienceMode && mockMode && (
-          <aside className="rounded-2xl border border-amber-700/50 bg-amber-950/20 p-4 text-sm text-amber-100">
-            <p className="font-bold">画面確認用のサンプル応答</p>
-            <p className="mt-1 text-xs leading-relaxed">下の例で操作を試せます。追加するとサンプルの一言を保存します。自由な出来事のAI生成はまだ接続していません。</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {EXPERIENCE_MOCK_EXAMPLES.map((example) => <button key={example.label} type="button" onClick={() => handleInputTextChange(example.text)} className="min-h-10 rounded-full bg-neutral-900 px-3 text-xs text-amber-100">{example.label}</button>)}
-            </div>
-          </aside>
-        )}
-        {experienceMode && !experienceEnabled && <p role="status" className="text-sm text-neutral-400">出来事から一言を作る機能は準備中です。</p>}
-
         <section
           data-tutorial="input-card"
           className="overflow-hidden rounded-[28px] bg-neutral-900/70"
         >
           <div
             data-tutorial="language-switch"
-            className={`${experienceMode ? "flex justify-between gap-3" : "grid grid-cols-[1fr_auto_1fr]"} items-center bg-neutral-950/70 px-4 py-3 text-base font-bold`}
+            className="grid grid-cols-[1fr_auto_1fr] items-center bg-neutral-950/70 px-4 py-3 text-base font-bold"
           >
-            {experienceMode ? <span className="text-sm text-neutral-400">日本語の出来事 →</span> : <>
             <button
               type="button"
               onClick={() => {
@@ -857,7 +773,6 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
             >
               ⇄
             </button>
-            </>}
             <TargetLanguageSelect
               value={targetLanguage}
               onChange={setTargetLanguage}
@@ -868,7 +783,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
 
           <div className="px-5 pt-5">
             <div className="mb-3 flex items-center justify-between text-base font-bold text-neutral-300">
-              <label htmlFor="translation-input">{experienceMode ? "何がありましたか？" : getLanguageLabel(parseDirection(direction).sourceLanguage)}</label>
+              <label htmlFor="translation-input">{getLanguageLabel(parseDirection(direction).sourceLanguage)}</label>
               <button
                 type="button"
                 onClick={() => {
@@ -880,30 +795,26 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
                 消去
               </button>
             </div>
-            {experienceMode && <p id="experience-input-help" className="mb-3 text-sm leading-relaxed text-neutral-400">うまく言えなかった場面を、そのまま話してください。</p>}
             <textarea
               id="translation-input"
-              aria-describedby={experienceMode ? "experience-input-help experience-input-note" : undefined}
-              aria-invalid={experienceMode && inputText.trim().length > EXPERIENCE_INPUT_MAX_CHARS}
               value={inputText}
               onChange={(e) => handleInputTextChange(e.target.value)}
               onFocus={() => {
                 setInputFocused(true);
-                if (!experienceMode) triggerTranslationWarmup(targetLanguage);
+                triggerTranslationWarmup(targetLanguage);
               }}
               onBlur={() => setInputFocused(false)}
               placeholder={
-                experienceMode ? "例：服を買ったけどサイズが合わなくて、別のサイズに交換したかった。" : parseDirection(direction).sourceLanguage === "ja"
+                parseDirection(direction).sourceLanguage === "ja"
                   ? "日本語を入力"
                   : `${getLanguageLabel(targetLanguage)}を入力`
               }
               rows={3}
               className="w-full resize-none bg-transparent text-2xl leading-relaxed text-neutral-100 placeholder:text-neutral-600 focus:outline-none"
             />
-            {experienceMode && <p id="experience-input-note" className={`mt-2 text-xs ${inputText.trim().length > EXPERIENCE_INPUT_MAX_CHARS ? "text-red-300" : "text-neutral-500"}`}>{inputText.trim().length}/{EXPERIENCE_INPUT_MAX_CHARS}文字 · 入力はこのタブの中だけで一時保持します</p>}
           </div>
-          <div className={`mt-3 grid ${experienceMode ? "grid-cols-2" : "grid-cols-3"} bg-neutral-950/30 text-emerald-300`}>
-            {!experienceMode && <Link
+          <div className="mt-3 grid grid-cols-3 bg-neutral-950/30 text-emerald-300">
+            <Link
               href="/conversation"
               data-tutorial="conversation"
               aria-label="会話モードを開く"
@@ -911,21 +822,21 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
             >
               <ConversationIcon />
               <span className="text-xs font-bold">会話</span>
-            </Link>}
+            </Link>
             <button
               type="button"
               onClick={handleGenerate}
-              disabled={loading || refining || addingToDrill || !inputText.trim() || (experienceMode && (!experienceEnabled || inputText.trim().length > EXPERIENCE_INPUT_MAX_CHARS))}
-              aria-label={experienceMode ? "一言を作る" : "送信"}
+              disabled={loading || refining || addingToDrill || !inputText.trim()}
+              aria-label="送信"
               className="flex min-h-20 flex-col items-center justify-center gap-1 text-emerald-300 transition hover:bg-neutral-950/50 active:bg-neutral-950/70 disabled:cursor-not-allowed disabled:text-neutral-600"
             >
               <SendIcon />
               <span className="text-xs font-bold">
                 {loading
-                  ? experienceMode ? "一言を作成中" : generationMode === "quality"
+                  ? generationMode === "quality"
                     ? "品質モード生成中"
                     : "送信中"
-                  : experienceMode ? "一言を作る" : "送信"}
+                  : "送信"}
               </span>
             </button>
             <button
@@ -978,7 +889,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
           )}
         </section>
 
-        {!experienceMode && <div className="-mt-1 mb-0">
+        <div className="-mt-1 mb-0">
           <div className="flex flex-col gap-2 rounded-2xl bg-neutral-950/50 px-3 py-2">
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm text-neutral-400">翻訳モード</span>
@@ -991,9 +902,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
               </span>
             </div>
           </div>
-        </div>}
-
-        {contextHint && <p role="status" className="rounded-xl bg-amber-950/30 p-4 text-sm text-amber-100">{contextHint}</p>}
+        </div>
 
         {error && (
           <div className="rounded-xl bg-red-900/20 px-4 py-3 text-sm text-red-200">
@@ -1002,19 +911,14 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
         )}
 
         {result && (
-          <div ref={resultCardRef} className="-mt-2 flex scroll-mt-5 flex-col gap-3 rounded-[28px] bg-neutral-900/70 p-4">
-            {experienceMode && <div>
-              <h2 className="text-xs font-bold text-neutral-500">次に言う一言（日本語）</h2>
-              <p className="mt-1 break-words text-lg leading-relaxed text-neutral-200">{result.sourceText}</p>
-              {inputText.trim() !== resultExperienceText && <p className="mt-2 text-xs text-amber-200">表示中の候補は、前の入力から作った一言です。</p>}
-            </div>}
+          <div className="-mt-2 flex scroll-mt-5 flex-col gap-3 rounded-[28px] bg-neutral-900/70 p-4">
             <div className="flex items-center justify-end gap-2">
               <div className="flex shrink-0 items-center gap-2">
                 {!drillAdded && (
                   <button
                     type="button"
                     onClick={() => setNuanceDialogOpen(true)}
-                    disabled={loading || addingToDrill || (experienceMode && refining)}
+                    disabled={loading || addingToDrill}
                     aria-haspopup="dialog"
                     aria-controls="translation-nuance-dialog"
                     className="min-h-11 rounded-full bg-neutral-950/80 px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-800 disabled:opacity-50"
@@ -1031,7 +935,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
                         options,
                       )
                     }
-                    prefetch={experienceMode ? undefined : () =>
+                    prefetch={() =>
                       prefetchSpeechForLang(
                         result.targetText,
                         LANGUAGE_CONFIGS[result.targetLanguage].speechSynthesisCode,
@@ -1083,7 +987,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
                 disabled={loading || addingToDrill || refining}
                 className="flex-1 rounded-xl bg-neutral-950/80 px-4 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-600"
               >
-                {experienceMode ? "別の出来事" : "別のフレーズ"}
+                別のフレーズ
               </button>
               {drillAdded ? (
                 <Link
@@ -1191,7 +1095,7 @@ function TranslationPage({ owner, inputKind, mockMode, experienceEnabled, draftL
         </button>
       )}
       <BottomNav />
-      {!experienceMode && <AddTutorial />}
+      <AddTutorial />
     </main>
   );
 }

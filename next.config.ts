@@ -17,6 +17,7 @@ const nextConfig: NextConfig = {
         destination: "https://phrabit.com/:path*",
         permanent: true,
       },
+      { source: "/add/experience", destination: "/", permanent: true },
     ];
   },
 };

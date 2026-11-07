@@ -4,7 +4,6 @@ import { useSyncExternalStore } from "react";
 import { currentDataOwner, LOCAL_PHRASE_DATA_CHANGED_EVENT } from "@/infrastructure/local/account-cache-storage";
 import type { GeneratedPhrase } from "./types";
 import type { GenerationMode } from "./generation-mode";
-import type { TranslationInputKind } from "./experience-phrase";
 
 export type TranslationDraftResult = GeneratedPhrase & { id: string | null; provider?: string };
 export type TranslationDraft = {
@@ -15,9 +14,8 @@ export type TranslationDraft = {
   nuanceText: string;
   drillAdded: boolean;
   requestId: string | null;
-  resultExperienceText?: string;
 };
-const drafts = new Map<string, Partial<Record<TranslationInputKind, TranslationDraft>>>();
+const drafts = new Map<string, TranslationDraft>();
 const explanations = new Map<string, Promise<TranslationDraftResult>>();
 export const TRANSLATION_DRAFT_CHANGED_EVENT = "phrabit-translation-draft-changed";
 
@@ -30,21 +28,19 @@ export function trackDraftExplanation(id: string, task: Promise<TranslationDraft
   void task.finally(() => { if (explanations.get(id) === task) explanations.delete(id); });
 }
 
-export function loadTranslationDraft(owner: string, inputKind: TranslationInputKind = "translation"): TranslationDraft | undefined {
-  return drafts.get(owner)?.[inputKind];
+export function loadTranslationDraft(owner: string): TranslationDraft | undefined {
+  return drafts.get(owner);
 }
 
-export function saveTranslationDraft(owner: string, draft: TranslationDraft, inputKind: TranslationInputKind = "translation"): void {
-  drafts.set(owner, { ...drafts.get(owner), [inputKind]: draft });
+export function saveTranslationDraft(owner: string, draft: TranslationDraft): void {
+  drafts.set(owner, draft);
 }
 
 export function updateDraftResult(owner: string, result: TranslationDraftResult): void {
-  for (const inputKind of ["translation", "experience"] as const) {
-    const draft = loadTranslationDraft(owner, inputKind);
-    if (draft?.requestId === result.id) {
-      saveTranslationDraft(owner, { ...draft, result }, inputKind);
-      window.dispatchEvent(new Event(TRANSLATION_DRAFT_CHANGED_EVENT));
-    }
+  const draft = loadTranslationDraft(owner);
+  if (draft?.requestId === result.id) {
+    saveTranslationDraft(owner, { ...draft, result });
+    window.dispatchEvent(new Event(TRANSLATION_DRAFT_CHANGED_EVENT));
   }
 }
 

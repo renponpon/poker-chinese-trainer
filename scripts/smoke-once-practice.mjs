@@ -12,7 +12,7 @@ const srsKey = "poker-chinese-srs-v1";
 const results = [];
 const browser = await chromium.launch({ headless: true, executablePath: [chromium.executablePath(), "C:/Program Files/Google/Chrome/Application/chrome.exe", "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"].find(existsSync) });
 
-async function setup(language, width, experience = false, conversation = false) {
+async function setup(language, width, conversation = false) {
   const context = await browser.newContext({ viewport: { width, height: 850 }, serviceWorkers: "block" });
   const events = [];
   const errors = [];
@@ -56,10 +56,6 @@ async function setup(language, width, experience = false, conversation = false) 
       controls.generationCalls += 1;
       return route.fulfill({ json: { ...phrase, id: payload.phraseId, provider: "gemini" } });
     }
-    if (url.pathname === "/api/phrase/from-experience") {
-      controls.generationCalls += 1;
-      return route.fulfill({ json: { status: "ready", phrase, mock: false } });
-    }
     if (url.pathname === "/api/phrase/save-pack") {
       controls.syncCalls += 1;
       if (controls.delaySync) await gate.promise;
@@ -71,14 +67,9 @@ async function setup(language, width, experience = false, conversation = false) 
   });
   const page = await context.newPage();
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(origin + (conversation ? "/conversation" : experience ? "/add/experience" : "/"), { waitUntil: "networkidle", timeout: 120000 });
-  if (experience) {
-    await page.getByRole("textbox", { name: "何がありましたか？", exact: true }).fill("ホテルで部屋の清掃をお願いしたかった");
-    await page.getByRole("button", { name: "一言を作る", exact: true }).click();
-  } else {
-    await page.getByPlaceholder("日本語を入力", { exact: true }).fill(sourceText);
-    await page.getByRole("button", { name: "送信", exact: true }).click();
-  }
+  await page.goto(origin + (conversation ? "/conversation" : "/"), { waitUntil: "networkidle", timeout: 120000 });
+  await page.getByPlaceholder("日本語を入力", { exact: true }).fill(sourceText);
+  await page.getByRole("button", { name: "送信", exact: true }).click();
   await page.getByRole("button", { name: "ドリルに追加", exact: true }).waitFor();
   return { context, page, events, errors, controls, gate };
 }
@@ -117,7 +108,7 @@ async function readSrs(page) {
 try {
   for (const [language, widths] of [["zh", [344, 390, 768]], ["en", [360, 430, 1280]]]) {
     for (const score of [1, 2, 3]) {
-      const state = await setup(language, widths[score - 1], score === 3);
+      const state = await setup(language, widths[score - 1]);
       try {
         await saveAndEnter(state);
         await answer(state.page, score, score === 2);
@@ -256,18 +247,18 @@ try {
         await normal.page.getByText("1/2", { exact: true }).waitFor();
         await answer(normal.page, 3);
       }
-      await normal.page.getByText(routeType === "normal" ? "今日のドリル完了" : "追加した一言の練習完了", { exact: true }).waitFor();
+      await normal.page.getByText(routeType === "normal" ? `今回の${count}問が完了しました` : "追加した一言の練習完了", { exact: true }).waitFor();
       assert.equal(await normal.page.getByRole("heading", { name: "1回練習しました" }).count(), 0);
       if (routeType !== "normal") {
         await normal.page.getByRole("link", { name: "通常のドリルへ", exact: true }).click();
-        await normal.page.getByText(routeType === "focused" ? "0/1" : "今日のドリル完了", { exact: true }).waitFor();
+        await normal.page.getByText(routeType === "focused" ? "0/1" : "今回の対象カードはありません", { exact: true }).waitFor();
       }
       assert.deepEqual(normal.errors, []);
       results.push(`${routeType}: Bad requeue + background sync + full completion retained; once ignores unrelated due items`);
     } finally { await normal.context.close(); }
   }
 
-  const conversation = await setup("en", 430, false, true);
+  const conversation = await setup("en", 430, true);
   try {
     conversation.controls.delaySync = true;
     conversation.controls.failSync = true;
