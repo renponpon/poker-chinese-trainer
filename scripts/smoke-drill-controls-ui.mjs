@@ -204,7 +204,7 @@ try {
       await page.getByRole("button", { name: "メニュー", exact: true }).click();
       await page.getByRole("heading", { name: "1回あたりのドリル出題数", exact: true }).waitFor();
       await page.getByRole("button", { name: "10問", exact: true }).click();
-      await page.getByText("設定：10問。変更は次の回から反映します。", { exact: true }).waitFor();
+      await page.getByText("設定：10問", { exact: true }).waitFor();
       await page.screenshot({ path: resolve(output, `round-settings-${language}-${width}.png`), fullPage: true });
       await page.keyboard.press("Escape");
       assert.equal(await page.getByRole("dialog").count(), 0);
@@ -312,7 +312,7 @@ try {
         await input.fill(valid);
         await input.press("Enter");
         const count = valid === "７" ? 7 : Number(valid);
-        await page.getByText(`設定：${count}問。変更は次の回から反映します。`, { exact: true }).waitFor();
+        await page.getByText(`設定：${count}問`, { exact: true }).waitFor();
       }
       await page.screenshot({ path: resolve(output, `menu-custom-${language}-${width}.png`), fullPage: true });
       await page.keyboard.press("Escape");

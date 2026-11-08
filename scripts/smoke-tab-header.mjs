@@ -58,7 +58,7 @@ try {
       for (const path of ["/drill", "/library", "/"]) {
         await page.locator(`nav a[href="${path}"]`).last().click();
         await page.waitForURL(origin + path);
-        if (path === "/library") await page.getByRole("heading", { name: "ライブラリ" }).waitFor();
+        if (path === "/library") await page.getByRole("heading", { name: "保存フレーズ" }).waitFor();
         if (path === "/") await page.locator('[data-tutorial="input-card"]').waitFor();
         assert.deepEqual(await measure(), baseline, `${path} at ${width}px`);
         assert.equal(await page.locator("header").evaluate(el => /端末に保存済み・(?:変更を)?同期中|同期済み/.test(el.parentElement.innerText)), false);

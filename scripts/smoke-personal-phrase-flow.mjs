@@ -31,7 +31,7 @@ async function setup(language, width) {
     calls.push({ path: url.pathname, body });
     if (url.pathname === "/api/phrase/add" && !body.warmup) {
       const targetText = language === "zh" ? "不用袋子。" : "I don't need a bag.";
-      return route.fulfill({ json: { id: body.phraseId, direction: body.direction, sourceLanguage: "ja", targetLanguage: language, sourceText: body.text, targetText, japanese: body.text, chinese: targetText, reading: language === "zh" ? "bù yòng dài zi" : "", pinyin: language === "zh" ? "bù yòng dài zi" : "", readingType: language === "zh" ? "pinyin" : "none", explanation: "", provider: "deepl" } });
+      return route.fulfill({ json: { id: body.phraseId, direction: body.direction, sourceLanguage: "ja", targetLanguage: language, sourceText: body.text, targetText, japanese: body.text, chinese: targetText, reading: language === "zh" ? "bù yòng dài zi" : "", pinyin: language === "zh" ? "bù yòng dài zi" : "", readingType: language === "zh" ? "pinyin" : "none", explanation: "", provider: "gemini" } });
     }
     if (url.pathname === "/api/phrase/explain") {
       await gate.promise;
@@ -126,13 +126,11 @@ try {
   const { context, page, gate, calls, errors, fail } = await setup("en", 430);
   try {
     await page.goto(origin + "/conversation");
-    await page.getByRole("button", { name: "翻訳モード: 通常。タップで切り替え", exact: true }).click();
-    await page.getByRole("button", { name: "翻訳モード: 品質。タップで切り替え", exact: true }).click();
-    assert.equal(await page.getByRole("button", { name: /翻訳モード: 速度/ }).count(), 0);
+    assert.equal(await page.getByRole("button", { name: /翻訳モード/ }).count(), 0);
     await page.getByPlaceholder("日本語を入力").fill("袋は要りません");
     await page.getByRole("button", { name: "送信", exact: true }).click();
     await page.getByText("I don't need a bag.", { exact: true }).waitFor();
-    assert.equal(calls.find((call) => call.path === "/api/phrase/add" && !call.body.warmup).body.generationMode, "normal");
+    assert.equal(calls.find((call) => call.path === "/api/phrase/add" && !call.body.warmup).body.generationMode, "quality");
     assert.deepEqual(await stored(page, historyKey), [], "unselected conversation must not be persisted");
     assert.deepEqual(await stored(page, phraseKey), []);
     await page.getByRole("button", { name: "ドリルに追加", exact: true }).click();

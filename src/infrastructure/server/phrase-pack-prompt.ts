@@ -3,7 +3,6 @@ import {
   getPhrasePackLevelLabel,
   getPhrasePackSceneLabel,
   getPhrasePackToneLabel,
-  getSceneCategoryHint,
 } from "@/lib/personal-phrase-pack";
 import type { LanguageCode, PhrasePackProfile } from "@/lib/types";
 
@@ -16,9 +15,6 @@ export function buildPhrasePackPrompt(
 ): string {
   const isAutoScene = profile.scenes.includes("auto");
   const sceneLabels = profile.scenes.map(getPhrasePackSceneLabel);
-  const categoryHints = isAutoScene
-    ? "お任せ: 食事・買い物・移動・ホテル・日常会話など、汎用的で使いやすい表現をバランスよく"
-    : profile.scenes.map((scene) => getSceneCategoryHint(scene)).join("\n- ");
   const levelGuide = getLevelGuide(profile.level);
   const retryNote =
     attempt > 1
@@ -32,10 +28,10 @@ export function buildPhrasePackPrompt(
     : `- ${targetLabel}は自然で実際に口に出せる表現にする。pinyin は空文字 "" にする`;
   const outputFields = isChineseTarget
     ? `"chinese": "中国語（簡体字）",
-      "pinyin": "ピンイン（声調記号付き）",`
+      "pinyin": "ピンイン（声調記号付き）"`
     : `"targetText": "${targetLabel}の翻訳結果",
       "chinese": "${targetLabel}の翻訳結果（互換用に同じ値）",
-      "pinyin": "",`;
+      "pinyin": ""`;
 
   return `あなたは、海外の実生活・旅行・仕事・ライブポーカーの現場で使う表現に詳しい実践的な語学コーチです。
 
@@ -53,8 +49,7 @@ ${retryNote}
 - 言い方の希望: ${getPhrasePackToneLabel(profile.tone)}
 - 具体状況: ${profile.details || "未入力"}
 
-カテゴリ対応:
-- ${categoryHints}
+${isAutoScene ? "場面は食事・買い物・移動・ホテル・日常会話などからバランスよく選ぶ。" : ""}
 
 既にユーザーが持つ${targetLabel}表現（重複して出さない）:
 ${seenTargets.length ? seenTargets.map((item) => `- ${item}`).join("\n") : "- なし"}
@@ -72,7 +67,6 @@ ${readingRule}
 - 具体状況が入力されている場合は、その状況で直接使えるフレーズと、その周辺で起こりやすい高頻度フレーズを混ぜる
 - ${targetCount}件の意味を被らせない。言い換えだけで数を増やさない
 - 場面が複数ある場合は、選ばれた場面にバランスよく配分する
-- categoryId は上のカテゴリ対応から選ぶ。迷う場合は "other"
 - 過度に乱暴・失礼・性的・差別的・政治的な表現は禁止
 - JSONを途中で切らない。phrases 配列は必ず ${targetCount} 件完結させる
 
@@ -83,7 +77,6 @@ ${readingRule}
       "direction": "${direction}",
       "japanese": "日本語",
       ${outputFields}
-      "categoryId": "restaurant"
     }
   ]
 }`;

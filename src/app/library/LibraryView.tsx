@@ -14,7 +14,6 @@ import {
 } from "@/infrastructure/local/srs-storage";
 import { formatExplanationForReading } from "@/lib/explanation-format";
 import {
-  loadPhraseCategories,
   loadLocalPhrases,
   saveLocalPhrases,
   updateLocalPhrase,
@@ -34,7 +33,7 @@ import {
   deletePhrasesFromCloud,
   syncPhraseStateToCloud,
 } from "@/lib/account-phrase-sync";
-import type { LanguageCode, Phrase, PhraseCategory, SrsItem, SrsStatus } from "@/lib/types";
+import type { LanguageCode, Phrase, SrsItem, SrsStatus } from "@/lib/types";
 
 type Filter = "all" | SrsStatus;
 type DrillFilter = "all" | "drill" | "library-only";
@@ -48,10 +47,6 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "maintenance", label: "メンテ" },
   { id: "mastered", label: "習得" },
 ];
-
-function isUncategorized(categoryId: string | null): boolean {
-  return !categoryId || categoryId === "uncategorized";
-}
 
 export default function LibraryView() {
   const owner = useDataOwner();
@@ -78,14 +73,12 @@ function LanguageLibrary({ owner, targetLanguage, setTargetLanguage, languageRea
   const [hydrated, setHydrated] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
   const [showAllLanguages, setShowAllLanguages] = useState(false);
   const languageFilter: LanguageFilter = showAllLanguages ? "all" : targetLanguage;
   const [drillFilter, setDrillFilter] = useState<DrillFilter>("all");
   const [filterOpen, setFilterOpen] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [categories, setCategories] = useState<PhraseCategory[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -95,7 +88,6 @@ function LanguageLibrary({ owner, targetLanguage, setTargetLanguage, languageRea
       if (cancelled) return;
       const localPhrases = loadLocalPhrases();
       setPhrases(localPhrases);
-      setCategories(loadPhraseCategories());
       const synced = syncDrillSchedule({
         phrases: localPhrases,
         items: loadLocalSrsItems(),
@@ -228,22 +220,6 @@ function LanguageLibrary({ owner, targetLanguage, setTargetLanguage, languageRea
     }
   };
 
-  const handleCategoryChange = (phrase: Phrase, categoryId: string) => {
-    const nextPhrases = updateLocalPhrase(phrase.id, {
-      categoryId: categoryId === "uncategorized" ? null : categoryId,
-    });
-    setPhrases(nextPhrases);
-    const updatedPhrase = nextPhrases.find((item) => item.id === phrase.id);
-    if (updatedPhrase) {
-      void syncPhraseStateToCloud(
-        updatedPhrase,
-        items.find((item) => item.id === phrase.id) ?? null,
-      ).catch((error) => {
-        console.warn("[LibraryView] category sync failed", error);
-      });
-    }
-  };
-
   const itemById = useMemo(
     () => new Map(items.map((it) => [it.id, it])),
     [items],
@@ -256,14 +232,6 @@ function LanguageLibrary({ owner, targetLanguage, setTargetLanguage, languageRea
       const status: SrsStatus = it ? it.status : "new";
       if (!ACTIVE_TARGET_LANGUAGE_CODES.includes(p.targetLanguage)) return false;
       if (filter !== "all" && status !== filter) return false;
-      if (categoryFilter !== "all") {
-        if (categoryFilter === "uncategorized" && !isUncategorized(p.categoryId)) {
-          return false;
-        }
-        if (categoryFilter !== "uncategorized" && p.categoryId !== categoryFilter) {
-          return false;
-        }
-      }
       if (languageFilter !== "all" && p.targetLanguage !== languageFilter) return false;
       if (drillFilter === "drill" && !p.shouldDrill) return false;
       if (drillFilter === "library-only" && p.shouldDrill) return false;
@@ -277,11 +245,10 @@ function LanguageLibrary({ owner, targetLanguage, setTargetLanguage, languageRea
         p.reading.toLowerCase().includes(q)
       );
     });
-  }, [phrases, itemById, query, filter, categoryFilter, languageFilter, drillFilter]);
+  }, [phrases, itemById, query, filter, languageFilter, drillFilter]);
 
   const filterCount =
     (filter === "all" ? 0 : 1) +
-    (categoryFilter === "all" ? 0 : 1) +
     (languageFilter === "all" ? 0 : 1) +
     (drillFilter === "all" ? 0 : 1);
 
@@ -369,22 +336,6 @@ function LanguageLibrary({ owner, targetLanguage, setTargetLanguage, languageRea
               </label>
             )}
             <label className="flex flex-col gap-1 text-xs text-neutral-400">
-              状況カテゴリ
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="rounded-xl bg-neutral-950/80 px-3 py-2.5 text-sm text-neutral-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-              >
-                <option value="all">全て</option>
-                <option value="uncategorized">未分類</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-neutral-400">
               ドリル対象
               <select
                 value={drillFilter}
@@ -410,7 +361,6 @@ function LanguageLibrary({ owner, targetLanguage, setTargetLanguage, languageRea
             const it = itemById.get(p.id);
             const status: SrsStatus = it ? it.status : "new";
             const expanded = expandedIds.has(p.id);
-            const category = categories.find((item) => item.id === p.categoryId);
             return (
               <div
                 key={p.id}
@@ -441,9 +391,6 @@ function LanguageLibrary({ owner, targetLanguage, setTargetLanguage, languageRea
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-xs font-bold text-neutral-300">
                         {getLanguageLabel(p.sourceLanguage)}→{getLanguageLabel(p.targetLanguage)}
-                      </span>
-                      <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-xs text-neutral-300">
-                        {category?.label ?? "未分類"}
                       </span>
                       {!p.shouldDrill && (
                         <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-xs font-bold text-neutral-300">
@@ -524,21 +471,6 @@ function LanguageLibrary({ owner, targetLanguage, setTargetLanguage, languageRea
                         : <button type="button" className="mt-3 rounded-xl bg-neutral-900 px-3 py-2" onClick={() => void completeSavedExplanation(p)}>解説を生成・再試行する</button>}
                     </details>
                     <div className="mt-4 grid grid-cols-1 gap-2 border-t border-neutral-800/70 pt-4 sm:grid-cols-2">
-                      <label className="flex flex-col gap-1 text-xs text-neutral-500">
-                        カテゴリ
-                        <select
-                          value={p.categoryId ?? "uncategorized"}
-                          onChange={(e) => handleCategoryChange(p, e.target.value)}
-                          className="rounded-xl bg-neutral-950/80 px-3 py-2.5 text-sm text-neutral-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                        >
-                          <option value="uncategorized">未分類</option>
-                          {categories.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();

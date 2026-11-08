@@ -55,7 +55,7 @@ export function saveGeneratedPhrasePackSelection(
         explanation: "",
         direction: item.direction,
       },
-      categoryId: item.categoryId,
+      categoryId: null,
       source: "prototype",
       savedAt: input.savedAt,
       storage: input.storage,

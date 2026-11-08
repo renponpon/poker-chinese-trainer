@@ -20,21 +20,15 @@ export function normalizeChineseForDedupe(value: string): string {
 export function getRecentTargetHints(
   phrases: Phrase[],
   targetLanguage: LanguageCode,
-  categoryIds: Array<string | null>,
   limit: number,
 ): string[] {
-  const categorySet = new Set(categoryIds.filter(Boolean));
   const sorted = [...phrases]
     .filter((phrase) => phrase.targetLanguage === targetLanguage)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  const sameCategory = sorted.filter((phrase) =>
-    phrase.categoryId ? categorySet.has(phrase.categoryId) : false,
-  );
-  const selected = [...sameCategory, ...sorted];
   const seen = new Set<string>();
   const hints: string[] = [];
 
-  for (const phrase of selected) {
+  for (const phrase of sorted) {
     const targetText = phrase.targetText || phrase.chinese;
     const normalized = normalizeChineseForDedupe(targetText);
     if (!normalized || seen.has(normalized)) continue;
@@ -44,14 +38,6 @@ export function getRecentTargetHints(
   }
 
   return hints;
-}
-
-export function getRecentChineseHints(
-  phrases: Phrase[],
-  categoryIds: Array<string | null>,
-  limit: number,
-): string[] {
-  return getRecentTargetHints(phrases, "zh", categoryIds, limit);
 }
 
 export function detectDuplicateTarget(

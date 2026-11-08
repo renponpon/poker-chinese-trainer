@@ -12,7 +12,7 @@ export type PhrasePackDraft = {
   targetText: string;
   reading: string;
   readingType: ReadingType;
-  categoryId: string;
+  categoryId: string | null;
 };
 
 export type GeneratedPersonalPhrasePackItem = PhrasePackDraft & {

@@ -8,7 +8,6 @@ export type ValidatedPhraseAddRequest = {
   ownerKey?: string;
   nickname?: string;
   phraseId: string;
-  categoryId: string | null;
   shouldDrill: boolean;
   source: PhraseSource;
   nuance?: string;
@@ -31,7 +30,6 @@ const MAX_OWNER_KEY_CHARS = 80;
 const MAX_NICKNAME_CHARS = 80;
 const MAX_NUANCE_CHARS = 300;
 const MAX_PREVIOUS_TARGET_CHARS = 500;
-const CATEGORY_ID_PATTERN = /^[a-z0-9_-]{1,64}$/i;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -42,7 +40,6 @@ type RawPhraseAddRequest = {
   ownerKey?: unknown;
   nickname?: unknown;
   phraseId?: unknown;
-  categoryId?: unknown;
   shouldDrill?: unknown;
   source?: unknown;
   nuance?: unknown;
@@ -62,7 +59,6 @@ export function validatePhraseAddRequest(
   const direction = normalizeDirection(raw.direction);
   const source = normalizeSource(raw.source);
   const inputText = normalizeInputText(raw, source);
-  const categoryId = normalizeCategoryId(raw.categoryId);
   const phraseId = normalizePhraseId(raw.phraseId);
 
   return {
@@ -71,7 +67,6 @@ export function validatePhraseAddRequest(
     ownerKey: normalizeOptionalText(raw.ownerKey, MAX_OWNER_KEY_CHARS),
     nickname: normalizeOptionalText(raw.nickname, MAX_NICKNAME_CHARS),
     phraseId,
-    categoryId,
     shouldDrill:
       typeof raw.shouldDrill === "boolean"
         ? raw.shouldDrill
@@ -125,19 +120,6 @@ function normalizeInputText(raw: RawPhraseAddRequest, source: PhraseSource): str
   }
 
   return inputText;
-}
-
-function normalizeCategoryId(value: unknown): string | null {
-  if (value === undefined || value === null || value === "") return null;
-  if (typeof value !== "string") {
-    throw new RequestValidationError("カテゴリ指定が正しくありません");
-  }
-  const categoryId = value.trim();
-  if (!categoryId || categoryId === "uncategorized") return null;
-  if (!CATEGORY_ID_PATTERN.test(categoryId)) {
-    throw new RequestValidationError("カテゴリ指定が正しくありません");
-  }
-  return categoryId;
 }
 
 function normalizePhraseId(value: unknown): string {

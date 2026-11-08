@@ -51,17 +51,9 @@ import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
 import { recordProductAnalyticsEvent } from "@/lib/product-analytics";
 import { createTimedRequest, fetchJsonWithDeadline } from "@/lib/timed-request";
 import { toStudyPhraseFields } from "@/lib/study-phrase";
-import {
-  TRANSLATION_WARMUP_DELAY_MS,
-  triggerTranslationWarmup,
-} from "@/lib/translation-warmup";
 import type { LanguageCode, PhraseDirection } from "@/lib/types";
 
-import GenerationModeToggle from "@/components/GenerationModeToggle";
-import {
-  parseGenerationMode,
-  type GenerationMode,
-} from "@/lib/generation-mode";
+import { TRANSLATION_MODE } from "@/lib/generation-mode";
 
 type Result = {
   id: string | null;
@@ -124,8 +116,6 @@ function TranslationPage({ owner }: { owner: string }) {
     [targetLanguage, reverseTranslation],
   );
   const [inputText, setInputText] = useState(restored?.inputText ?? "");
-  const [categoryId] = useState<string>("other");
-  const [generationMode, setGenerationMode] = useState<GenerationMode>(() => parseGenerationMode(restored?.generationMode));
   const [loading, setLoading] = useState(false);
   const [nuanceText, setNuanceText] = useState(restored?.nuanceText ?? "");
   const [nuanceDialogOpen, setNuanceDialogOpen] = useState(false);
@@ -174,10 +164,10 @@ function TranslationPage({ owner }: { owner: string }) {
 
   useEffect(() => {
     saveTranslationDraft(owner, {
-      inputText, reverseTranslation, generationMode, result, nuanceText, drillAdded,
+      inputText, reverseTranslation, result, nuanceText, drillAdded,
       requestId: activePhraseIdRef.current,
     });
-  }, [owner, inputText, reverseTranslation, generationMode, result, nuanceText, drillAdded]);
+  }, [owner, inputText, reverseTranslation, result, nuanceText, drillAdded]);
 
   useEffect(() => {
     const refresh = () => {
@@ -208,15 +198,6 @@ function TranslationPage({ owner }: { owner: string }) {
     };
   }, []);
 
-  useEffect(() => {
-    if (!languageReady) return;
-    const timer = window.setTimeout(
-      () => triggerTranslationWarmup(targetLanguage),
-      TRANSLATION_WARMUP_DELAY_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [targetLanguage, languageReady]);
-
   const handleGenerate = async () => {
     const trimmed = inputText.trim();
     if (!languageReady || !trimmed || loading || refining || addingToDrill || pendingRequestRef.current) return;
@@ -227,7 +208,7 @@ function TranslationPage({ owner }: { owner: string }) {
       sourcePage: "add",
       direction,
       targetLanguage,
-      generationMode,
+      generationMode: TRANSLATION_MODE,
       inputChars: trimmed.length,
     });
     setLoading(true);
@@ -258,9 +239,8 @@ function TranslationPage({ owner }: { owner: string }) {
             ownerKey,
             nickname,
             phraseId,
-            categoryId,
             shouldDrill: false,
-            generationMode,
+            generationMode: TRANSLATION_MODE,
             persist: false,
           }),
         });
@@ -275,7 +255,7 @@ function TranslationPage({ owner }: { owner: string }) {
         sourcePage: "add",
         direction,
         targetLanguage,
-        generationMode,
+        generationMode: TRANSLATION_MODE,
         inputChars: trimmed.length,
         success: true,
       });
@@ -301,7 +281,7 @@ function TranslationPage({ owner }: { owner: string }) {
         sourcePage: "add",
         direction,
         targetLanguage,
-        generationMode,
+        generationMode: TRANSLATION_MODE,
         inputChars: trimmed.length,
         success: false,
         errorCode: "translation_failed",
@@ -381,7 +361,7 @@ function TranslationPage({ owner }: { owner: string }) {
       sourcePage: "add",
       direction: result.direction,
       targetLanguage: result.targetLanguage,
-      generationMode: "quality",
+      generationMode: TRANSLATION_MODE,
       inputChars: nuance.length,
     });
 
@@ -401,9 +381,8 @@ function TranslationPage({ owner }: { owner: string }) {
             ownerKey,
             nickname,
             phraseId,
-            categoryId,
             shouldDrill: false,
-            generationMode: "quality",
+            generationMode: TRANSLATION_MODE,
             persist: false,
           }),
         });
@@ -422,7 +401,7 @@ function TranslationPage({ owner }: { owner: string }) {
         sourcePage: "add",
         direction: refinedResult.direction,
         targetLanguage: refinedResult.targetLanguage,
-        generationMode: "quality",
+        generationMode: TRANSLATION_MODE,
         inputChars: nuance.length,
         success: true,
       });
@@ -439,7 +418,7 @@ function TranslationPage({ owner }: { owner: string }) {
         sourcePage: "add",
         direction: result.direction,
         targetLanguage: result.targetLanguage,
-        generationMode: "quality",
+        generationMode: TRANSLATION_MODE,
         inputChars: nuance.length,
         success: false,
         errorCode: "refinement_failed",
@@ -474,7 +453,7 @@ function TranslationPage({ owner }: { owner: string }) {
         historyItemId: createId(),
         historySource: "add",
         savedPhraseSource: "manual",
-        categoryId,
+        categoryId: null,
         savedAt: new Date().toISOString(),
         addToDrill: true,
         storage: {
@@ -493,7 +472,7 @@ function TranslationPage({ owner }: { owner: string }) {
         sourcePage: "add",
         direction: approvedResult.direction,
         targetLanguage: approvedResult.targetLanguage,
-        generationMode,
+        generationMode: TRANSLATION_MODE,
         success: true,
       });
       setResult({ ...approvedResult, id: saved.storedPhrase.id });
@@ -516,7 +495,7 @@ function TranslationPage({ owner }: { owner: string }) {
         sourcePage: "add",
         direction: result.direction,
         targetLanguage: result.targetLanguage,
-        generationMode,
+        generationMode: TRANSLATION_MODE,
         success: false,
         errorCode: "save_failed",
       });
@@ -553,7 +532,6 @@ function TranslationPage({ owner }: { owner: string }) {
   };
 
   const handleHighAccuracyVoiceInput = () => {
-    triggerTranslationWarmup(targetLanguage);
     setSpeechError(null);
     setNeedsMicrophonePermission(false);
     if (listening) {
@@ -577,14 +555,13 @@ function TranslationPage({ owner }: { owner: string }) {
         sourcePage: "add",
         direction,
         targetLanguage,
-        generationMode,
+        generationMode: TRANSLATION_MODE,
         inputChars: value.trim().length,
       });
     }
   };
 
   const handleVoiceInput = () => {
-    triggerTranslationWarmup(targetLanguage);
     setSpeechError(null);
     setNeedsMicrophonePermission(false);
 
@@ -799,10 +776,7 @@ function TranslationPage({ owner }: { owner: string }) {
               id="translation-input"
               value={inputText}
               onChange={(e) => handleInputTextChange(e.target.value)}
-              onFocus={() => {
-                setInputFocused(true);
-                triggerTranslationWarmup(targetLanguage);
-              }}
+              onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
               placeholder={
                 parseDirection(direction).sourceLanguage === "ja"
@@ -832,11 +806,7 @@ function TranslationPage({ owner }: { owner: string }) {
             >
               <SendIcon />
               <span className="text-xs font-bold">
-                {loading
-                  ? generationMode === "quality"
-                    ? "品質モード生成中"
-                    : "送信中"
-                  : "送信"}
+                {loading ? "翻訳中" : "送信"}
               </span>
             </button>
             <button
@@ -889,20 +859,6 @@ function TranslationPage({ owner }: { owner: string }) {
           )}
         </section>
 
-        <div className="-mt-1 mb-0">
-          <div className="flex flex-col gap-2 rounded-2xl bg-neutral-950/50 px-3 py-2">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-neutral-400">翻訳モード</span>
-              <span data-tutorial="mode-controls" className="shrink-0">
-                <GenerationModeToggle
-                  value={generationMode}
-                  onChange={setGenerationMode}
-                  readingLabel={targetLanguage === "zh" ? "ピンイン" : ""}
-                />
-              </span>
-            </div>
-          </div>
-        </div>
 
         {error && (
           <div className="rounded-xl bg-red-900/20 px-4 py-3 text-sm text-red-200">

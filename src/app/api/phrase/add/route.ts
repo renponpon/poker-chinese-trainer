@@ -3,19 +3,9 @@ import { withDeferredBudgetSettlement } from "@/lib/server/with-ai-budget-settle
 import { RequestStoppedError } from "@/lib/timed-request";
 
 import { after, NextResponse } from "next/server";
-import {
-  generateTranslation,
-  type TranslationProvider,
-} from "@/application/phrase/generate-translation";
 import { persistSavedPhrases } from "@/application/phrase/persist-saved-phrases";
 import { createPhraseCloudStorage } from "@/infrastructure/server/phrase-cloud-storage";
 import { getBearerToken } from "@/infrastructure/server/request-auth";
-import {
-  createPhraseTranslationProviders,
-  getTranslationProviderModel,
-  getTranslationTimingErrorMessage,
-  warmupTranslationProviders,
-} from "@/infrastructure/server/translation-providers";
 import { generateQualityPhraseWithGemini } from "@/infrastructure/server/quality-phrase-generator";
 import {
   buildQualityPrompt,
@@ -23,7 +13,6 @@ import {
 } from "@/infrastructure/server/quality-phrase-prompt";
 import { recordAiUsageEvent } from "@/infrastructure/server/usage-event-recorder";
 import { createId } from "@/lib/id";
-import { buildDirection, isLanguageCode } from "@/lib/languages";
 import {
   AiBurstLimitError,
   assertWithinAiBurstLimit,
@@ -38,9 +27,8 @@ import {
   validatePhraseAddRequest,
   type ValidatedPhraseAddRequest,
 } from "@/lib/server/validation";
-import { parseGenerationMode, type GenerationMode } from "@/lib/generation-mode";
+import { TRANSLATION_MODE } from "@/lib/generation-mode";
 import { toStudyPhraseFields } from "@/lib/study-phrase";
-import type { LanguageCode } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -50,8 +38,8 @@ type UsageRecordInput = {
   requestId: string;
   actor: RequestActor;
   validated: ValidatedPhraseAddRequest | null;
-  generationMode: GenerationMode | null;
-  provider: TranslationProvider | null;
+  generationMode: typeof TRANSLATION_MODE | null;
+  provider: "gemini" | null;
   outputChars: number;
   success: boolean;
   errorCode: string | null;
@@ -75,7 +63,7 @@ async function handlePost(req: Request) {
   const requestId = createId();
   let actor: RequestActor | null = null;
   let validated: ValidatedPhraseAddRequest | null = null;
-  let generationMode: GenerationMode | null = null;
+  let generationMode: typeof TRANSLATION_MODE | null = null;
   let outputChars = 0;
   const timingEnabled = isTimingEnabled(req);
   const timingStartedAt = Date.now();
@@ -112,63 +100,17 @@ async function handlePost(req: Request) {
     measureSync("abuseCheck", () => assertWithinAiBurstLimit(actor!));
 
     if ((rawRequest as { warmup?: unknown }).warmup === true) {
-      const targetLanguage = measureSync("parseWarmupTarget", () =>
-        parseWarmupTargetLanguage(rawRequest as { targetLanguage?: unknown }),
-      );
-      const direction = buildDirection("ja", targetLanguage);
-      const results = await measure("warmup", () =>
-        warmupTranslationProviders(direction, timingEnabled ? timing : null),
-      );
-      const finalTiming = finishTiming(timingEnabled, timingStartedAt, timing, {
-        mode: "warmup",
-        provider: null,
-        persist: "false",
-      });
-
-      return NextResponse.json({
-        ok: results.some((result) => result.ok || result.skipped),
-        requestId,
-        results,
-        ...(finalTiming ? { timing: finalTiming } : {}),
-      });
+      return NextResponse.json({ ok: true, requestId, results: [] });
     }
 
     validated = measureSync("validate", () => validatePhraseAddRequest(rawRequest));
-    generationMode = validated.nuance
-      ? "quality"
-      : measureSync("parseMode", () =>
-          parseGenerationMode((rawBody as { generationMode?: unknown }).generationMode),
-        );
+    generationMode = TRANSLATION_MODE;
     const persist = measureSync(
       "parsePersist",
       () => (rawBody as { persist?: unknown }).persist !== false,
     );
-    const { generated, provider } = await measure("translate", () =>
-      generateTranslation({
-        mode: generationMode!,
-        request: {
-          direction: validated!.direction,
-          inputText: validated!.inputText,
-        },
-        providers: createPhraseTranslationProviders({
-          timing: timingEnabled ? timing : null,
-          translateWithGemini: () => generateWithGemini(validated!),
-        }),
-        onProviderFallback: ({ error }) => {
-          if (timingEnabled) {
-            timing.deeplStatus = "failed";
-            timing.deeplError = getTranslationTimingErrorMessage(error);
-          }
-          console.warn("[/api/phrase/add] DeepL failed, falling back to Azure", {
-            error: error instanceof Error ? error.message : error,
-          });
-        },
-      }),
-    );
-    if (timingEnabled && generationMode === "normal") {
-      if (provider === "deepl") timing.normalPrimary = "deepl";
-      if (provider === "azure") timing.normalFallback = "azure";
-    }
+    const provider = "gemini";
+    const generated = await measure("translate", () => generateWithGemini(validated!));
     outputChars =
       generated.japanese.length +
       generated.chinese.length +
@@ -211,7 +153,7 @@ async function handlePost(req: Request) {
             explanation: generated.explanation,
             audioUrl: null,
             direction: request.direction,
-            categoryId: request.categoryId,
+            categoryId: null,
             shouldDrill: request.shouldDrill,
             source: request.source,
             createdAt: new Date().toISOString(),
@@ -247,7 +189,7 @@ async function handlePost(req: Request) {
       id: request.phraseId,
       requestId,
       provider,
-      model: getTranslationProviderModel(provider),
+      model: GEMINI_MODEL,
       ...generated,
       audioUrl: null,
       ...(finalTiming ? { timing: finalTiming } : {}),
@@ -349,7 +291,7 @@ async function recordUsage(input: UsageRecordInput) {
     audioDurationMs: null,
     success: input.success,
     errorCode: input.errorCode,
-    model: input.provider ? getTranslationProviderModel(input.provider) : null,
+    model: input.provider ? GEMINI_MODEL : null,
   });
 }
 
@@ -370,16 +312,6 @@ function finishTiming(
     ...extra,
     ...timing,
   };
-}
-
-function parseWarmupTargetLanguage(
-  raw: { targetLanguage?: unknown },
-): Exclude<LanguageCode, "ja"> {
-  const targetLanguage = raw.targetLanguage;
-  if (isLanguageCode(targetLanguage) && targetLanguage !== "ja") {
-    return targetLanguage;
-  }
-  return "zh";
 }
 
 function generateWithGemini(validated: ValidatedPhraseAddRequest) {

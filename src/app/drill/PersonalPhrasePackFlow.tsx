@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { saveGeneratedPhrasePackSelection } from "@/application/phrase/save-generated-phrase-pack-selection";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { getLanguageLabel } from "@/lib/languages";
@@ -20,7 +20,6 @@ import {
   PHRASE_PACK_LEVEL_OPTIONS,
   PHRASE_PACK_SCENE_OPTIONS,
   PHRASE_PACK_TONE_OPTIONS,
-  getCategoryIdsForScene,
   sanitizePhrasePackProfile,
 } from "@/lib/personal-phrase-pack";
 import {
@@ -72,7 +71,6 @@ const EXISTING_TARGET_HINT_LIMIT = 80;
 type RecentGeneratedTarget = {
   targetLanguage: LanguageCode;
   targetText: string;
-  categoryId: string | null;
   createdAt: string;
 };
 
@@ -114,11 +112,6 @@ export default function PersonalPhrasePackFlow({
       cancelled = true;
     };
   }, [profileStorageKey, targetLanguage]);
-
-  const categoryHints = useMemo(
-    () => profile.scenes.flatMap((scene) => getCategoryIdsForScene(scene)),
-    [profile.scenes],
-  );
 
   useEffect(() => {
     if (!loading) {
@@ -172,10 +165,9 @@ export default function PersonalPhrasePackFlow({
 
     try {
       window.localStorage.setItem(profileStorageKey, JSON.stringify(normalized));
-      const savedTargets = getRecentTargetHints(phrases, targetLanguage, categoryHints, 50);
+      const savedTargets = getRecentTargetHints(phrases, targetLanguage, 50);
       const generatedTargets = getRecentGeneratedTargetHints(
         targetLanguage,
-        categoryHints,
         EXISTING_TARGET_HINT_LIMIT,
       );
       const existingTargets = mergeTargetHints(
@@ -556,17 +548,12 @@ function buildPreviewItems(
 
 function getRecentGeneratedTargetHints(
   targetLanguage: LanguageCode,
-  categoryIds: Array<string | null>,
   limit: number,
 ): string[] {
   const entries = readRecentGeneratedTargets()
     .filter((entry) => entry.targetLanguage === targetLanguage)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  const categorySet = new Set(categoryIds.filter(Boolean));
-  const sameCategory = entries.filter((entry) =>
-    entry.categoryId ? categorySet.has(entry.categoryId) : false,
-  );
-  return mergeTargetHints([...sameCategory, ...entries].map((entry) => entry.targetText), limit);
+  return mergeTargetHints(entries.map((entry) => entry.targetText), limit);
 }
 
 function rememberGeneratedTargets(items: GeneratedPackItem[], targetLanguage: LanguageCode) {
@@ -578,7 +565,6 @@ function rememberGeneratedTargets(items: GeneratedPackItem[], targetLanguage: La
       return {
         targetLanguage,
         targetText,
-        categoryId: item.categoryId,
         createdAt: now,
       };
     })
@@ -621,10 +607,6 @@ function readRecentGeneratedTargets(): RecentGeneratedTarget[] {
         return {
           targetLanguage,
           targetText: targetText.trim(),
-          categoryId:
-            typeof (item as Partial<RecentGeneratedTarget>).categoryId === "string"
-              ? (item as Partial<RecentGeneratedTarget>).categoryId ?? null
-              : null,
           createdAt:
             typeof (item as Partial<RecentGeneratedTarget>).createdAt === "string"
               ? (item as Partial<RecentGeneratedTarget>).createdAt ?? ""

@@ -96,10 +96,3 @@ export type PhrasePackProfile = {
 export type GeneratedPhrasePackItem = GeneratedPhrase & {
   categoryId: string | null;
 };
-
-export type PhraseCategory = {
-  id: string;
-  label: string;
-  builtIn: boolean;
-  createdAt: string;
-};

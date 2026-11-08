@@ -31,17 +31,6 @@ const ENDPOINT = "/api/phrase/generate-pack";
 const GEMINI_MODEL = "gemini-3.5-flash-lite";
 const PHRASE_MAX_OUTPUT_TOKENS = 4096;
 const EXISTING_TARGET_LIMIT = 80;
-const CATEGORY_IDS = new Set([
-  "poker-table",
-  "floor",
-  "restaurant",
-  "transport",
-  "hotel",
-  "shopping",
-  "work",
-  "hospital",
-  "other",
-]);
 
 type GeneratePackRequest = {
   profile?: unknown;
@@ -193,9 +182,7 @@ async function generatePhrasesOnly(
         model: GEMINI_MODEL,
         maxOutputTokens: PHRASE_MAX_OUTPUT_TOKENS,
         maxCandidates,
-        profile,
         targetLanguage,
-        categoryIds: CATEGORY_IDS,
         buildPrompt: ({ attempt, targetCount, seenTargets }) =>
           buildPhrasePackPrompt(profile, seenTargets, targetLanguage, attempt, targetCount),
         createMissingApiKeyError: () =>

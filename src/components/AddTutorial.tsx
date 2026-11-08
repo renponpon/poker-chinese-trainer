@@ -27,9 +27,9 @@ const steps: TutorialStep[] = [
     body: "現地で言いたかった一言を入力して送信。\n音声でも入力できます。翻訳しただけでは保存されません。",
   },
   {
-    target: "[data-tutorial='language-switch'], [data-tutorial='mode-controls']",
-    title: "言語とモード",
-    body: "学びたい言語を選ぶと、翻訳・ドリル・保存・会話に共通で使われます。\n言語と翻訳モードは、あとから変更できます。",
+    target: "[data-tutorial='language-switch']",
+    title: "学習言語",
+    body: "学びたい言語を選ぶと、翻訳・ドリル・保存・会話に共通で使われます。",
   },
   {
     target: "[data-tutorial='conversation']",

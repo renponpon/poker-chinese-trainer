@@ -13,18 +13,17 @@ export type PhrasePackOption<T extends string> = {
   id: T;
   label: string;
   description?: string;
-  categoryId?: string | null;
 };
 
 export const PHRASE_PACK_SCENE_OPTIONS: Array<PhrasePackOption<PhrasePackScene>> = [
-  { id: "auto", label: "お任せ", categoryId: null },
-  { id: "daily", label: "日常生活", categoryId: "other" },
-  { id: "restaurant", label: "レストラン・カフェ", categoryId: "restaurant" },
-  { id: "shopping", label: "買い物", categoryId: "shopping" },
-  { id: "transport", label: "移動・タクシー", categoryId: "transport" },
-  { id: "hotel", label: "ホテル", categoryId: "hotel" },
-  { id: "work", label: "仕事・打ち合わせ", categoryId: "work" },
-  { id: "casino", label: "カジノ", categoryId: "poker-table" },
+  { id: "auto", label: "お任せ" },
+  { id: "daily", label: "日常生活" },
+  { id: "restaurant", label: "レストラン・カフェ" },
+  { id: "shopping", label: "買い物" },
+  { id: "transport", label: "移動・タクシー" },
+  { id: "hotel", label: "ホテル" },
+  { id: "work", label: "仕事・打ち合わせ" },
+  { id: "casino", label: "カジノ" },
 ];
 
 export const PHRASE_PACK_LEVEL_OPTIONS: Array<PhrasePackOption<PhrasePackLevel>> = [
@@ -106,25 +105,6 @@ export function getPhrasePackLevelLabel(level: PhrasePackLevel): string {
 
 export function getPhrasePackToneLabel(tone: PhrasePackTone): string {
   return PHRASE_PACK_TONE_OPTIONS.find((option) => option.id === tone)?.label ?? tone;
-}
-
-export function getCategoryIdForScene(scene: PhrasePackScene): string | null {
-  return PHRASE_PACK_SCENE_OPTIONS.find((option) => option.id === scene)?.categoryId ?? null;
-}
-
-export function getCategoryIdsForScene(scene: PhrasePackScene): string[] {
-  if (scene === "casino") return ["poker-table", "floor"];
-  const categoryId = getCategoryIdForScene(scene);
-  return categoryId ? [categoryId] : [];
-}
-
-export function getSceneCategoryHint(scene: PhrasePackScene): string {
-  if (scene === "casino") {
-    return "カジノ: ポーカー卓・フロア手続き（categoryId は poker-table または floor）";
-  }
-  const label = getPhrasePackSceneLabel(scene);
-  const categoryId = getCategoryIdForScene(scene) ?? "other";
-  return `${label}: ${categoryId}`;
 }
 
 export function sanitizePhrasePackProfile(input: Partial<PhrasePackProfile>): PhrasePackProfile {

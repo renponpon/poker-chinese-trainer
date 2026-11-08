@@ -50,7 +50,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "本当ですか？",
     chinese: "真的吗？",
     pinyin: "zhēn de ma?",
-    categoryId: "other",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 真的(zhēn de)＝本当に、吗(ma)＝疑問の語尾。
 
@@ -73,7 +73,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "私は日本人です",
     chinese: "我是日本人。",
     pinyin: "wǒ shì Rìběn rén.",
-    categoryId: "other",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 我(wǒ)＝私、是(shì)＝です、日本人(Rìběn rén)＝日本人。
 
@@ -96,7 +96,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "あなたは何人ですか？",
     chinese: "你是哪里人？",
     pinyin: "nǐ shì nǎlǐ rén?",
-    categoryId: "other",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 你(nǐ)＝あなた、是(shì)＝です、哪里(nǎlǐ)＝どこ、人(rén)＝人。
 
@@ -119,7 +119,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "お茶を一杯ください",
     chinese: "请给我一杯茶。",
     pinyin: "qǐng gěi wǒ yì bēi chá.",
-    categoryId: "restaurant",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 请(qǐng)＝ください、给(gěi)＝くれる、我(wǒ)＝私、一杯(yì bēi)＝一杯、茶(chá)＝お茶。
 
@@ -142,7 +142,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "トイレはどこですか？",
     chinese: "洗手间在哪里？",
     pinyin: "xǐshǒujiān zài nǎlǐ?",
-    categoryId: "other",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 洗手间(xǐshǒujiān)＝トイレ、在(zài)＝ある、哪里(nǎlǐ)＝どこ。
 
@@ -165,7 +165,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "これは何ですか？",
     chinese: "这是什么？",
     pinyin: "zhè shì shénme?",
-    categoryId: "shopping",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 这(zhè)＝これ、是(shì)＝です、什么(shénme)＝何。
 
@@ -188,7 +188,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "すみません",
     chinese: "不好意思。",
     pinyin: "bù hǎo yìsi.",
-    categoryId: "other",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 不好意思(bù hǎo yìsi)＝すみません、失礼しました。
 
@@ -211,7 +211,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "大丈夫です",
     chinese: "没关系。",
     pinyin: "méi guānxi.",
-    categoryId: "other",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 没(méi)＝ない、关系(guānxi)＝関係、没关系＝問題ない。
 
@@ -234,7 +234,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "中国語があまり上手ではありません",
     chinese: "我的中文不太好。",
     pinyin: "wǒ de Zhōngwén bú tài hǎo.",
-    categoryId: "other",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 我的(wǒ de)＝私の、中文(Zhōngwén)＝中国語、不太(bú tài)＝あまり〜ない、好(hǎo)＝上手。
 
@@ -257,7 +257,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "英語を話せますか？",
     chinese: "你会说英语吗？",
     pinyin: "nǐ huì shuō Yīngyǔ ma?",
-    categoryId: "other",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 你(nǐ)＝あなた、会(huì)＝できる、说(shuō)＝話す、英语(Yīngyǔ)＝英語。
 
@@ -280,7 +280,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "いくらですか？",
     chinese: "多少钱？",
     pinyin: "duōshao qián?",
-    categoryId: "shopping",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 多少(duōshao)＝いくつ・いくら、钱(qián)＝お金。
 
@@ -303,7 +303,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "これをください",
     chinese: "我要这个。",
     pinyin: "wǒ yào zhège.",
-    categoryId: "shopping",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 我(wǒ)＝私、要(yào)＝欲しい・ください、这个(zhège)＝これ。
 
@@ -326,7 +326,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "おすすめは何ですか？",
     chinese: "你推荐什么？",
     pinyin: "nǐ tuījiàn shénme?",
-    categoryId: "restaurant",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 你(nǐ)＝あなた、推荐(tuījiàn)＝おすすめ、什么(shénme)＝何。
 
@@ -349,7 +349,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "辛くしないでください",
     chinese: "不要辣。",
     pinyin: "bú yào là.",
-    categoryId: "restaurant",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 不要(bú yào)＝〜しないで、辣(là)＝辛い・唐辛子。
 
@@ -372,7 +372,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "会計をお願いします",
     chinese: "买单。",
     pinyin: "mǎi dān.",
-    categoryId: "restaurant",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 买单(mǎi dān)＝会計お願いします。店員を呼ぶ時の定番表現です。
 
@@ -395,7 +395,7 @@ const STARTER_SEEDS: StarterSeed[] = [
     japanese: "ちょっと待ってください",
     chinese: "请等一下。",
     pinyin: "qǐng děng yíxià.",
-    categoryId: "other",
+    categoryId: null,
     explanation: `【単語分解と骨組み】
 请(qǐng)＝ください、等(děng)＝待つ、一下(yíxià)＝少しの間。
 

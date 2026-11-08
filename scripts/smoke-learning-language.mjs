@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
 
-const origin = "http://localhost:3010";
+const origin = process.env.PHRABIT_TEST_ORIGIN || "http://localhost:3010";
 const preferenceKey = "phrabit-learning-language-v1";
 const phrasesKey = "poker-chinese-local-phrases-v1";
 const screenshotDir = resolve("tmp/phrabit-responsive-shots/learning-language");
@@ -49,6 +49,7 @@ async function createContext(options = {}) {
     const payload = route.request().postDataJSON();
     requests.push({ path: url.pathname, payload });
     if (url.pathname === "/api/phrase/add" && !payload?.warmup) {
+      assert.equal(payload.generationMode, "quality");
       const [sourceLanguage, targetLanguage] = payload.direction.split("-to-");
       const targetText = `テスト結果 ${payload.direction}`;
       return route.fulfill({ json: {
@@ -64,13 +65,13 @@ async function createContext(options = {}) {
         reading: "",
         readingType: "none",
         explanation: "テスト応答",
-        provider: "deepl",
+        provider: "gemini",
       } });
     }
     return route.fulfill({ json: { ok: true, explanation: "テスト応答" } });
   });
-  await context.addInitScript(({ phrases, key }) => {
-    if (location.origin !== "http://localhost:3010") return;
+  await context.addInitScript(({ phrases, key, origin }) => {
+    if (location.origin !== origin) return;
     if (!localStorage.getItem(key)) {
       localStorage.setItem(key, JSON.stringify(phrases));
       localStorage.setItem("poker-chinese-starter-phrases-v1", "1");
@@ -85,7 +86,7 @@ async function createContext(options = {}) {
       }
       stop() { this.onend?.(); }
     };
-  }, { phrases: fixtures, key: phrasesKey });
+  }, { phrases: fixtures, key: phrasesKey, origin });
   return context;
 }
 
@@ -109,6 +110,11 @@ async function checkLibrary(page, language) {
   assert.equal(await page.getByText(otherLabel, { exact: true }).count(), 0);
   await page.getByRole("button", { name: /フィルター/ }).click();
   await expectValue(page.getByLabel("学習言語（全画面共通）"), language);
+  assert.equal(await page.getByText("状況カテゴリ", { exact: true }).count(), 0);
+  assert.equal(await page.getByText("その他", { exact: true }).count(), 0);
+  await page.getByText(label, { exact: true }).click();
+  assert.equal(await page.getByLabel("カテゴリ", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("heading", { name: "ライブラリ", exact: true }).count(), 0);
 }
 
 try {
@@ -117,6 +123,7 @@ try {
   await page.goto(origin);
   await expectValue(page.getByLabel("翻訳先言語"), "zh");
   await page.getByRole("button", { name: "メニュー", exact: true }).click();
+  assert.equal(await page.getByText(/翻訳・ドリル・保存・会話にまとめて反映します|Badは同じ回で再出題/).count(), 0);
   await page.getByLabel("学習言語（全画面共通）").selectOption("en");
   await expectValue(page.getByLabel("翻訳先言語"), "en");
   await page.screenshot({ path: resolve(screenshotDir, "menu-390.png") });

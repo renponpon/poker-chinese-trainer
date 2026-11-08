@@ -1,15 +1,12 @@
 export {
   addLocalPhrase,
-  DEFAULT_CATEGORIES,
   deleteLocalPhrase,
   deleteLocalPhraseAndSrs,
   loadLocalPhrases,
   loadNickname,
   loadOwnerKey,
-  loadPhraseCategories,
   saveLocalPhrases,
   saveNickname,
   saveOwnerKey,
-  savePhraseCategories,
   updateLocalPhrase,
 } from "@/infrastructure/local/phrase-storage";

@@ -3,13 +3,11 @@
 import { useSyncExternalStore } from "react";
 import { currentDataOwner, LOCAL_PHRASE_DATA_CHANGED_EVENT } from "@/infrastructure/local/account-cache-storage";
 import type { GeneratedPhrase } from "./types";
-import type { GenerationMode } from "./generation-mode";
 
 export type TranslationDraftResult = GeneratedPhrase & { id: string | null; provider?: string };
 export type TranslationDraft = {
   inputText: string;
   reverseTranslation: boolean;
-  generationMode: GenerationMode;
   result: TranslationDraftResult | null;
   nuanceText: string;
   drillAdded: boolean;

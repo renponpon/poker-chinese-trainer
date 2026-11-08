@@ -3,14 +3,11 @@ import type {
 } from "@/application/phrase/generate-personal-phrase-pack";
 import type { GeneratePhrasePackAttempt } from "@/application/phrase/generate-phrase-pack";
 import { buildDirection, LANGUAGE_CONFIGS } from "@/lib/languages";
-import { getCategoryIdForScene } from "@/lib/personal-phrase-pack";
 import { detectDuplicateInList } from "@/lib/phrase-dedupe";
 import { generateGeminiText } from "./gemini-client";
 import type {
   GeneratedPhrasePackItem,
   LanguageCode,
-  PhrasePackProfile,
-  PhrasePackScene,
 } from "@/lib/types";
 
 type GeneratedPackResponse = {
@@ -29,20 +26,16 @@ export class PhrasePackCandidateParseError extends Error {
 
 export type ParsePhrasePackCandidatesInput = {
   text: string;
-  profile: PhrasePackProfile;
   seenTargets: string[];
   targetLanguage: LanguageCode;
   maxCandidates: number;
-  categoryIds: ReadonlySet<string>;
 };
 
 export type CreatePhrasePackCandidateGeneratorInput = {
   model: string;
   maxOutputTokens: number;
   maxCandidates: number;
-  profile: PhrasePackProfile;
   targetLanguage: LanguageCode;
-  categoryIds: ReadonlySet<string>;
   buildPrompt: (attempt: GeneratePhrasePackAttempt) => string;
   createMissingApiKeyError: () => Error;
   createEmptyResponseError: () => Error;
@@ -66,11 +59,9 @@ export function createPhrasePackCandidateGenerator(
 
     return parsePhrasePackCandidates({
       text,
-      profile: input.profile,
       seenTargets: attempt.seenTargets,
       targetLanguage: input.targetLanguage,
       maxCandidates: input.maxCandidates,
-      categoryIds: input.categoryIds,
     });
   };
 }
@@ -83,7 +74,6 @@ export function parsePhrasePackCandidates(
     throw new PhrasePackCandidateParseError("Generated response did not include phrases.");
   }
 
-  const fallbackCategory = getFallbackCategory(input.profile);
   const output: PhrasePackDraft[] = [];
   const previousTargets = [...input.seenTargets];
 
@@ -93,9 +83,7 @@ export function parsePhrasePackCandidates(
     try {
       const phrase = normalizePhraseCore({
         item: raw as Partial<GeneratedPhrasePackItem>,
-        fallbackCategory,
         targetLanguage: input.targetLanguage,
-        categoryIds: input.categoryIds,
       });
       const duplicate = detectDuplicateInList(phrase.targetText, previousTargets);
       if (duplicate) continue;
@@ -109,17 +97,9 @@ export function parsePhrasePackCandidates(
   return output;
 }
 
-function getFallbackCategory(profile: PhrasePackProfile): string {
-  const scene = profile.scenes.find((item) => item !== "auto");
-  if (!scene) return "other";
-  return getCategoryIdForScene(scene as PhrasePackScene) ?? "other";
-}
-
 function normalizePhraseCore(input: {
   item: Partial<GeneratedPhrasePackItem>;
-  fallbackCategory: string;
   targetLanguage: LanguageCode;
-  categoryIds: ReadonlySet<string>;
 }): PhrasePackDraft {
   const japanese = normalizeText(input.item.japanese || input.item.sourceText, "japanese", 120);
   const targetText = normalizeText(
@@ -132,10 +112,6 @@ function normalizePhraseCore(input: {
     readingType === "pinyin"
       ? normalizeText(input.item.reading || input.item.pinyin, "pinyin", 120)
       : "";
-  const categoryId =
-    typeof input.item.categoryId === "string" && input.categoryIds.has(input.item.categoryId)
-      ? input.item.categoryId
-      : input.fallbackCategory;
   const direction = buildDirection("ja", input.targetLanguage);
 
   return {
@@ -149,7 +125,7 @@ function normalizePhraseCore(input: {
     targetText,
     reading,
     readingType,
-    categoryId,
+    categoryId: null,
   };
 }
 

@@ -5,10 +5,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { saveConversationTranslationToDrill } from "@/application/phrase/save-conversation-translation-to-drill";
 import { recordTranslationHistory } from "@/application/phrase/record-translation-history";
 import BottomNav from "@/components/BottomNav";
-import GenerationModeToggle from "@/components/GenerationModeToggle";
 import TargetLanguageSelect from "@/components/TargetLanguageSelect";
 import { getAuthHeaders } from "@/lib/auth-headers";
-import type { GenerationMode } from "@/lib/generation-mode";
+import { TRANSLATION_MODE } from "@/lib/generation-mode";
 import { createId } from "@/lib/id";
 import {
   buildDirection,
@@ -51,10 +50,6 @@ import AccountSyncNotice from "@/components/AccountSyncNotice";
 import { recordWebSpeechUsageEvent } from "@/lib/usage-events";
 import { recordProductAnalyticsEvent } from "@/lib/product-analytics";
 import { toStudyPhraseFields } from "@/lib/study-phrase";
-import {
-  TRANSLATION_WARMUP_DELAY_MS,
-  triggerTranslationWarmup,
-} from "@/lib/translation-warmup";
 import type { LanguageCode, PhraseDirection, Phrase } from "@/lib/types";
 
 type Speaker = "ja" | "target";
@@ -117,7 +112,6 @@ function Conversation({ owner }: { owner: string }) {
   const [draft, setDraft] = useState("");
   const { targetLanguage, setTargetLanguage, languageReady } = useLearningLanguage();
   const [speaker, setSpeaker] = useState<Speaker>("ja");
-  const [generationMode, setGenerationMode] = useState<GenerationMode>("normal");
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState<Speaker | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -148,15 +142,6 @@ function Conversation({ owner }: { owner: string }) {
   }, []);
 
   useEffect(() => {
-    if (!languageReady) return;
-    const timer = window.setTimeout(
-      () => triggerTranslationWarmup(targetLanguage),
-      TRANSLATION_WARMUP_DELAY_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [targetLanguage, languageReady]);
-
-  useEffect(() => {
     return () => {
       if (speechTimeoutRef.current) {
         window.clearTimeout(speechTimeoutRef.current);
@@ -173,7 +158,6 @@ function Conversation({ owner }: { owner: string }) {
   };
 
   const handleHighAccuracyVoiceInput = (source: Speaker) => {
-    triggerTranslationWarmup(targetLanguage);
     setError(null);
     setNeedsMicrophonePermission(false);
     if (listening) {
@@ -203,7 +187,7 @@ function Conversation({ owner }: { owner: string }) {
         sourcePage: "conversation",
         direction,
         targetLanguage: speaker === "ja" ? targetLanguage : "ja",
-        generationMode,
+        generationMode: TRANSLATION_MODE,
         inputChars: value.trim().length,
       });
     }
@@ -223,7 +207,7 @@ function Conversation({ owner }: { owner: string }) {
       sourcePage: "conversation",
       direction,
       targetLanguage: outputLanguage,
-      generationMode,
+      generationMode: TRANSLATION_MODE,
       inputChars: trimmed.length,
     });
     translatingRef.current = true;
@@ -243,7 +227,7 @@ function Conversation({ owner }: { owner: string }) {
           nickname,
           phraseId,
           source: "conversation",
-          generationMode,
+          generationMode: TRANSLATION_MODE,
           persist: false,
         }),
       });
@@ -256,7 +240,7 @@ function Conversation({ owner }: { owner: string }) {
         sourcePage: "conversation",
         direction,
         targetLanguage: outputLanguage,
-        generationMode,
+        generationMode: TRANSLATION_MODE,
         inputChars: trimmed.length,
         success: true,
       });
@@ -287,7 +271,7 @@ function Conversation({ owner }: { owner: string }) {
         sourcePage: "conversation",
         direction,
         targetLanguage: outputLanguage,
-        generationMode,
+        generationMode: TRANSLATION_MODE,
         inputChars: trimmed.length,
         success: false,
         errorCode: "translation_failed",
@@ -367,7 +351,7 @@ function Conversation({ owner }: { owner: string }) {
       savedAllLocally = true;
       recordProductAnalyticsEvent({
         eventName: "conversation_drill_save", sourcePage: "conversation",
-        targetLanguage, generationMode, success: true,
+        targetLanguage, generationMode: TRANSLATION_MODE, success: true,
       });
       setSavedIds(savedPhrases.map((phrase) => phrase.id));
       setSelectedIds(new Set());
@@ -382,7 +366,7 @@ function Conversation({ owner }: { owner: string }) {
     } catch (error) {
       if (!savedAllLocally) recordProductAnalyticsEvent({
         eventName: "conversation_drill_save", sourcePage: "conversation",
-        targetLanguage, generationMode, success: false,
+        targetLanguage, generationMode: TRANSLATION_MODE, success: false,
         errorCode: savedPhrases.length ? "partial_save_failed" : "save_failed",
       });
       setDrillAddError(savedPhrases.length
@@ -395,7 +379,6 @@ function Conversation({ owner }: { owner: string }) {
   };
 
   const handleVoiceInput = (source: Speaker) => {
-    triggerTranslationWarmup(targetLanguage);
     setError(null);
     setNeedsMicrophonePermission(false);
     const direction: PhraseDirection =
@@ -688,10 +671,7 @@ function Conversation({ owner }: { owner: string }) {
             <textarea
               value={draft}
               onChange={(event) => handleDraftChange(event.target.value)}
-              onFocus={() => {
-                setInputFocused(true);
-                triggerTranslationWarmup(targetLanguage);
-              }}
+              onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
               placeholder={speaker === "target" ? `${getLanguageLabel(targetLanguage)}を入力` : "日本語を入力"}
               rows={2}
@@ -708,11 +688,7 @@ function Conversation({ owner }: { owner: string }) {
             >
               <SendIcon />
               <span className="text-xs font-bold">
-                {loading
-                  ? generationMode === "quality"
-                    ? "品質生成中"
-                    : "送信中"
-                  : "送信"}
+                {loading ? "翻訳中" : "送信"}
               </span>
             </button>
             <button
@@ -739,17 +715,6 @@ function Conversation({ owner }: { owner: string }) {
           </div>
         </div>
 
-        <div className="-mt-1">
-          <div className="flex flex-col gap-2 rounded-2xl bg-neutral-950/50 px-3 py-2">
-            <div className="flex items-center justify-end">
-              <GenerationModeToggle
-                value={generationMode}
-                onChange={setGenerationMode}
-                readingLabel={targetLanguage === "zh" ? "ピンイン" : ""}
-              />
-            </div>
-          </div>
-        </div>
         </div>
       </div>
       <BottomNav />

@@ -1,4 +1,4 @@
-import type { Phrase, PhraseCategory } from "../../lib/types";
+import type { Phrase } from "../../lib/types";
 import { createId } from "../../lib/id";
 import { parseDirection } from "../../lib/languages";
 import { checkpointLocalData } from "./account-cache-storage";
@@ -13,22 +13,9 @@ import {
 } from "../../lib/starter-phrases";
 
 const PHRASES_KEY = "poker-chinese-local-phrases-v1";
-const CATEGORIES_KEY = "poker-chinese-phrase-categories-v1";
 const NICKNAME_KEY = "poker-chinese-nickname-v1";
 const OWNER_KEY = "poker-chinese-owner-key-v1";
 const STARTER_SEED_KEY = "poker-chinese-starter-phrases-v1";
-
-export const DEFAULT_CATEGORIES: PhraseCategory[] = [
-  { id: "poker-table", label: "ポーカー卓", builtIn: true, createdAt: "" },
-  { id: "floor", label: "フロア/手続き", builtIn: true, createdAt: "" },
-  { id: "restaurant", label: "レストラン", builtIn: true, createdAt: "" },
-  { id: "transport", label: "移動", builtIn: true, createdAt: "" },
-  { id: "hotel", label: "ホテル", builtIn: true, createdAt: "" },
-  { id: "shopping", label: "買い物", builtIn: true, createdAt: "" },
-  { id: "work", label: "仕事", builtIn: true, createdAt: "" },
-  { id: "hospital", label: "病院", builtIn: true, createdAt: "" },
-  { id: "other", label: "その他", builtIn: true, createdAt: "" },
-];
 
 function isClient(): boolean {
   return typeof window !== "undefined";
@@ -115,28 +102,6 @@ export function deleteLocalPhrase(id: string): void {
 export function deleteLocalPhraseAndSrs(id: string): void {
   deleteLocalPhrase(id);
   saveLocalSrsItems(loadLocalSrsItems().filter((item) => item.id !== id));
-}
-
-export function loadPhraseCategories(): PhraseCategory[] {
-  if (!isClient()) return DEFAULT_CATEGORIES;
-  try {
-    const raw = window.localStorage.getItem(CATEGORIES_KEY);
-    if (!raw) return DEFAULT_CATEGORIES;
-    const parsed = JSON.parse(raw) as PhraseCategory[];
-    if (!Array.isArray(parsed)) return DEFAULT_CATEGORIES;
-    const custom = parsed.filter(
-      (category) => category.id && !DEFAULT_CATEGORIES.some((base) => base.id === category.id),
-    );
-    return [...DEFAULT_CATEGORIES, ...custom];
-  } catch {
-    return DEFAULT_CATEGORIES;
-  }
-}
-
-export function savePhraseCategories(categories: PhraseCategory[]): void {
-  if (!isClient()) return;
-  ensureDeviceBackup();
-  window.localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
 }
 
 export function loadNickname(): string {

@@ -92,8 +92,8 @@ async function checkFlow(language, width, failCloudSave) {
           pinyin: language === "zh" ? "ān jìng" : "",
           reading: language === "zh" ? "ān jìng" : "",
           readingType: language === "zh" ? "pinyin" : "none",
-          explanation: payload.nuance ? "調整後の解説（テスト応答）" : "",
-          provider: payload.nuance ? "gemini" : "deepl",
+          explanation: payload.nuance ? "調整後の解説（テスト応答）" : "元の解説（テスト応答）",
+          provider: "gemini",
         },
       });
     }
@@ -132,10 +132,7 @@ async function checkFlow(language, width, failCloudSave) {
     await tutorial.getByRole("button", { name: "完了", exact: true }).click();
     assert.equal(await page.getByText("現地で訳したフレーズを、次は自分の言葉に。", { exact: true }).count(), 0);
     await page.getByRole("combobox", { name: "翻訳先言語" }).selectOption(language);
-    await page.getByRole("button", { name: "翻訳モード: 通常。タップで切り替え", exact: true }).click();
-    await page.getByRole("button", { name: "翻訳モード: 品質。タップで切り替え", exact: true }).click();
-    assert.ok(await page.getByRole("button", { name: "翻訳モード: 通常。タップで切り替え", exact: true }).isVisible());
-    assert.equal(await page.getByRole("button", { name: /翻訳モード: 速度/ }).count(), 0);
+    assert.equal(await page.getByRole("button", { name: /翻訳モード/ }).count(), 0);
     await page.getByPlaceholder("日本語を入力", { exact: true }).fill("静かにして");
     const sendButton = page.getByRole("button", { name: "送信", exact: true });
     await sendButton.click();
@@ -148,7 +145,7 @@ async function checkFlow(language, width, failCloudSave) {
     assert.equal(saves.length, 0, "翻訳時はクラウド保存しない");
     assert.equal((await savedPhrases(page)).length, 0, "翻訳時はライブラリに追加しない");
     assert.equal(translationRequests[0].persist, false);
-    assert.equal(translationRequests[0].generationMode, "normal");
+    assert.equal(translationRequests[0].generationMode, "quality");
     assert.equal(translationRequests[0].shouldDrill, false);
 
     const adjustmentButton = page.getByRole("button", { name: "調整", exact: true });
