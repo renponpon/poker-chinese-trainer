@@ -43,7 +43,8 @@ try {
   await page.getByPlaceholder("日本語を入力", { exact: true }).waitFor();
   await page.goto(origin + "/library");
   await page.getByText(previous.sourceText, { exact: true }).first().click();
-  await page.getByRole("link", { name: "この一言を練習" }).click();
+  await page.getByRole("heading", { name: "使い方・想定返答" }).waitFor();
+  await page.getByRole("link", { name: "ドリル", exact: true }).click();
   await page.getByText(previous.sourceText, { exact: true }).first().waitFor();
   await page.getByText("タップして確認", { exact: true }).click();
   await page.getByRole("button", { name: /^Good/ }).waitFor();

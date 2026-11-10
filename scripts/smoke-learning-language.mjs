@@ -27,14 +27,14 @@ const fixtures = ["en", "zh"].map((language) => ({
   japanese: language === "en" ? "英語の練習用" : "中国語の練習用",
   chinese: language === "en" ? "English fixture" : "中文测试",
   pinyin: "",
-  reading: "",
+  reading: language === "zh" ? "zhōng wén cè shì" : "",
   readingType: language === "en" ? "none" : "pinyin",
   explanation: "テスト用解説",
   shouldDrill: true,
   categoryId: "other",
 }));
 
-async function createContext(options = {}) {
+async function createContext(options = {}, phrases = fixtures) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...options });
   context.on("page", (page) => {
     page.on("pageerror", (error) => errors.push(error.message));
@@ -86,7 +86,7 @@ async function createContext(options = {}) {
       }
       stop() { this.onend?.(); }
     };
-  }, { phrases: fixtures, key: phrasesKey, origin });
+  }, { phrases, key: phrasesKey, origin });
   return context;
 }
 
@@ -112,7 +112,39 @@ async function checkLibrary(page, language) {
   await expectValue(page.getByLabel("学習言語（全画面共通）"), language);
   assert.equal(await page.getByText("状況カテゴリ", { exact: true }).count(), 0);
   assert.equal(await page.getByText("その他", { exact: true }).count(), 0);
-  await page.getByText(label, { exact: true }).click();
+  const card = page.getByRole("button", { name: new RegExp(label) });
+  assert.equal(await card.getByText(/日本語\s*→/).count(), 0);
+  const requestsBefore = requests.filter(({ path }) => path === "/api/phrase/explain").length;
+  await card.click();
+  assert.equal(await card.getAttribute("aria-expanded"), "true");
+  await page.getByText("テスト用解説", { exact: true }).waitFor();
+  assert.equal(await page.getByText("この一言を練習", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "優先表示", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "ドリルから外す", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "ドリルに追加", exact: true }).count(), 0);
+  const heading = page.getByRole("heading", { name: "使い方・想定返答" });
+  const play = page.getByRole("button", { name: "再生", exact: true });
+  const remove = page.getByRole("button", { name: "削除", exact: true });
+  const originalViewport = page.viewportSize();
+  for (const width of [320, 390, 430]) {
+    await page.setViewportSize({ ...originalViewport, width });
+    const [titleBox, playBox, deleteBox] = await Promise.all([heading, play, remove].map((element) => element.boundingBox()));
+    assert.ok(titleBox && playBox && deleteBox);
+    assert.ok(titleBox.x + titleBox.width <= playBox.x && playBox.x + playBox.width <= deleteBox.x);
+    assert.ok(Math.abs(playBox.y + playBox.height / 2 - titleBox.y - titleBox.height / 2) <= 1);
+    assert.ok(deleteBox.x + deleteBox.width <= width && Math.abs(deleteBox.y - playBox.y) <= 1);
+  }
+  await page.setViewportSize(originalViewport);
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await remove.click();
+  assert.equal(await card.isVisible(), true);
+  for (const text of [label, language === "en" ? "English fixture" : "中文测试"]) {
+    assert.equal(await page.getByText(text, { exact: true }).count(), 1);
+  }
+  if (language === "zh") await card.getByText("zhōng wén cè shì", { exact: true }).waitFor();
+  await card.click();
+  assert.equal(await page.getByRole("heading", { name: "使い方・想定返答" }).count(), 0);
+  assert.equal(requests.filter(({ path }) => path === "/api/phrase/explain").length, requestsBefore);
   assert.equal(await page.getByLabel("カテゴリ", { exact: true }).count(), 0);
   assert.equal(await page.getByRole("heading", { name: "ライブラリ", exact: true }).count(), 0);
 }
@@ -199,6 +231,24 @@ try {
   await expectValue(restoredPage.getByLabel("翻訳先言語"), "en");
   await restoredPage.screenshot({ path: resolve(screenshotDir, "translate-en-430.png") });
   await restored.close();
+
+  const missing = await createContext({}, [{ ...fixtures[1], explanation: "", shouldDrill: false }]);
+  const missingPage = await missing.newPage();
+  const explainCount = () => requests.filter(({ path }) => path === "/api/phrase/explain").length;
+  const before = explainCount();
+  await missingPage.goto(origin + "/library");
+  await missingPage.getByText("中国語の練習用", { exact: true }).click();
+  await missingPage.getByText("このフレーズにはまだ解説がありません。").waitFor();
+  assert.equal(explainCount(), before);
+  await missingPage.getByRole("button", { name: "解説を生成・再試行する" }).click();
+  await missingPage.getByText("テスト応答", { exact: true }).waitFor();
+  assert.equal(explainCount(), before + 1);
+  const resume = missingPage.getByRole("button", { name: "ドリルに追加", exact: true });
+  await resume.click();
+  await resume.waitFor({ state: "detached" });
+  assert.equal(await missingPage.getByRole("button", { name: "ドリルから外す", exact: true }).count(), 0);
+  assert.equal(await missingPage.evaluate((key) => JSON.parse(localStorage.getItem(key))[0].shouldDrill, phrasesKey), true);
+  await missing.close();
 
   const blocked = await createContext();
   await blocked.addInitScript((key) => {

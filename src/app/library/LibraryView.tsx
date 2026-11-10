@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { completeSavedExplanation } from "@/lib/saved-phrase-explanation";
 import { deleteSavedPhrases } from "@/application/phrase/delete-saved-phrases";
 import { syncDrillSchedule } from "@/application/practice/drill-schedule";
-import { manageDrillPhrase, type DrillPhraseAction } from "@/application/practice/manage-drill-phrase";
+import { manageDrillPhrase } from "@/application/practice/manage-drill-phrase";
 import { useDataOwner } from "@/lib/translation-draft";
 import { currentDataOwner } from "@/infrastructure/local/account-cache-storage";
 import {
@@ -201,11 +200,11 @@ function LanguageLibrary({ owner, targetLanguage, setTargetLanguage, languageRea
     });
   };
 
-  const handleDrillAction = (phrase: Phrase, action: DrillPhraseAction) => {
+  const handleAddToDrill = (phrase: Phrase) => {
     if (currentDataOwner() !== owner) return;
     setActionError(null);
     try {
-      const result = manageDrillPhrase({ phraseId: phrase.id, action, storage: {
+      const result = manageDrillPhrase({ phraseId: phrase.id, action: "resume", storage: {
         loadPhrases: loadLocalPhrases, savePhrases: saveLocalPhrases, updatePhrase: updateLocalPhrase,
         loadSrsItems: loadLocalSrsItems, saveSrsItems: saveLocalSrsItems,
       } });
@@ -368,6 +367,7 @@ function LanguageLibrary({ owner, targetLanguage, setTargetLanguage, languageRea
               >
                 <button
                   onClick={() => toggleExpanded(p.id)}
+                  aria-expanded={expanded}
                   className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left"
                 >
                   <span
@@ -388,110 +388,62 @@ function LanguageLibrary({ owner, targetLanguage, setTargetLanguage, languageRea
                     ✓
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-xs font-bold text-neutral-300">
-                        {getLanguageLabel(p.sourceLanguage)}→{getLanguageLabel(p.targetLanguage)}
+                    {!p.shouldDrill && (
+                      <span className="mb-1.5 inline-block rounded-full bg-neutral-950/80 px-2 py-0.5 text-xs font-bold text-neutral-300">
+                        ライブラリのみ
                       </span>
-                      {!p.shouldDrill && (
-                        <span className="rounded-full bg-neutral-950/80 px-2 py-0.5 text-xs font-bold text-neutral-300">
-                          ライブラリのみ
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-1.5 truncate text-base text-neutral-200">
+                    )}
+                    <div className={cn("text-base text-neutral-200", expanded ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "truncate")}>
                       {p.sourceText || p.japanese}
                     </div>
-                    <div className="mt-0.5 truncate text-xl font-medium text-emerald-300">
+                    <div className={cn("mt-0.5 text-xl font-medium text-emerald-300", expanded ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "truncate")}>
                       {p.targetText || p.chinese}
                     </div>
+                    {expanded && (p.reading || p.pinyin) && (
+                      <div className="mt-1 break-words text-base text-neutral-400">{p.reading || p.pinyin}</div>
+                    )}
                   </div>
                   {p.shouldDrill ? <StatusBadge status={status} /> : null}
                 </button>
                 {expanded && (
                   <div className="border-t border-neutral-800/70 px-4 pb-4 pt-4">
-                    <div className="rounded-2xl bg-neutral-950/60 p-4">
-                      <div className="text-xs font-bold uppercase tracking-wide text-neutral-400">
-                        {getLanguageLabel(p.sourceLanguage)}
-                      </div>
-                      <div className="mt-1 text-xl font-semibold leading-relaxed text-neutral-100">
-                        {p.sourceText || p.japanese}
-                      </div>
-                      <div className="mt-4 text-xs font-bold uppercase tracking-wide text-neutral-400">
-                        {getLanguageLabel(p.targetLanguage)}
-                      </div>
-                      <div className="mt-1 break-words [overflow-wrap:anywhere] text-2xl font-bold leading-relaxed text-emerald-300">
-                        {p.targetText || p.chinese}
-                      </div>
-                      {(p.reading || p.pinyin) && (
-                        <div className="mt-2 text-base tracking-wide text-neutral-400">
-                          {p.reading || p.pinyin}
+                    <section className="rounded-2xl bg-neutral-950/40 p-4 text-sm text-neutral-300">
+                      <div className="flex items-center justify-between gap-2">
+                        <h2 className="min-w-0 font-bold">使い方・想定返答</h2>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <SpeechPlayButton
+                            play={(options) => playSpeechForLang(p.targetText || p.chinese, LANGUAGE_CONFIGS[p.targetLanguage].speechSynthesisCode, options)}
+                            prefetch={() => prefetchSpeechForLang(p.targetText || p.chinese, LANGUAGE_CONFIGS[p.targetLanguage].speechSynthesisCode)}
+                            className="min-h-9 rounded-full bg-neutral-950/80 px-3 text-xs text-neutral-300 hover:bg-neutral-800"
+                            playingClassName="text-emerald-300"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(p.id)}
+                            className="min-h-9 rounded-full bg-red-950/50 px-3 text-xs text-red-200 hover:bg-red-900/50"
+                          >
+                            削除
+                          </button>
                         </div>
+                      </div>
+                      {p.explanation?.trim() ? (
+                        <div className="mt-2 whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere]">{formatExplanationForReading(p.explanation, { direction: p.direction, japaneseText: p.japanese, chineseText: p.chinese })}</div>
+                      ) : (
+                        <>
+                          <p className="mt-2">このフレーズにはまだ解説がありません。</p>
+                          <button type="button" className="mt-2 rounded-xl bg-neutral-900 px-3 py-2" onClick={() => void completeSavedExplanation(p)}>解説を生成・再試行する</button>
+                        </>
                       )}
-                    </div>
-                    <div className="mt-4 flex gap-2">
-                      {p.shouldDrill && (
-                        <Link
-                          href={"/drill?phrases=" + p.id}
-                          onClick={() => setTargetLanguage(p.targetLanguage)}
-                          className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-bold text-neutral-950"
-                        >
-                          この一言を練習
-                        </Link>
-                      )}
-                      <SpeechPlayButton
-                        play={(options) =>
-                          playSpeechForLang(
-                            p.targetText || p.chinese,
-                            LANGUAGE_CONFIGS[p.targetLanguage].speechSynthesisCode,
-                            options,
-                          )
-                        }
-                        prefetch={() =>
-                          prefetchSpeechForLang(
-                            p.targetText || p.chinese,
-                            LANGUAGE_CONFIGS[p.targetLanguage].speechSynthesisCode,
-                          )
-                        }
-                        className="rounded-full bg-neutral-950/80 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800"
-                        playingClassName="text-emerald-300"
-                      />
+                    </section>
+                    {!p.shouldDrill && (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(p.id);
-                        }}
-                        className="rounded-full bg-red-950/50 px-3 py-1.5 text-xs text-red-200 hover:bg-red-900/50"
+                        type="button"
+                        onClick={() => handleAddToDrill(p)}
+                        className="mt-4 w-full rounded-xl bg-emerald-500 px-3 py-2.5 text-sm font-bold text-neutral-950 hover:bg-emerald-400"
                       >
-                        削除
+                        ドリルに追加
                       </button>
-                    </div>
-                    <details className="mt-4 rounded-2xl bg-neutral-950/40 p-4 text-sm text-neutral-300">
-                      <summary className="cursor-pointer font-bold">使い方・想定返答を見る</summary>
-                      {p.explanation ? <div className="mt-3 whitespace-pre-wrap leading-relaxed">{formatExplanationForReading(p.explanation, { direction: p.direction, japaneseText: p.japanese, chineseText: p.chinese })}</div>
-                        : <button type="button" className="mt-3 rounded-xl bg-neutral-900 px-3 py-2" onClick={() => void completeSavedExplanation(p)}>解説を生成・再試行する</button>}
-                    </details>
-                    <div className="mt-4 grid grid-cols-1 gap-2 border-t border-neutral-800/70 pt-4 sm:grid-cols-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDrillAction(p, p.shouldDrill ? "pause" : "resume");
-                        }}
-                        className={cn(
-                          "self-end rounded-xl px-3 py-2.5 text-sm font-bold",
-                          p.shouldDrill
-                            ? "bg-neutral-950/80 text-neutral-300 hover:bg-neutral-800"
-                            : "bg-emerald-500 text-neutral-950 hover:bg-emerald-400",
-                        )}
-                      >
-                        {p.shouldDrill ? "ドリルから外す" : "ドリルに追加"}
-                      </button>
-                      <button type="button" aria-pressed={Boolean(p.drillPriority)}
-                        onClick={() => handleDrillAction(p, "toggle-priority")}
-                        className={cn("min-h-11 rounded-xl px-3 py-2.5 text-sm font-bold", p.drillPriority ? "bg-amber-500/15 text-amber-200" : "bg-neutral-950/80 text-neutral-300")}>
-                        優先表示
-                      </button>
-                      <p className="self-center text-xs text-neutral-500">優先表示は復習予定日以降に先に出題します。ドリルから外しても復習記録は残ります。</p>
-                    </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -141,7 +141,10 @@ try {
       await page.goto(origin + "/library", { waitUntil: "networkidle" });
       await page.getByText("確認用 priority", { exact: true }).click();
       await page.getByRole("button", { name: "ドリルに追加", exact: true }).click();
-      await page.getByRole("button", { name: "優先表示", exact: true, pressed: true }).waitFor();
+      await page.getByRole("button", { name: "ドリルに追加", exact: true }).waitFor({ state: "detached" });
+      assert.equal(await page.getByRole("button", { name: "ドリルから外す", exact: true }).count(), 0);
+      assert.equal(await page.getByRole("button", { name: "優先表示", exact: true }).count(), 0);
+      assert.equal((await snapshot(page)).phrases.find((phrase) => phrase.id === "priority").drillPriority, true);
       await page.goto(origin + "/drill", { waitUntil: "networkidle" });
       await current(page, "good");
       await answer(page, "good", "Good");

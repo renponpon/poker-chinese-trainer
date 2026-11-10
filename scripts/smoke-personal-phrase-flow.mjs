@@ -98,7 +98,7 @@ try {
       assert.equal(await page.getByText("追加した一言の練習完了", { exact: true }).isVisible(), true);
       await page.getByRole("link", { name: "保存", exact: true }).click();
       await page.getByText("袋は要りません", { exact: true }).click();
-      await page.getByRole("link", { name: "この一言を練習" }).waitFor();
+      await page.getByRole("heading", { name: "使い方・想定返答" }).waitFor();
       await page.screenshot({ path: resolve(shots, language + "-library.png"), fullPage: true });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.getByRole("button", { name: /フィルター/ }).click();
@@ -106,11 +106,8 @@ try {
       await page.getByRole("button", { name: /フィルター/ }).click();
       await page.getByLabel("学習言語（全画面共通）").selectOption("all");
       await page.getByText("袋は要りません", { exact: true }).click();
-      await page.getByRole("link", { name: "この一言を練習" }).click();
-      await page.getByText("袋は要りません", { exact: true }).first().waitFor();
-      assert.equal(await page.evaluate(() => localStorage.getItem("phrabit-learning-language-v1")), language);
-      await page.getByRole("link", { name: "保存", exact: true }).click();
-      await page.getByText("袋は要りません", { exact: true }).click();
+      assert.equal(await page.getByRole("link", { name: "この一言を練習" }).count(), 0);
+      assert.equal(await page.evaluate(() => localStorage.getItem("phrabit-learning-language-v1")), language === "zh" ? "en" : "zh");
       page.once("dialog", (dialog) => dialog.accept());
       await page.getByRole("button", { name: "削除", exact: true }).click();
       await page.getByRole("link", { name: "翻訳", exact: true }).click();
