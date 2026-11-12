@@ -170,7 +170,7 @@ try {
     await normal.page.getByText("1/2", { exact: true }).waitFor();
     await normal.page.getByText(/^テスト[AB]$/).first().click();
     await normal.page.getByRole("button", { name: /Good/ }).click();
-    await normal.page.getByText("今日のドリル完了", { exact: true }).waitFor();
+    await normal.page.getByRole("heading", { name: "今回の2問が完了しました", exact: true }).waitFor();
     assert.deepEqual(normal.errors, []);
     console.log("PASS normal drill: background account sync preserves session progress and Bad retry");
   } finally {
