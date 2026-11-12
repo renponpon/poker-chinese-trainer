@@ -4,10 +4,10 @@ import Link from "next/link";
 import AppHeader from "@/components/AppHeader";
 import BottomNav from "@/components/BottomNav";
 import { useLearningDays } from "@/components/LearningDaysProvider";
-import { LearningWeek } from "@/components/LearningDaysSummary";
+import { LearningDaysStats, LearningWeek } from "@/components/LearningDaysSummary";
 
 export default function LearningRecordPage() {
-  const { summary, snapshot, error, syncError, syncing, retry } = useLearningDays();
+  const { summary, snapshot, error, syncError, syncing } = useLearningDays();
   return <main className="mx-auto max-w-lg space-y-6 px-4 pt-8 pb-32">
     <AppHeader />
     <h1 className="text-xl font-bold">学習記録</h1>
@@ -15,11 +15,8 @@ export default function LearningRecordPage() {
     {!snapshot && !error && <p>読み込み中…</p>}
     {snapshot && <>
       {summary?.total ? <>
-        <dl className="grid grid-cols-3 gap-2 text-center">
-          {[["今週", summary.weekly], ["連続", summary.streak], ["累計", summary.total]].map(([label, count]) => <div key={label} className="rounded-xl bg-neutral-900 p-3"><dt className="text-sm text-neutral-400">{label}</dt><dd className="mt-2 text-2xl font-bold">{count}<span className="text-sm font-normal"> 日</span></dd></div>)}
-        </dl>
+        <LearningDaysStats />
         <LearningWeek />
-        <p className="text-sm text-neutral-400">{summary.learnedToday ? "今日は学習済みです。" : summary.streak ? "今日はまだ未記録です。昨日までの連続日数を表示しています。" : "また今日から、ひとつずつ。累計日数は残ります。"}</p>
         <p className="text-xs text-neutral-400">最初の記録：{summary.firstDay}（この機能の開始前の学習日は推測していません）</p>
       </> : <p className="text-sm text-neutral-300">{snapshot.pending ? "回答は保存済みです。アカウントの学習日付を同期してから日数を表示します。" : "保存した一言を1回練習すると、ここに学習日が残ります。"}</p>}
       <div className="space-y-2 text-sm text-neutral-400">
@@ -30,8 +27,6 @@ export default function LearningRecordPage() {
       </div>
     </>}
     <div className="flex flex-wrap gap-3">
-      <Link href="/drill" className="rounded-xl bg-emerald-500 px-4 py-3 font-bold text-neutral-950">ドリルへ</Link>
-      <button type="button" onClick={retry} disabled={syncing} className="rounded-xl bg-neutral-800 px-4 py-3 disabled:opacity-50">記録を再読み込み</button>
       <Link href="/data-safety" className="px-2 py-3 text-sm text-neutral-400 underline">バックアップ・復旧</Link>
     </div>
     <BottomNav />

@@ -243,9 +243,11 @@ async function checkFlow(language, width, failCloudSave) {
     if (failCloudSave) {
       await page.getByText("この端末のドリルには追加しましたが、クラウド同期に失敗しました。", { exact: true }).waitFor();
     }
-    await page.getByRole("link", { name: "この一言を1回練習", exact: true }).waitFor();
+    await page.getByRole("button", { name: "ドリルに追加", exact: true }).waitFor({ state: "detached" });
+    assert.equal(await page.getByRole("link", { name: "この一言を1回練習", exact: true }).count(), 0);
+    assert.ok(await page.getByRole("button", { name: "別のフレーズ", exact: true }).isVisible());
     assert.equal(await resultMetadata.count(), 0, "追加後もメタ情報を表示しない");
-    assert.equal(await page.getByRole("status").getByText("端末のドリルに追加済みです。解説の生成中でも練習できます。", { exact: true }).isVisible(), true, "保存完了の案内は維持する");
+    assert.equal(await page.getByText(/端末のドリルに追加済みです|解説の生成中でも練習できます/).count(), 0);
     assert.equal(await adjustmentButton.count(), 0, "追加済みの一言の調整可否は変更しない");
     const phrases = await savedPhrases(page);
     assert.equal(phrases.length, 1);

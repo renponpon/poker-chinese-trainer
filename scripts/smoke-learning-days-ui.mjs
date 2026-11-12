@@ -5,20 +5,20 @@ import { chromium } from "playwright";
 
 const origin = process.env.PHRABIT_TEST_ORIGIN || "http://127.0.0.1:3036";
 assert.ok(["127.0.0.1", "localhost"].includes(new URL(origin).hostname));
-const output = resolve("../release-artifacts/20261024-learning-days");
+const output = resolve(process.env.PHRABIT_TEST_OUTPUT || "../release-artifacts/20261111-learning-summary");
 mkdirSync(output, { recursive: true });
 const browser = await chromium.launch({ headless: true, executablePath: [chromium.executablePath(), "C:/Program Files/Google/Chrome/Application/chrome.exe", "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"].find(existsSync) });
 const results = [];
 const prefix = "phrabit-learning-days-v1:guest:";
 
-async function setup({ width = 430, height = 850, language = "zh", history = [], empty = false, prototype = false, owner = "guest" } = {}) {
+async function setup({ width = 430, height = 850, language = "zh", history = [], empty = false, prototype = false, owner = "guest", normal = false } = {}) {
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: "block" });
   context.setDefaultTimeout(20000);
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.clock.setFixedTime(new Date("2026-10-24T03:00:00Z"));
-  await context.addInitScript(({ language, history, empty, prototype, owner }) => {
+  await context.addInitScript(({ language, history, empty, prototype, owner, normal }) => {
     if (!localStorage.getItem("learning-ui-seeded")) {
       const target = language === "zh" ? "请帮我打扫一下房间。" : "Could you clean my room, please?";
       localStorage.setItem("phrabit:add-tutorial-seen", "1");
@@ -26,6 +26,13 @@ async function setup({ width = 430, height = 850, language = "zh", history = [],
       localStorage.setItem("phrabit-account-cache-owner-v1", owner);
       localStorage.setItem("poker-chinese-local-phrases-v1", JSON.stringify(empty ? [] : [{ id: "learning-ui-phrase", japanese: "部屋の掃除をお願いできますか。", chinese: target, sourceText: "部屋の掃除をお願いできますか。", targetText: target, sourceLanguage: "ja", targetLanguage: language, direction: `ja-to-${language}`, reading: "", readingType: language === "zh" ? "pinyin" : "none", pinyin: "", explanation: "テスト用。", shouldDrill: true, source: prototype ? "prototype" : "manual", createdAt: "2026-10-24T00:00Z", categoryId: null, audioUrl: null, usedAt: null }]));
       localStorage.setItem("poker-chinese-srs-v1", JSON.stringify(empty ? [] : [{ id: "learning-ui-phrase", status: "new", nextReviewAt: 0, intervalDays: 0, easeFactor: 2.5, consecutiveGood: 0, lastScore: null, lastReviewedAt: null }]));
+      if (normal) {
+        const phrases = JSON.parse(localStorage.getItem("poker-chinese-local-phrases-v1"));
+        const items = JSON.parse(localStorage.getItem("poker-chinese-srs-v1"));
+        localStorage.setItem("poker-chinese-local-phrases-v1", JSON.stringify([...phrases, { ...phrases[0], id: "learning-ui-second" }]));
+        localStorage.setItem("poker-chinese-srs-v1", JSON.stringify([...items, { ...items[0], id: "learning-ui-second" }]));
+        localStorage.setItem(`phrabit-drill-preferences-v1:${owner}`, JSON.stringify({ limit: 1, pendingId: null }));
+      }
       if (history.length) {
         localStorage.setItem(`phrabit-learning-days-v1:${owner}:zone`, JSON.stringify("Asia/Tokyo"));
         for (const day of history) localStorage.setItem(`phrabit-learning-days-v1:${owner}:day:${day}`, JSON.stringify(day));
@@ -39,7 +46,7 @@ async function setup({ width = 430, height = 850, language = "zh", history = [],
       return original.call(this, key, value);
     };
     if (window.speechSynthesis) window.speechSynthesis.speak = () => {};
-  }, { language, history, empty, prototype, owner });
+  }, { language, history, empty, prototype, owner, normal });
   await context.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.origin !== origin) return route.abort();
@@ -47,7 +54,7 @@ async function setup({ width = 430, height = 850, language = "zh", history = [],
     if (/speech|tts/.test(url.pathname)) return route.fulfill({ status: 503, json: { error: "offline test" } });
     return route.fulfill({ json: { ok: true, tracked: true } });
   });
-  await page.goto(`${origin}/drill${empty ? "" : "?phrases=learning-ui-phrase&practice=once"}`, { waitUntil: "networkidle", timeout: 120000 });
+  await page.goto(`${origin}/drill${empty || normal ? "" : "?phrases=learning-ui-phrase&practice=once"}`, { waitUntil: "networkidle", timeout: 120000 });
   return { context, page, errors };
 }
 
@@ -63,6 +70,10 @@ async function answer(page, name = "Bad") {
 async function assertCounts(page, expected) {
   await page.getByRole("heading", { name: "学習記録", exact: true }).waitFor();
   await page.waitForFunction((expected) => [...document.querySelectorAll("dd")].map((element) => element.textContent.trim().replace(/\s/g, "")).join(",") === expected.map((count) => `${count}日`).join(","), expected);
+  assert.equal(await page.getByText(/今日は学習済みです|今日はまだ未記録|今日の学習を記録しました/).count(), 0);
+  assert.equal(await page.getByRole("link", { name: /^(ドリルへ|＋ 追加)$/ }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "記録を再読み込み", exact: true }).count(), 0);
+  assert.equal(await page.getByLabel("今週の学習日", { exact: true }).locator(":scope > div").count(), 7);
 }
 
 try {
@@ -71,12 +82,14 @@ try {
     assert.equal(await state.page.getByRole("link", { name: /今週 2日.*2日連続/ }).count(), 0);
     await answer(state.page);
     await state.page.getByRole("heading", { name: "1回練習しました", exact: true }).waitFor();
-    await state.page.getByRole("link", { name: /今週 3日.*3日連続.*累計 3日/ }).waitFor();
+    await assertCounts(state.page, [3,3,3]);
     assert.equal(await state.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await state.page.screenshot({ path: resolve(output, `completion-${language}-${width}.png`) });
     await state.page.getByRole("button", { name: "もう1回", exact: true }).click();
     await answer(state.page, "Good");
-    await state.page.getByRole("link", { name: /今週 3日.*3日連続.*累計 3日/ }).click();
+    await assertCounts(state.page, [3,3,3]);
+    await state.page.getByRole("link", { name: "学習記録の詳細 ›", exact: true }).click();
+    await state.page.waitForURL(`${origin}/learning`);
     await assertCounts(state.page, [3,3,3]);
     await state.page.reload({ waitUntil: "networkidle" });
     await assertCounts(state.page, [3,3,3]);
@@ -96,7 +109,7 @@ try {
     await state.page.getByRole("alert").waitFor();
     const srs = await state.page.evaluate(() => localStorage.getItem("poker-chinese-srs-v1"));
     await state.page.evaluate(() => { window.failLearningWrite = false; });
-    await state.page.getByRole("button", { name: "記録を再読み込み" }).click();
+    await state.page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await assertCounts(state.page, [1,1,1]);
     assert.equal(await state.page.evaluate(() => localStorage.getItem("poker-chinese-srs-v1")), srs);
     await state.context.close();
@@ -112,7 +125,7 @@ try {
     await state.page.waitForTimeout(600);
     await state.page.evaluate(() => { window.failSrsWrite = false; });
     await answer(state.page);
-    await state.page.getByRole("link", { name: /今週 1日.*累計 1日/ }).waitFor();
+    await assertCounts(state.page, [1,1,1]);
     await state.context.close();
     results.push("SRS failure no credit; explicit retry credits once");
     console.log(results.at(-1));
@@ -170,16 +183,37 @@ try {
     await state.page.screenshot({ path: resolve(output, "active-360x640.png") });
     assert.ok(bounds && bounds.y >= 0 && bounds.y + bounds.height < 570, `rating above bottom navigation on short screen: ${JSON.stringify(bounds)}`);
     await bad.click();
-    await state.page.getByRole("link", { name: /今週 3日.*累計 3日/ }).click();
+    await state.page.getByRole("link", { name: "学習記録の詳細 ›", exact: true }).click();
+    await state.page.waitForURL(`${origin}/learning`);
     await state.page.clock.setFixedTime(new Date("2026-10-25T03:00:00Z"));
     await state.page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await assertCounts(state.page, [3,3,3]);
-    await state.page.getByText(/今日はまだ未記録/).waitFor();
     await state.page.clock.setFixedTime(new Date("2026-10-26T03:00:00Z"));
     await state.page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await assertCounts(state.page, [0,0,3]);
     await state.context.close();
     results.push("360x640 rating reachable; midnight/yesterday streak and Monday weekly reset preserve lifetime");
+  }
+  for (const [width, language] of [[344, "zh"], [390, "zh"], [430, "en"], [1280, "en"]]) {
+    const state = await setup({ width, language, normal: true, history: ["2026-10-22", "2026-10-23"] });
+    await answer(state.page, "Good");
+    await state.page.getByRole("heading", { name: "今回の1問が完了しました", exact: true }).waitFor();
+    await assertCounts(state.page, [3,3,3]);
+    assert.equal(await state.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await state.page.screenshot({ path: resolve(output, `round-complete-${language}-${width}.png`) });
+    await state.page.getByRole("button", { name: "あと1問", exact: true }).click();
+    await state.page.waitForTimeout(600);
+    await answer(state.page, "Good");
+    await state.page.getByRole("heading", { name: "今回の1問が完了しました", exact: true }).waitFor();
+    await assertCounts(state.page, [3,3,3]);
+    assert.equal(await state.page.getByRole("button", { name: /^(あと|もう)\d+問$/ }).count(), 0);
+    await state.page.reload({ waitUntil: "networkidle" });
+    await assertCounts(state.page, [3,3,3]);
+    await state.page.screenshot({ path: resolve(output, `all-complete-${language}-${width}.png`) });
+    assert.deepEqual(state.errors, []);
+    await state.context.close();
+    results.push(`${language} ${width}px: normal round summary, next round, all cards complete, reload, no add link`);
+    console.log(results.at(-1));
   }
   writeFileSync(resolve(output, "browser-results.json"), JSON.stringify({ origin, results, paidApiCalls: 0 }, null, 2));
   console.log(JSON.stringify(results, null, 2));

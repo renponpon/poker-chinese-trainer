@@ -534,9 +534,7 @@ function PracticeSession({ owner, focusedIds, oneAnswerMode }: { owner: string; 
       {total > 0 ? progress : <p className="text-xs text-neutral-400">全{drillPhraseCount}枚</p>}
       {!completed && !remaining.length && <p className="text-sm text-neutral-400">復習予定が来たら、また練習できます。</p>}
       {completed > 0 && <LearningDaysSummary completion />}
-      <div className="flex flex-wrap justify-center gap-2"><AddPhraseLink />
-        {remaining.length > 0 && <button type="button" onClick={startNextRound} className="rounded-xl bg-neutral-800 px-4 py-3 text-sm">{completed ? nextCount === remaining.length ? "あと" : "もう" : ""}{nextCount}問{completed ? "" : "を始める"}</button>}
-      </div>
+      {remaining.length > 0 && <button type="button" onClick={startNextRound} className="rounded-xl bg-neutral-800 px-4 py-3 text-sm">{completed ? nextCount === remaining.length ? "あと" : "もう" : ""}{nextCount}問{completed ? "" : "を始める"}</button>}
       <PersonalPhrasePackFlow phrases={phrases} targetLanguage={targetLanguage} onSaved={handlePackSaved} buttonLabel="例文を作る" />
     </section>;
   }
@@ -567,7 +565,6 @@ function PracticeSession({ owner, focusedIds, oneAnswerMode }: { owner: string; 
             onSaved={handlePackSaved}
             buttonClassName="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-neutral-950 hover:bg-emerald-400"
           />
-          <AddPhraseLink />
         </div>
       </div>
     );
@@ -608,10 +605,6 @@ function PracticeSession({ owner, focusedIds, oneAnswerMode }: { owner: string; 
 
 function filterPhrasesByTarget(phrases: Phrase[], targetLanguage: LanguageCode): Phrase[] {
   return phrases.filter((phrase) => phrase.targetLanguage === targetLanguage);
-}
-
-function AddPhraseLink() {
-  return <Link href="/" className="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-neutral-950">＋ 追加</Link>;
 }
 
 function LanguageTabs({

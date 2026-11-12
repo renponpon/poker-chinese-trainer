@@ -189,7 +189,7 @@ try {
     await current(practice.page, "first");
     await answer(practice.page, "first", "Perfect");
     await practice.page.getByText("今回の2問が完了しました", { exact: true }).waitFor();
-    assert.equal(await practice.page.getByRole("link", { name: "＋ 追加" }).getAttribute("href"), "/");
+    assert.equal(await practice.page.getByRole("link", { name: "＋ 追加" }).count(), 0);
     assert.equal(practice.events.filter((event) => event.eventName === "drill_answer" && event.success).length, 3);
     await practice.page.goto(origin + "/drill?phrases=first&practice=once", { waitUntil: "networkidle" });
     await current(practice.page, "first");
@@ -229,7 +229,7 @@ try {
       await page.getByText("4/5", { exact: true }).waitFor();
       await answer(page, ids[4], "Perfect");
       await page.getByRole("heading", { name: "今回の5問が完了しました" }).waitFor();
-      assert.equal(await page.getByRole("link", { name: "＋ 追加" }).isVisible(), true);
+      assert.equal(await page.getByRole("link", { name: "＋ 追加" }).count(), 0);
       await page.getByRole("button", { name: "あと7問", exact: true }).click();
       await page.getByText("0/7", { exact: true }).waitFor();
       await current(page, ids[5]);
@@ -370,7 +370,7 @@ try {
       window.dispatchEvent(new Event("phrabit-account-phrase-data-synced"));
     }, { phrase, item, phraseKey, srsKey });
     await lateCloud.page.getByRole("heading", { name: "今回の対象カードはありません", exact: true }).waitFor();
-    assert.equal(await lateCloud.page.getByRole("link", { name: "＋ 追加" }).isVisible(), true);
+    assert.equal(await lateCloud.page.getByRole("link", { name: "＋ 追加" }).count(), 0);
     assert.equal(await lateCloud.page.getByText("確認用 another", { exact: true }).count(), 0);
     assert.deepEqual(lateCloud.errors, []);
     results.push("late initial sync starts an empty round, but removing all selected cards does not refill it");

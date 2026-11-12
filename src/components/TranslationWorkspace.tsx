@@ -945,15 +945,7 @@ function TranslationPage({ owner }: { owner: string }) {
               >
                 別のフレーズ
               </button>
-              {drillAdded ? (
-                <Link
-                  href={"/drill?phrases=" + encodeURIComponent(result.id ?? "") + "&practice=once"}
-                  onClick={() => setTargetLanguage(result.targetLanguage === "ja" ? result.sourceLanguage : result.targetLanguage)}
-                  className="flex-1 rounded-xl bg-emerald-600 px-4 py-3 text-center text-sm font-bold text-white hover:bg-emerald-500"
-                >
-                  この一言を1回練習
-                </Link>
-              ) : (
+              {!drillAdded && (
                 <button
                   type="button"
                   onClick={handleAddToDrill}
@@ -964,7 +956,6 @@ function TranslationPage({ owner }: { owner: string }) {
                 </button>
               )}
             </div>
-            {drillAdded && <p role="status" className="text-xs text-emerald-300">端末のドリルに追加済みです。解説の生成中でも練習できます。</p>}
             {refinementError && !nuanceDialogOpen && !drillAdded && (
               <p role="alert" className="text-sm text-red-200">調整に失敗しました。「調整」から再試行できます。</p>
             )}

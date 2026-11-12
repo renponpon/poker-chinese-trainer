@@ -46,7 +46,9 @@ async function setup(language, width, conversation = false) {
     if (!url.pathname.startsWith("/api/")) return route.continue();
     if (url.pathname === "/api/analytics/event") {
       const event = route.request().postDataJSON();
-      const snapshots = await page.evaluate(({ phraseKey, srsKey }) => ({ phrases: JSON.parse(localStorage.getItem(phraseKey) || "[]"), items: JSON.parse(localStorage.getItem(srsKey) || "[]") }), { phraseKey, srsKey });
+      const snapshots = ["translation_drill_save", "drill_answer", "conversation_drill_save"].includes(event.eventName)
+        ? await page.evaluate(({ phraseKey, srsKey }) => ({ phrases: JSON.parse(localStorage.getItem(phraseKey) || "[]"), items: JSON.parse(localStorage.getItem(srsKey) || "[]") }), { phraseKey, srsKey })
+        : undefined;
       events.push({ ...event, snapshots });
       return route.fulfill({ json: { ok: true, tracked: controls.tracked } });
     }
@@ -83,15 +85,21 @@ async function waitUntil(predicate, message) {
   assert.fail(message);
 }
 
-async function saveAndEnter(state) {
-  await state.page.getByRole("button", { name: "ドリルに追加", exact: true }).click();
-  const link = state.page.getByRole("link", { name: "この一言を1回練習", exact: true });
-  await link.waitFor();
-  const href = await link.getAttribute("href");
-  assert.equal(new URL(href, origin).searchParams.get("practice"), "once");
-  await link.click();
+async function enterSavedOnceRoute(state) {
+  await waitUntil(() => state.events.some((event) => event.eventName === "translation_drill_save" && event.success), "saved phrase before direct drill entry");
+  assert.equal(await state.page.getByRole("link", { name: "この一言を1回練習", exact: true }).count(), 0);
+  const id = await state.page.evaluate((key) => JSON.parse(localStorage.getItem(key))[0].id, phraseKey);
+  const href = "/drill?" + new URLSearchParams({ phrases: id, practice: "once" });
+  await state.page.goto(origin + href);
   await state.page.getByRole("heading", { name: "この一言を1回練習", exact: true }).waitFor();
   return href;
+}
+
+async function saveAndEnter(state) {
+  const add = state.page.getByRole("button", { name: "ドリルに追加", exact: true });
+  await add.click();
+  await add.waitFor({ state: "detached" });
+  return enterSavedOnceRoute(state);
 }
 
 async function answer(page, score, double = false) {
@@ -161,7 +169,7 @@ try {
     await state.page.getByText("この端末のドリルには追加しましたが、クラウド同期に失敗しました。", { exact: true }).waitFor();
     assert.equal(state.events.filter((event) => event.eventName === "translation_drill_save").length, 1);
     assert.equal(state.controls.syncCalls, 1);
-    await state.page.getByRole("link", { name: "この一言を1回練習", exact: true }).click();
+    await enterSavedOnceRoute(state);
     await state.page.getByText("タップして確認", { exact: true }).waitFor();
     const before = await readSrs(state.page);
     await state.page.evaluate(() => { window.failSrsWrite = true; });

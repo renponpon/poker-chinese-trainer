@@ -39,7 +39,7 @@ const steps: TutorialStep[] = [
   {
     target: "[data-tutorial='nav-drill'], [data-tutorial='nav-library']",
     title: "ドリルと保存",
-    body: "訳が少し違う時は、結果の「調整」でニュアンスを伝えられます。\n覚えたい訳になったら「ドリルに追加」。追加した一言をすぐ練習でき、別の日にも復習できます。",
+    body: "訳が少し違う時は、結果の「調整」でニュアンスを伝えられます。\n覚えたい訳になったら「ドリルに追加」。画面下の「ドリル」から練習できます。",
   },
   {
     target: "[data-tutorial='login']",
