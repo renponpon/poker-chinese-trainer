@@ -112,7 +112,7 @@ export default function AuthButton() {
         data-tutorial="login"
         className="block max-w-full truncate rounded-full bg-neutral-900 px-4 py-2 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
       >
-        {user ? user.email?.split("@")[0] : "ログイン"}
+        {user ? "ログイン済み" : "ログイン"}
       </button>
       {open && (
         <div className="absolute right-0 top-14 z-50 w-80 rounded-2xl bg-neutral-950 p-5 text-left shadow-2xl shadow-black/50">
@@ -121,9 +121,6 @@ export default function AuthButton() {
               <div className="text-lg font-bold text-neutral-100">
                 ログイン中
               </div>
-              <p className="mt-2 text-base leading-relaxed text-neutral-400">
-                {user.email}
-              </p>
               <p className="mt-2 text-sm leading-relaxed text-neutral-500">
                 フレーズとドリル進捗を、このアカウントの端末間で同期します。
               </p>
