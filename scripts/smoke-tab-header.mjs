@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { chromium } from "playwright";
 
-const origin = "http://127.0.0.1:3058";
+const origin = process.env.PHRABIT_TEST_ORIGIN || "http://127.0.0.1:3058";
+const authStorageKey = process.env.PHRABIT_TEST_AUTH_STORAGE_KEY || "sb-127-auth-token";
 const account = "layout-test-account-with-a-long-name";
 const browser = await chromium.launch({ headless: true, executablePath: [chromium.executablePath(), "C:/Program Files/Google/Chrome/Application/chrome.exe", "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"].find(existsSync) });
 try {
@@ -25,18 +26,24 @@ try {
         }
         return route.fulfill({ json: { ok: true, tracked: true, phrases: [], srsItems: [] } });
       });
-      await context.addInitScript(({ signedIn, account }) => {
+      await context.addInitScript(({ signedIn, account, authStorageKey }) => {
         localStorage.setItem("phrabit:add-tutorial-seen", "1");
         if (!signedIn) return;
         const user = { id: "10000000-0000-4000-8000-000000000001", aud: "authenticated", email: account + "@example.invalid", app_metadata: {}, user_metadata: {}, created_at: "2026-01-01T00:00:00Z" };
         const expires = Math.floor(Date.now() / 1000) + 3600;
         const token = [btoa(JSON.stringify({ alg: "HS256", typ: "JWT" })), btoa(JSON.stringify({ sub: user.id, exp: expires, iat: expires - 3600 })), "fixture"].join(".");
-        localStorage.setItem("sb-127-auth-token", JSON.stringify({ user, access_token: token, refresh_token: "fixture", token_type: "bearer", expires_in: 3600, expires_at: expires }));
-      }, { signedIn, account });
+        localStorage.setItem(authStorageKey, JSON.stringify({ user, access_token: token, refresh_token: "fixture", token_type: "bearer", expires_in: 3600, expires_at: expires }));
+      }, { signedIn, account, authStorageKey });
 
       await page.goto(origin, { waitUntil: "domcontentloaded" });
       const login = page.locator("header [data-tutorial='login']");
-      await login.getByText(signedIn ? account : "ログイン", { exact: true }).waitFor();
+      await login.getByText(signedIn ? "ログイン済み" : "ログイン", { exact: true }).waitFor();
+      if (signedIn) {
+        await login.click();
+        await page.getByRole("button", { name: "ログアウト", exact: true }).waitFor();
+        assert.equal(await page.getByText(account, { exact: false }).count(), 0);
+        await page.keyboard.press("Escape");
+      }
       if (signedIn) await Promise.race([started.promise, page.waitForTimeout(8000).then(() => { throw Error("mock sync never started"); })]);
       const header = await page.locator("header").elementHandle();
       const measure = () => page.evaluate(header => {
